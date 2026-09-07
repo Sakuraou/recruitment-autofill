@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-06T00:00:00.000Z",
+  "basic": {
+    "name": "测试同学",
+    "gender": "男",
+    "birthday": "2003-01-01",
+    "phone": "00000000000",
+    "email": "student@example.invalid",
+    "idType": "居民身份证",
+    "idNumber": "TEST-ID-NOT-VALID",
+    "nationality": "中国",
+    "ethnicity": "汉族",
+    "hometown": "示例省示例市（虚构）",
+    "nativePlace": "示例省示例县（虚构）",
+    "sourcePlace": "示例省示例市（虚构）",
+    "householdLocation": "示例省示例市（虚构）",
+    "politicalStatus": "群众",
+    "address": "虚构测试地址，请勿用于真实投递",
+    "postalCode": "000000"
+  },
+  "education": [
+    {
+      "id": "fictional-master",
+      "level": "硕士研究生",
+      "school": "示例理工大学（虚构）",
+      "college": "示例计算机学院（虚构）",
+      "major": "软件工程",
+      "degree": "硕士",
+      "startDate": "2024-09",
+      "endDate": "2027-06",
+      "studyMode": "全日制",
+      "researchDirection": "计算机视觉与软件工程（虚构测试经历）",
+      "courses": "机器学习、软件体系结构、分布式系统（虚构测试课程）"
+    },
+    {
+      "id": "fictional-bachelor",
+      "level": "本科",
+      "school": "示例信息学院（虚构）",
+      "college": "示例软件学院（虚构）",
+      "major": "计算机科学与技术",
+      "degree": "学士",
+      "startDate": "2020-09",
+      "endDate": "2024-06",
+      "studyMode": "全日制",
+      "courses": "数据结构、操作系统、计算机网络、数据库（虚构测试课程）"
+    }
+  ],
+  "research": {
+    "researchDirection": "计算机视觉与软件工程（虚构测试方向）",
+    "summary": "此档案全部为虚构数据，仅用于扩展测试。GPA 与专业类别故意留空，验证缺失事实不会被自动补全。",
+    "papers": [
+      {
+        "id": "fictional-paper",
+        "title": "示例论文：原生表单字段匹配实验（虚构，未发表）",
+        "authors": "测试同学、示例作者（虚构）",
+        "venue": "无，此条仅为结构测试",
+        "date": "2026-05",
+        "status": "虚构测试数据，未发表",
+        "description": "用于测试论文条目的编辑与 JSON 导入导出，不能用于真实简历。"
+      }
+    ],
+    "patents": [
+      {
+        "id": "fictional-patent",
+        "title": "示例专利条目（虚构，未申请）",
+        "number": "TEST-PATENT-NOT-VALID",
+        "status": "虚构测试数据，未申请",
+        "date": "2026-06",
+        "inventors": "测试同学（虚构）"
+      }
+    ]
+  },
+  "projects": [
+    {
+      "id": "fictional-project-one",
+      "name": "校园资料检索系统（虚构）",
+      "role": "开发成员（虚构）",
+      "startDate": "2025-03",
+      "endDate": "2025-06",
+      "description": "虚构练习项目，用于测试多段项目数据管理。",
+      "responsibilities": "设计检索页面与本地数据接口（虚构）。",
+      "achievements": "完成可运行的检索原型（虚构，不含真实业绩）。",
+      "technologies": ["TypeScript", "React"]
+    },
+    {
+      "id": "fictional-project-two",
+      "name": "图像分类实验台（虚构）",
+      "role": "实验开发者（虚构）",
+      "startDate": "2025-09",
+      "endDate": "2025-12",
+      "description": "第二段虚构项目，用于检查重复经历是否被错误复用。",
+      "responsibilities": "搭建数据预处理与训练记录页面（虚构）。",
+      "achievements": "形成实验记录模板（虚构）。",
+      "technologies": ["Python", "PyTorch"]
+    }
+  ],
+  "internships": [
+    {
+      "id": "fictional-internship",
+      "organization": "示例科技机构（虚构）",
+      "department": "示例软件组（虚构）",
+      "role": "软件开发实习生（虚构）",
+      "startDate": "2026-06",
+      "endDate": "2026-08",
+      "description": "虚构实习条目，仅用于表单测试。",
+      "achievements": "完成示例模块文档（虚构）。"
+    }
+  ],
+  "studentWork": [
+    {
+      "id": "fictional-student-work",
+      "organization": "示例技术社团（虚构）",
+      "department": "学习交流组（虚构）",
+      "role": "成员（虚构）",
+      "startDate": "2021-09",
+      "endDate": "2022-06",
+      "description": "参与示例学习交流活动（虚构）。",
+      "achievements": "整理学习资料（虚构）。"
+    }
+  ],
+  "awards": [
+    {
+      "id": "fictional-award",
+      "name": "示例学习奖（虚构）",
+      "level": "示例等级（虚构）",
+      "issuer": "示例信息学院（虚构）",
+      "date": "2023-11",
+      "description": "非真实奖项，仅用于编辑测试。"
+    }
+  ],
+  "certificates": [
+    {
+      "id": "fictional-certificate",
+      "name": "示例技能证书（虚构）",
+      "issuer": "示例机构（虚构）",
+      "date": "2023-06",
+      "score": "仅测试，无有效成绩",
+      "number": "TEST-CERT-NOT-VALID"
+    }
+  ],
+  "skills": {
+    "programmingLanguages": ["TypeScript", "Python"],
+    "frameworks": ["React", "PyTorch"],
+    "tools": ["Git", "Vite"],
+    "other": ["以上技能为虚构测试资料，不代表实际用户经历"]
+  },
+  "commonAnswers": {
+    "selfEvaluation": {
+      "short": "虚构测试：喜欢分析问题，重视协作与记录。",
+      "medium": "虚构测试：具备软件工程学习背景，愿意通过实验验证方案，并清晰记录开发过程。",
+      "long": "虚构测试：学习软件工程与计算机视觉相关课程，在示例项目中完成页面开发和实验记录。重视问题拆解、沟通与复盘。此段仅用于检查常用回答的保存与填入。",
+      "byLimit": {
+        "50": "虚构测试：喜欢分析问题，重视协作与记录。",
+        "100": "虚构测试：具备软件工程学习背景，重视问题拆解，愿意通过实验验证方案。",
+        "150": "虚构测试：学习软件工程与计算机视觉相关课程，在示例项目中练习页面开发。重视沟通、记录与复盘。",
+        "200": "虚构测试：具备软件工程学习背景，在示例项目中练习 TypeScript 页面开发和 Python 实验记录。重视问题拆解与团队沟通，愿意根据反馈持续改进。以上内容全部为虚构测试。",
+        "300": "虚构测试：具备软件工程学习背景，学习过软件体系结构、分布式系统与机器学习相关课程。在虚构的校园资料检索系统中练习页面开发，在虚构的图像分类实验台中练习实验记录。重视协作、记录与复盘。该内容仅用于扩展测试。",
+        "500": "虚构测试：具备软件工程学习背景，学习过软件体系结构、分布式系统与机器学习相关课程。在虚构的校园资料检索系统中练习 TypeScript 页面开发，在虚构的图像分类实验台中练习 Python 数据处理与实验记录。愿意先明确需求和验证方法，再逐步完成开发。重视团队沟通、过程记录与复盘。这里的学校、项目、能力与经历均为虚构测试素材，不可作为真实网申答案。"
+      }
+    },
+    "personalStrengths": {
+      "short": "虚构测试：善于拆解问题，愿意记录和复盘。",
+      "byLimit": { "50": "虚构测试：善于拆解问题，愿意记录和复盘。", "200": "虚构测试：结合软件课程学习与示例开发练习，能够将任务拆解为可验证的小步骤，重视沟通与记录。" }
+    },
+    "careerPlan": { "short": "虚构测试：希望继续学习软件开发。", "byLimit": { "100": "虚构测试：希望继续学习软件开发，提升需求理解、实现与验证能力。" } },
+    "motivation": { "short": "虚构测试：希望了解信息化相关工作。", "byLimit": { "100": "虚构测试：希望在信息化相关工作中持续学习，将课程与示例项目中的练习用于理解实际问题。" } },
+    "jobFit": { "short": "虚构测试：学习方向包括软件工程。", "byLimit": { "100": "虚构测试：软件工程学习方向与示例开发项目可用于练习岗位匹配表达，未针对任何真实岗位。" } },
+    "researchSummary": { "short": "虚构测试：研究方向为计算机视觉。", "byLimit": { "200": "虚构测试：在图像分类实验台中练习数据处理和实验记录。此处不代表实际研究成果。" } },
+    "projectSummary": { "short": "虚构测试：参与资料检索与图像分类练习。", "byLimit": { "200": "虚构测试：完成校园资料检索系统和图像分类实验台两个示例项目，练习页面开发、数据处理和过程记录。" } }
+  },
+  "family": [
+    {
+      "id": "fictional-family-member",
+      "name": "示例家人（虚构）",
+      "relationship": "父亲",
+      "birthday": "1975-01-01",
+      "organization": "示例单位（虚构）",
+      "role": "示例职务（虚构）",
+      "phone": "00000000000",
+      "politicalStatus": "群众"
+    }
+  ]
+}

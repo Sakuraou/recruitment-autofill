@@ -1,0 +1,42 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>移动简历结构回归 · 虚构资料</title>
+<style>body{font:16px sans-serif;max-width:1000px;margin:30px auto}dl{display:inline-block;vertical-align:top;width:45%;margin:10px}dt{margin-bottom:6px}input,textarea,.slt,.dateSlt{padding:12px;border:1px solid #ddd;width:90%}.slt ul{display:none}h3{color:#265f45}</style>
+<h1>移动简历结构回归 · 所有资料为虚构</h1><p>验证默认提示语、普通下拉框、隐藏区域及已有内容保护。</p>
+<form><input type="hidden" id="yz_input"><div style="display:none"><input id="headSmsInput"></div>
+<div class="resumeCon1">
+<div class="secon" id="baseInfo"><h3 class="secH"><span class="lf">基础信息</span><span class="lf2">说明文字</span></h3>
+<div class="secC"><div class="lf660">
+<dl><dt>姓名<font class="red">*</font></dt><dd><input class="inputxt inputName" id="name" value="请输入姓名" maxlength="30" data-noevent="1"><span class="inputTip"></span></dd></dl>
+<dl><dt>英文名</dt><dd><input class="inputxt" id="englishName" value="请输入英文名"></dd></dl>
+<dl><dt>民族<font class="red">*</font></dt><dd><div class="slt" id="sltNation"><span>请选择</span><em></em><ul><li data-code="01">汉族</li><li data-code="02">蒙古族</li></ul></div></dd></dl>
+<dl><dt>政治面貌</dt><dd><div class="slt" id="sltPolicy"><span>请选择</span><em></em><ul><li data-code="03">共青团员</li><li data-code="01">中共党员</li></ul></div></dd></dl>
+<dl><dt>证件号码*</dt><dd><div class="slt" id="sltId"><span>请选择</span><em></em><ul><li data-code="01">居民身份证</li><li data-code="02">护照</li></ul></div><input class="inputxt" id="certificateNo" value="输入证件号码"></dd></dl>
+<dl><dt>出生日期</dt><dd><div class="dateSlt" id="sltBirth"><span>请选择</span><div class="slideCon"><ul><li>2026</li></ul></div></div></dd></dl>
+<dl><dt>生源地</dt><dd><input class="inputxt inputCity" id="studentSourceRegion" readonly value="请选择生源地"></dd></dl>
+<dl><dt>国籍</dt><dd><div class="slt" id="nationality"><span>测试已有国籍</span><ul><li data-code="CN">中国</li></ul></div></dd></dl>
+<dl><dt>性别</dt><dd><input type="radio" name="gender" checked data-code="M"><label>男</label></dd></dl>
+</div></div></div>
+<div class="secon" id="contactsInfo"><h3 class="secH"><span class="lf">联系方式</span></h3><div class="secC">
+<dl><dt>手机号码*</dt><dd><input class="inputxt" id="phone" value="请输入手机号码"></dd></dl>
+<dl><dt>电子邮箱</dt><dd><input class="inputxt" id="email" value="请输入电子邮箱"></dd></dl>
+<dl><dt>通信地址</dt><dd><input class="inputxt" id="address" value="请输入通信地址" maxlength="50"></dd></dl>
+<dl><dt>邮箱</dt><dd><input class="inputxt" id="existingEmail" value="keep@example.invalid"></dd></dl>
+<dl><dt>紧急联系人姓名</dt><dd><input class="inputxt" id="emergencyContactPerson" value="请输入紧急联系人姓名"></dd></dl>
+</div></div>
+<div class="secon" id="projectInfo"><h3 class="secH"><span class="lf">项目经历</span></h3><div class="secC" style="display:none">
+<dl><dt>项目名称</dt><dd><input class="inputxt" id="projectName" value="输入项目名称"></dd></dl>
+<dl><dt>项目职责</dt><dd><textarea class="textareaWork" id="projectDuty">字数控制在500个汉字以内</textarea></dd></dl>
+</div></div>
+</div><button type="submit">测试保存按钮（不得被扩展点击）</button></form>
+<p>提交次数：<output id="submit-count">0</output></p><pre id="selection-state"></pre>
+<script>
+// Independent reproduction of the site's local option click behavior. No server or saved session.
+const selections = new Map();
+document.querySelectorAll('.slt > ul > li').forEach(option => option.addEventListener('click', () => {
+  const widget = option.closest('.slt');
+  widget.querySelector(':scope > span').textContent = option.textContent;
+  widget.querySelector('ul').style.display = 'none';
+  selections.set(widget.id, option.dataset.code);
+  document.getElementById('selection-state').textContent = JSON.stringify(Object.fromEntries(selections));
+}));
+document.querySelector('form').addEventListener('submit', event => { event.preventDefault(); document.getElementById('submit-count').textContent = String(Number(document.getElementById('submit-count').textContent) + 1); });
+</script></html>

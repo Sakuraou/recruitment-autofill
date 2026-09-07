@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'" />
+    <title>校招网申助手 · 本地验收表单</title>
+    <link rel="stylesheet" href="test-form.css" />
+    <script src="test-form.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <span class="eyebrow">2027 / LOCAL TEST FORM</span>
+        <h1>让重复填写，停在这里。</h1>
+        <p>这是普通 HTML 招聘表单的本地测试页。所有学校、经历与身份资料均为虚构；请用配套测试档案验收，不要填写真实证件信息。</p>
+        <div class="steps"><span>01 导入测试档案并保存</span><span>02 扩展扫描页面</span><span>03 填写并检查结果</span></div>
+        <a href="sample-profile.json" download="sample-profile.json">下载虚构测试档案 JSON</a>
+      </header>
+
+      <aside class="status" aria-label="测试状态">
+        <div><span>页面收到的提交事件</span><strong id="submit-count" aria-live="polite">0</strong></div>
+        <p id="test-status" role="status">扫描与自动填写后，此计数应保持 0。人工点击底部测试按钮可验证拦截。</p>
+      </aside>
+
+      <form id="application-form" novalidate>
+        <fieldset>
+          <legend><span>01</span> 基本信息</legend>
+          <p class="section-note">检查中文 label、placeholder、aria-label、邻近文字与原生 select。</p>
+          <div class="grid">
+            <div class="field"><label for="applicant-name">姓名</label><input id="applicant-name" name="applicant_name" autocomplete="off" /></div>
+            <div class="field"><label for="gender">性别</label><select id="gender" name="gender"><option value="">请选择</option><option value="M">男</option><option value="F">女</option></select></div>
+            <div class="field"><label for="mobile">手机号码</label><input id="mobile" name="mobile" type="tel" autocomplete="off" /><small>样例为 00000000000，仅用于测试。</small></div>
+            <div class="field"><span class="field-label">电子邮箱（使用 placeholder 识别）</span><input id="mail-field" name="contact_mail" type="email" placeholder="电子邮箱" autocomplete="off" /></div>
+            <div class="field"><label for="birthday">出生日期</label><input id="birthday" name="birthday" type="date" /></div>
+            <div class="field"><label for="political-status">政治面貌</label><select id="political-status" name="political_status"><option value="">请选择</option><option value="member">中共党员</option><option value="league">共青团员</option><option value="mass">群众</option></select></div>
+            <div class="field"><label for="native-place">籍贯</label><input id="native-place" name="native_place" /></div>
+            <div class="field"><label for="source-place">生源地</label><input id="source-place" name="source_place" /></div>
+            <div class="field"><span class="field-label">国籍（使用 aria-label 识别）</span><input id="a11y-field" name="a11y_field" aria-label="国籍" /></div>
+            <div class="field"><label for="identity-number">身份证号</label><input id="identity-number" name="id_number" autocomplete="off" /><small>样例证件号为无效测试文字；请检查敏感字段处理。</small></div>
+            <div class="field wide"><label for="address">家庭地址</label><input id="address" name="address" autocomplete="off" /></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>02</span> 本科教育经历</legend>
+          <p class="section-note">样例档案中本科位于第二项。这里应根据“本科”上下文匹配。</p>
+          <div class="grid">
+            <div class="field"><label for="bachelor-school">学校名称</label><input id="bachelor-school" name="bachelor_school" /></div>
+            <div class="field"><label for="bachelor-major">专业名称</label><input id="bachelor-major" name="bachelor_major" /></div>
+            <div class="field"><label for="bachelor-level">学历</label><select id="bachelor-level" name="bachelor_level"><option value="">请选择</option><option value="junior">专科</option><option value="bachelor">本科</option><option value="master">硕士研究生</option><option value="doctor">博士研究生</option></select></div>
+            <div class="field"><label for="bachelor-degree">学位</label><select id="bachelor-degree" name="bachelor_degree"><option value="">请选择</option><option value="none">无学位</option><option value="bachelor">学士</option><option value="master">硕士</option><option value="doctor">博士</option></select></div>
+            <div class="field"><label for="bachelor-start">入学时间</label><input id="bachelor-start" name="bachelor_start" type="month" /></div>
+            <div class="field"><label for="bachelor-end">毕业时间</label><input id="bachelor-end" name="bachelor_end" type="month" /></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>03</span> 硕士教育经历</legend>
+          <div class="grid">
+            <div class="field"><label for="master-school">学校名称</label><input id="master-school" name="master_school" /></div>
+            <div class="field"><label for="master-major">专业名称</label><input id="master-major" name="master_major" /></div>
+            <div class="field"><label for="master-level">学历</label><select id="master-level" name="master_level"><option value="">请选择</option><option value="bachelor">本科</option><option value="master">硕士</option><option value="doctor">博士</option></select></div>
+            <div class="field"><label for="master-degree">学位</label><select id="master-degree" name="master_degree"><option value="">请选择</option><option value="bachelor">学士</option><option value="master">硕士</option><option value="doctor">博士</option></select></div>
+            <div class="field"><label for="master-start">入学时间</label><input id="master-start" name="master_start" type="month" /></div>
+            <div class="field"><label for="master-end">毕业时间</label><input id="master-end" name="master_end" type="month" /></div>
+            <div class="field"><label for="major-category">专业类别</label><select id="major-category" name="major_category"><option value="">请选择</option><option value="computer">计算机类</option><option value="electronic">电子信息类</option><option value="automation">自动化类</option><option value="other">其他</option></select><small>档案只有软件工程，类别必须待确认或显示缺失，不可直接决定。</small></div>
+            <div class="field"><label for="master-gpa">GPA</label><input id="master-gpa" name="master_gpa" /><small>测试档案故意不提供 GPA，此项应保持空白。</small></div>
+            <div class="field wide"><label for="research-direction">研究方向</label><input id="research-direction" name="research_direction" /></div>
+            <div class="field wide"><label for="courses">主修课程</label><textarea id="courses" name="courses" rows="3" maxlength="300"></textarea></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>04</span> 技能与文字回答</legend>
+          <p class="section-note">MVP 1 只读取你已经保存的事实与常用回答，不调用 AI。</p>
+          <div class="grid">
+            <div class="field wide"><label for="skills">技能</label><textarea id="skills" name="skills" rows="3" maxlength="500"></textarea></div>
+            <div class="field wide"><label for="self-evaluation">自我评价（200 字以内）</label><textarea id="self-evaluation" name="self_evaluation" rows="4" maxlength="200"></textarea></div>
+            <div class="field wide"><label for="personal-strengths">个人优势（50 字以内）</label><textarea id="personal-strengths" name="personal_strengths" rows="3" maxlength="50"></textarea></div>
+            <div class="field wide"><label for="unknown-question">请描述你最喜爱的一本书</label><textarea id="unknown-question" name="unknown_question" rows="3"></textarea><small>没有可靠对应档案内容，应保持空白。</small></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>05</span> 人工处理与已有值</legend>
+          <div class="grid">
+            <div class="field"><label for="sms-code">短信验证码</label><input id="sms-code" name="sms_code" autocomplete="one-time-code" /><small>不可自动填写。</small></div>
+            <div class="field"><label for="captcha">图形验证码</label><input id="captcha" name="captcha" autocomplete="off" /><small>不可自动填写。</small></div>
+            <div class="field"><label for="password">账户密码</label><input id="password" name="password" type="password" autocomplete="new-password" /><small>不可自动填写。</small></div>
+            <div class="field"><label for="existing-email">邮箱</label><input id="existing-email" name="existing_email" type="email" value="keep-this@example.invalid" /><small>已有值应保持不变。</small></div>
+            <div class="field"><label for="readonly-name">姓名</label><input id="readonly-name" name="readonly_name" value="只读值应保持" readonly /></div>
+            <div class="field"><label for="disabled-phone">手机号</label><input id="disabled-phone" name="disabled_phone" type="tel" value="禁用值应保持" disabled /></div>
+            <div class="field"><label for="existing-gender">性别</label><select id="existing-gender" name="existing_gender"><option value="">请选择</option><option value="M">男</option><option value="F" selected>女</option></select><small>已有选择应保持不变。</small></div>
+            <div class="field"><label for="resume-file">上传简历</label><input id="resume-file" name="resume_file" type="file" /></div>
+            <div class="field wide"><span class="field-label">是否接受调剂（radio，人工处理）</span><div class="choices"><label><input type="radio" name="adjustment" value="yes" /> 是</label><label><input type="radio" name="adjustment" value="no" /> 否</label></div></div>
+            <div class="field wide"><label class="agreement"><input id="agreement" type="checkbox" name="agreement" /> 我已阅读并同意示例协议（checkbox，人工处理）</label></div>
+          </div>
+          <input type="hidden" name="internal_token" value="do-not-change" />
+        </fieldset>
+
+        <fieldset>
+          <legend><span>06</span> 动态字段</legend>
+          <p class="section-note">扫描后新增字段，再次扫描后才应识别。扫描后手工修改姓名，再执行填写，应保留你的修改。</p>
+          <div id="dynamic-fields" class="grid"></div>
+          <button id="add-field" type="button" class="secondary">新增“民族”字段</button>
+        </fieldset>
+
+        <footer class="actions">
+          <button id="reset-form" type="button" class="secondary">重置测试表单</button>
+          <button type="submit">人工测试提交拦截</button>
+          <p>本页阻止表单提交，不向招聘网站或其他外部服务传输表单数据。</p>
+        </footer>
+      </form>
+    </main>
+  </body>
+</html>

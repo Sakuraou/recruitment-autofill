@@ -1,0 +1,103 @@
+import type { FieldDescriptor, FillOutcome, FillRequest } from '../shared/types';
+import { effectiveMaxLength } from '../matching/profileResolver';
+import { hasValue, isPlaceholderOption, type FormControl } from './domUtils';
+import { controlFingerprint, describeControl, type ScanState } from './scanner';
+import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
+
+function nativeSet(node: FormControl, value: string): void {
+  const view = node.ownerDocument.defaultView;
+  if (!view) throw new Error('无法访问页面控件');
+  const prototype: object = node.tagName === 'INPUT' ? view.HTMLInputElement.prototype
+    : node.tagName === 'TEXTAREA' ? view.HTMLTextAreaElement.prototype : view.HTMLSelectElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+  if (!setter) throw new Error('浏览器不支持安全填写此控件');
+  setter.call(node, value);
+}
+
+function candidateProblem(node: FormControl, value: string, field: FieldDescriptor): string | undefined {
+  if (value.trim() === '') return '没有可靠的非空答案，需要人工填写';
+  if (value.length > 50_000) return '答案过长，请在档案中维护合适的版本';
+  const limit = effectiveMaxLength(field);
+  if (limit !== null && value.length > limit) return '答案超过网页说明的长度限制；请修改后确认';
+  if ('maxLength' in node && node.maxLength >= 0 && value.length > node.maxLength) return '答案超过字段长度限制；不会自动截断，请修改后确认';
+  if (node.tagName === 'INPUT') {
+    const type = (node as HTMLInputElement).type;
+    if (type === 'date' && !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return '日期需要完整且真实的 YYYY-MM-DD；不会推测具体日期';
+    if (type === 'month' && !/^\d{4}-\d{2}$/u.test(value)) return '月份需要 YYYY-MM 格式，请核实档案';
+  }
+  if (node.tagName === 'SELECT') {
+    const options = Array.from((node as HTMLSelectElement).options).filter((option) => option.value === value);
+    if (options.length !== 1) return '下拉选项不存在或存在重复值，请重新扫描或人工选择';
+    const option = options[0];
+    if (!option || option.disabled || option.parentElement?.hasAttribute('disabled') || isPlaceholderOption(option)) return '不能选择禁用选项或占位选项';
+  }
+  if (node.validity.customError) return '网页为字段设置了验证错误，请人工处理后重新扫描';
+  // Validate on a detached clone first, without changing the live form or firing events.
+  const candidate = node.cloneNode(true) as FormControl;
+  nativeSet(candidate, value);
+  if (candidate.value !== value) return '浏览器不接受该值或会改变其格式，请人工确认';
+  if (!candidate.validity.valid) return '答案不符合网页格式、范围或长度规则，请人工检查';
+  return undefined;
+}
+
+/** Only explicit requests from the extension UI are executed; the page is never submitted. */
+export async function fillScan(state: ScanState, request: FillRequest): Promise<FillOutcome[]> {
+  const outcomes: FillOutcome[] = [];
+  const seen = new Set<string>();
+  for (const item of request.items) {
+    const skip = (reason: string): void => { outcomes.push({ fieldId: item.fieldId, status: 'skipped', reason }); };
+    if (request.scanId !== state.result.scanId) { skip('扫描已过期，请重新扫描'); continue; }
+    if (state.document.URL !== state.result.url) { skip('页面地址已改变，请重新扫描'); continue; }
+    if (!item.confirmed) { skip('尚未确认填写此答案'); continue; }
+    if (seen.has(item.fieldId)) { skip('同一字段在本次请求中重复'); continue; }
+    seen.add(item.fieldId);
+    const control = state.controls.get(item.fieldId);
+    if (!control) { skip('未找到本次扫描中的字段，请重新扫描'); continue; }
+    if (control.adapter === 'mobile-select') {
+      const { node } = control;
+      if (!node.isConnected || node.ownerDocument !== state.document) { skip('字段已被替换或移除，请重新扫描'); continue; }
+      const current = describeMobileSelect(node, item.fieldId);
+      if (current.blockedReason) { skip(current.blockedReason); continue; }
+      if (current.hasValue) { skip('字段已有选择，不覆盖'); continue; }
+      if (mobileFingerprint(node, current) !== control.fingerprint) { skip('字段标签、选项或内容已改变，请重新扫描'); continue; }
+      try {
+        const filled = await fillMobileSelect(node, item.value);
+        outcomes.push({ fieldId: item.fieldId, status: filled ? 'filled' : 'error', reason: filled ? '已通过移动网站的选项事件选择，请复核' : '网站未保留预期选择，请人工检查并重新扫描' });
+      } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '下拉选择失败，请人工检查' }); }
+      continue;
+    }
+    const { node } = control;
+    if (node.ownerDocument !== state.document || !node.isConnected || !state.document.contains(node)) { skip('字段已被页面替换或移除，请重新扫描'); continue; }
+    const current = describeControl(node, item.fieldId);
+    if (current.blockedReason) { skip(current.blockedReason); continue; }
+    if (hasValue(node)) { skip('字段已有内容，不覆盖网页或您填写的信息'); continue; }
+    if (controlFingerprint(node, current) !== control.fingerprint) { skip('字段标签、选项、属性或当前内容已改变，请重新扫描'); continue; }
+    try {
+      const problem = candidateProblem(node, item.value, current);
+      if (problem) { skip(problem); continue; }
+      nativeSet(node, item.value);
+      const EventConstructor = state.document.defaultView?.Event;
+      if (!EventConstructor) throw new Error('页面已不可用');
+      node.dispatchEvent(new EventConstructor('input', { bubbles: true, composed: true }));
+      if (node.isConnected && node.value === item.value) node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
+      // Let React/Vue and dependent native controls finish their queued updates.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (!node.isConnected || node.ownerDocument !== state.document || node.value !== item.value) {
+        outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '网页更新后未保留预期答案，请检查并重新扫描' });
+      } else if (!node.validity.valid) {
+        outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '已写入，但网页验证未通过，请人工检查' });
+      } else {
+        outcomes.push({ fieldId: item.fieldId, status: 'filled', reason: '已填写并检查当前值；请在提交前复核' });
+      }
+    } catch {
+      outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '网页控件未能安全完成填写，请人工检查' });
+    }
+  }
+  console.info('[校招网申助手]', {
+    event: 'fill', requested: outcomes.length,
+    filled: outcomes.filter((outcome) => outcome.status === 'filled').length,
+    skipped: outcomes.filter((outcome) => outcome.status === 'skipped').length,
+    errors: outcomes.filter((outcome) => outcome.status === 'error').length,
+  });
+  return outcomes;
+}
