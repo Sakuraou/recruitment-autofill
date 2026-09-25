@@ -2,10 +2,63 @@ import { contextualAliases, fieldAliases, sectionAliases, type AliasScope, type 
 import type { FieldDescriptor } from '../shared/types';
 import { containsAlias, normalize } from './confidence';
 
-export interface DetectedField { alias: FieldAlias; confidence: number; source: 'rule' | 'alias'; ambiguous: boolean }
+export interface DetectedField {
+  alias: FieldAlias;
+  confidence: number;
+  source: 'rule' | 'alias';
+  ambiguous: boolean;
+  /** The evidence that won after every available label source was compared. */
+  evidence: string;
+}
 
 export function directTexts(field: FieldDescriptor): string[] {
   return [field.label, field.ariaLabel, field.tableHeader, field.title, field.placeholder].filter(Boolean);
+}
+
+function spacedIdentifier(value: string): string {
+  return value.normalize('NFKC')
+    .replace(/([a-z\d])([A-Z])/gu, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/gu, '$1 $2')
+    .replace(/[_.:[\]()/\\-]+/gu, ' ')
+    .replace(/\s+/gu, ' ').trim();
+}
+
+/** Convert framework/resource IDs into low-priority semantic evidence. */
+export function identifierTexts(field: FieldDescriptor): string[] {
+  const result: string[] = [];
+  for (const raw of [field.name, field.htmlId, field.label, field.ariaLabel]) {
+    const spaced = spacedIdentifier(raw);
+    if (!spaced || normalize(spaced) === normalize(raw) && !/[A-Z_:[\].-]/u.test(raw)) continue;
+    result.push(spaced);
+    const words = spaced.split(/\s+/u);
+    for (const count of [3, 2, 1]) {
+      if (words.length <= count) continue;
+      const suffix = words.slice(-count).join(' ');
+      if (count === 1 && /^(?:name|date|type|number|code|value|id|text)$/iu.test(suffix)) continue;
+      result.push(suffix);
+    }
+    // Several older recruiting systems call an identity document a Certificate.
+    // The surrounding Person/Profile namespace makes the intended owner explicit.
+    if (/(?:person|candidate|applicant|resume)\s*profile/iu.test(spaced)) {
+      if (/certificate\s*number$/iu.test(spaced)) result.push('证件号码');
+      if (/certificate\s*type$/iu.test(spaced)) result.push('证件类型');
+    }
+  }
+  return [...new Set(result)];
+}
+
+function looksHumanLabel(text: string): boolean {
+  if (!text || text.length > 80) return false;
+  if (/^(?:recruitment|portal|person|candidate|applicant|resume)[\w_.:[\]-]+$/iu.test(text.replace(/\s+/gu, ''))) return false;
+  return /[\p{Script=Han}]/u.test(text) || /\s/u.test(text) || text.length <= 24;
+}
+
+/** Prefer a concise visible label in the popup instead of a framework resource key. */
+export function bestFieldName(field: FieldDescriptor): string {
+  const candidates = [field.tableHeader, field.label, field.ariaLabel, field.previousText, field.placeholder, field.title]
+    .filter(looksHumanLabel);
+  const exact = candidates.find((text) => matchText(text, contextualScope(field), false)?.confidence === 1);
+  return exact || candidates[0] || identifierTexts(field).at(-1) || field.name || field.htmlId || '未命名字段';
 }
 
 export function fieldContext(field: FieldDescriptor): string {
@@ -49,23 +102,44 @@ function matchText(text: string, scope: AliasScope | undefined, fallback: boolea
   const tied = matches.filter((candidate) => candidate.rank >= best.rank - 1
     && (candidate.entry.scope !== best.entry.scope || candidate.entry.key !== best.entry.key));
   return { alias: best.entry, confidence: fallback ? (best.exact ? 0.92 : 0.82) : best.exact ? 1 : best.knownWrapper ? 0.96 : 0.82,
-    source: best.exact ? 'rule' : 'alias', ambiguous: tied.length > 0 };
+    source: best.exact ? 'rule' : 'alias', ambiguous: tied.length > 0, evidence: text };
 }
 
 export function detectField(field: FieldDescriptor): DetectedField | undefined {
   const scope = contextualScope(field);
-  // Short, associated labels take precedence over input IDs and large parent containers.
+  const candidates: Array<DetectedField & { tier: number; order: number }> = [];
+  let order = 0;
+  // Compare every source. A precise visible row/header label must beat an earlier
+  // framework key that merely contains an English alias.
   for (const text of directTexts(field)) {
     const detected = matchText(text, scope, false);
-    if (detected) return detected;
+    if (detected) candidates.push({ ...detected, tier: 3, order: order++ });
+  }
+  for (const text of identifierTexts(field)) {
+    const detected = matchText(text, scope, false);
+    if (detected) candidates.push({ ...detected,
+      confidence: detected.confidence === 1 ? 0.94 : Math.min(detected.confidence, 0.9), tier: 2, order: order++ });
   }
   for (const text of [field.name, field.htmlId].filter(Boolean)) {
     const detected = matchText(text, scope, false);
-    if (detected) return { ...detected, confidence: Math.min(detected.confidence, 0.95) };
+    if (detected) candidates.push({ ...detected, confidence: Math.min(detected.confidence, 0.88), tier: 1, order: order++ });
   }
   for (const text of [field.previousText, field.parentText].filter((value) => value.length <= 120 && value.length > 0)) {
     const detected = matchText(text, scope, true);
-    if (detected) return detected;
+    if (detected) candidates.push({ ...detected, tier: 1, order: order++ });
   }
-  return undefined;
+  candidates.sort((a, b) => b.confidence - a.confidence || b.tier - a.tier
+    || normalize(b.evidence).length - normalize(a.evidence).length || a.order - b.order);
+  const best = candidates[0];
+  if (!best) return undefined;
+  const conflicts = candidates.filter((candidate) => candidate !== best
+    && candidate.confidence >= best.confidence - 0.01 && candidate.tier === best.tier
+    && (candidate.alias.scope !== best.alias.scope || candidate.alias.key !== best.alias.key));
+  return {
+    alias: best.alias,
+    confidence: best.confidence,
+    source: best.source,
+    ambiguous: best.ambiguous || conflicts.length > 0,
+    evidence: best.evidence,
+  };
 }

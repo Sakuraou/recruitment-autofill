@@ -5,6 +5,7 @@ import { fillPlan, scanPage, type PagePlan } from '../src/popup/bridge';
 import { scanDocument } from '../src/content/scanner';
 import { matchFields } from '../src/matching/ruleMatcher';
 import { createDebugReport } from '../src/popup/debug';
+import { EXTENSION_VERSION } from '../src/shared/version';
 
 const profile = createEmptyProfile();
 profile.basic = { name: '虚构用户', phone: '00000000000', email: 'fictional@example.invalid', idNumber: 'TEST-SECRET-ID' };
@@ -44,6 +45,30 @@ describe('local profile storage', () => {
   });
 });
 describe('popup execution gates', () => {
+  it('拒绝旧页面脚本，明确告知刷新招聘网页而不是反复重装', async () => {
+    tabs.sendMessage.mockResolvedValue({ ok: true, data: { ...plan.scan, contentVersion: undefined } });
+    await expect(scanPage()).rejects.toThrow('网页仍运行旧版脚本');
+    plan.scan.contentVersion = 'old';
+    await expect(fillPlan(plan, new Set(), 'auto')).rejects.toThrow('脚本版本不一致');
+  });
+  it('扫描和填写连接中断给出不同恢复说明，不自动重试写入', async () => {
+    tabs.sendMessage.mockRejectedValue(new Error('Receiving end does not exist'));
+    await expect(scanPage()).rejects.toThrow('无法连接网页');
+    await expect(fillPlan(plan, new Set(), 'auto')).rejects.toThrow('部分字段可能已经写入');
+    expect(tabs.sendMessage).toHaveBeenCalledTimes(2);
+  });
+  it('问题报告使用真实版本并包含脱敏后的逐字段填写失败原因', () => {
+    const field = plan.scan.fields[0]!;
+    field.blockedReason = `包含${profile.basic.phone}`;
+    const report = createDebugReport(plan.scan, plan.matches, profile, [{ fieldId: field.id, status: 'error', reason: `拒绝${profile.basic.name}` }]);
+    const parsed = JSON.parse(report);
+    expect(parsed.extensionVersion).toBe(EXTENSION_VERSION);
+    expect(parsed.contentVersion).toBe(EXTENSION_VERSION);
+    expect(parsed.summary.errors).toBe(1);
+    expect(parsed.fields[0].outcome.status).toBe('error');
+    expect(report).not.toContain(profile.basic.phone);
+    expect(report).not.toContain(profile.basic.name);
+  });
   it('sends no profile values during scanning', async () => {
     await scanPage();
     expect(tabs.sendMessage).toHaveBeenCalledWith(12, { type: 'RA_SCAN' }, { frameId: 0 });

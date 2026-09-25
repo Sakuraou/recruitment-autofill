@@ -49,6 +49,22 @@ function variantsValue(variants: TextVariants | undefined, prefix: string, limit
   return { ...choice, reason: limit === null ? '使用档案中最完整的原文版本。' : `使用不超过 ${limit} 字的最完整已保存原文。` };
 }
 
+function aggregateValue(key: string, detailed: string[], compact: string[], limit: number | null, subject: string): Resolution {
+  const complete = detailed.filter(Boolean).join('\n');
+  const concise = compact.filter(Boolean).join('；');
+  const choice = [complete, concise].find((value) => value && (limit === null || value.length <= limit));
+  if (choice) return { key, value: choice, reason: `按档案顺序汇总全部${subject}，只使用已保存事实。` };
+  return { key, review: true, confidence: 0.85,
+    reason: `全部${subject}的最简汇总仍超过 ${limit} 字限制；为避免遗漏或截断，请人工精简。` };
+}
+
+function sameEducationValue(profile: UserProfile, alias: FieldAlias): string | undefined {
+  if (profile.education.length < 2) return undefined;
+  const values = profile.education.map((entry) => readString(entry, alias.key));
+  if (!values.length || values.some((value) => value === undefined)) return undefined;
+  return values.every((value) => value === values[0]) ? values[0] : undefined;
+}
+
 function educationValue(field: FieldDescriptor, profile: UserProfile, alias: FieldAlias): Resolution {
   const genericKey = `education.${alias.key}`;
   if (!profile.education.length) return { key: genericKey, reason: '档案尚未填写教育经历。' };
@@ -57,7 +73,16 @@ function educationValue(field: FieldDescriptor, profile: UserProfile, alias: Fie
   const directLevels = levels.filter(([, pattern]) => pattern.test(direct)).map(([level]) => level);
   const selectedLevels = directLevels.length ? directLevels : levels.filter(([, pattern]) => pattern.test(context)).map(([level]) => level);
   if (selectedLevels.length > 1) return { key: genericKey, review: true, confidence: 0.65, reason: '字段包含多个教育阶段，请先确认对应哪一段教育经历。' };
-  const highest = /最高|highest/i.test(direct) || (!selectedLevels.length && /最高|highest/i.test(context));
+  const explicitlyHighest = /最高|highest/i.test(direct) || (!selectedLevels.length && /最高|highest/i.test(context));
+  if (!selectedLevels.length && !explicitlyHighest) {
+    const invariant = sameEducationValue(profile, alias);
+    if (invariant) return { key: `education.*.${alias.key}`, value: invariant,
+      reason: '所有教育经历在该字段上的已保存值一致，直接使用这一共同事实。' };
+  }
+  const profileSummary = !selectedLevels.length
+    && /(?:person|candidate|applicant|resume)[\s_.:[\]-]*profile|个人信息|基本信息/iu.test(`${direct} ${context}`)
+    && ['school', 'college', 'major', 'majorCategory', 'level', 'degree', 'studyMode', 'gpa', 'gpaScale', 'ranking', 'researchDirection', 'courses', 'educationType', 'schoolProperty', 'country', 'durationYears'].includes(alias.key);
+  const highest = explicitlyHighest || profileSummary;
   let entries = profile.education.map((education, index) => ({ education, index }));
   if (selectedLevels[0]) entries = entries.filter(({ education }) => education.level === selectedLevels[0]);
   else if (highest) {
@@ -78,7 +103,7 @@ function educationValue(field: FieldDescriptor, profile: UserProfile, alias: Fie
     return { key: `education.${entry.index}.major`, value: '计算机类', confidence: 0.78, review: true, fuzzy: true,
       reason: `档案只有专业“${entry.education.major}”；“计算机类”仅为待确认建议，需按招聘方专业目录核实。` };
   }
-  return { key, value, reason: value ? `${highest ? '按最高学历' : selectedLevels.length ? '按明确教育阶段' : '按唯一教育经历'}读取已保存的${alias.key === 'degree' ? '学位；学位与学历独立保存' : '事实'}。`
+  return { key, value, reason: value ? `${highest ? '按个人资料页的最高学历' : selectedLevels.length ? '按明确教育阶段' : '按唯一教育经历'}读取已保存的${alias.key === 'degree' ? '学位；学位与学历独立保存' : '事实'}。`
     : alias.key === 'degree' ? '该教育经历未填写学位；不能从学历推断学位。' : '这段教育经历尚未填写该项资料。' };
 }
 
@@ -88,6 +113,24 @@ function collectionValue(field: FieldDescriptor, profile: UserProfile, alias: Fi
   const entries = profile[alias.scope as 'projects' | 'internships' | 'studentWork' | 'awards' | 'certificates'];
   const genericKey = `${alias.scope}.${alias.key}`;
   if (!entries.length) return { key: genericKey, reason: '档案尚未填写此类经历，不能生成或猜测。' };
+  if (field.kind === 'textarea' && alias.scope === 'awards' && alias.key === 'description') {
+    return aggregateValue('awards', entries.map((entry) => {
+      const name = readString(entry, 'shortName') ?? readString(entry, 'name');
+      const details = [readString(entry, 'level'), readString(entry, 'issuer'), readString(entry, 'date')].filter(Boolean).join('，');
+      return name ? `${name}${details ? `（${details}）` : ''}` : '';
+    }), entries.map((entry) => readString(entry, 'shortName') ?? readString(entry, 'name') ?? ''), effectiveMaxLength(field), '获奖与荣誉');
+  }
+  const summaryLabel = directTexts(field).join(' ');
+  if (field.kind === 'textarea' && alias.scope === 'studentWork' && alias.key === 'description'
+    && /社会活动|校园活动|学生工作(?:经历)?|社团活动|social\s*activit/iu.test(summaryLabel)) {
+    return aggregateValue('studentWork', entries.map((entry) => {
+      const organization = readString(entry, 'organization');
+      const role = readString(entry, 'role');
+      const dates = [readString(entry, 'startDate'), readString(entry, 'endDate')].filter(Boolean).join('—');
+      const description = readString(entry, 'description');
+      return [[organization, role].filter(Boolean).join('·'), dates && `（${dates}）`, description && `：${description}`].filter(Boolean).join('');
+    }), entries.map((entry) => [readString(entry, 'organization'), readString(entry, 'role')].filter(Boolean).join('·')), effectiveMaxLength(field), '校园与社会活动');
+  }
   const context = normalize([...directTexts(field), field.sectionText].join(' '));
   const named = entries.map((entry, index) => ({ entry, index })).filter(({ entry }) => {
     const name = readString(entry, 'name') ?? readString(entry, 'organization');
@@ -108,12 +151,17 @@ function researchValue(field: FieldDescriptor, profile: UserProfile, alias: Fiel
   const entries = profile.research[alias.key];
   if (!entries.length) return { key, reason: '没有已录入的论文或专利；不会虚构，也不会擅自填写“无”。' };
   if (field.kind !== 'textarea') return { key, review: true, confidence: 0.65, reason: '论文或专利包含多个子项，请使用文本区汇总或人工选择具体信息。' };
-  const labels: Record<string, string> = { title: '标题', authors: '作者', venue: '期刊/会议', date: '日期', status: '状态', doi: 'DOI', description: '描述', number: '专利号', inventors: '发明人' };
-  const value = entries.map((entry) => Object.entries(labels).flatMap(([property, label]) => {
-    const text = readString(entry, property);
-    return text ? [`${label}：${text}`] : [];
-  }).join('；')).filter(Boolean).join('\n');
-  return { key, value: value || undefined, reason: '仅汇总已录入的论文/专利原始字段。', review: true, confidence: 0.85 };
+  const isPapers = alias.key === 'papers';
+  const detailed = entries.map((entry) => {
+    const title = readString(entry, 'shortTitle') ?? readString(entry, 'title');
+    const details = (isPapers
+      ? [readString(entry, 'venue'), readString(entry, 'status'), readString(entry, 'date')]
+      : [readString(entry, 'number'), readString(entry, 'status'), readString(entry, 'date')])
+      .filter(Boolean).join('，');
+    return title ? `${title}${details ? `（${details}）` : ''}` : '';
+  });
+  const compact = entries.map((entry) => readString(entry, 'shortTitle') ?? readString(entry, 'title') ?? '');
+  return aggregateValue(key, detailed, compact, effectiveMaxLength(field), isPapers ? '论文与学术成果' : '专利成果');
 }
 
 export function resolveProfileValue(field: FieldDescriptor, profile: UserProfile, alias: FieldAlias): Resolution {
@@ -129,7 +177,11 @@ export function resolveProfileValue(field: FieldDescriptor, profile: UserProfile
   if (alias.scope === 'research') return researchValue(field, profile, alias);
   if (alias.scope === 'commonAnswers') return variantsValue(profile.commonAnswers[alias.key as keyof UserProfile['commonAnswers']], `commonAnswers.${alias.key}`, effectiveMaxLength(field));
   if (alias.scope === 'skills' && alias.key === '*') {
-    return { key: 'skills', value: Object.values(profile.skills).flat().filter(Boolean).join('；') || undefined, reason: '汇总档案中已保存的技能条目。' };
+    const value = Object.values(profile.skills).flat().filter(Boolean).join('；') || undefined;
+    const limit = effectiveMaxLength(field);
+    return value && limit !== null && value.length > limit
+      ? { key: 'skills', review: true, confidence: 0.85, reason: `已保存的技能汇总超过 ${limit} 字限制，请人工精简；不会截断。` }
+      : { key: 'skills', value, reason: '汇总档案中已保存的技能条目。' };
   }
   return { key: `${alias.scope}.${alias.key}`, value: readString(profile[alias.scope], alias.key), reason: '从本地档案读取已保存的原始资料。' };
 }

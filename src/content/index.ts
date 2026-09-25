@@ -2,6 +2,9 @@ import { z } from 'zod';
 import type { ContentResponse } from '../shared/types';
 import { fillScan } from './autofill';
 import { scanDocument, type ScanState } from './scanner';
+import { MobileWorkflow } from './mobileWorkflow';
+import { workflowRequestSchema } from '../workflow/model';
+import { EXTENSION_VERSION } from '../shared/version';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -10,6 +13,11 @@ declare global {
 const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_SCAN') }).strict(),
   z.object({ type: z.literal('RA_SELECTION') }).strict(),
+  z.object({ type: z.literal('RA_WORKFLOW_START'), payload: workflowRequestSchema }).strict(),
+  z.object({ type: z.literal('RA_WORKFLOW_STATUS') }).strict(),
+  z.object({ type: z.literal('RA_WORKFLOW_PAUSE') }).strict(),
+  z.object({ type: z.literal('RA_WORKFLOW_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_WORKFLOW_STOP') }).strict(),
   z.object({ type: z.literal('RA_FILL'), payload: z.object({
     scanId: z.string().min(1).max(100),
     items: z.array(z.object({
@@ -22,6 +30,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   window.__recruitmentAutofillInstalled = true;
   let currentScan: ScanState | undefined;
   let filling = false;
+  const workflow = new MobileWorkflow(() => { currentScan = undefined; });
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: ContentResponse<unknown>) => void) => {
     const senderUrl = sender.url?.split(/[?#]/u)[0];
     if (sender.id !== chrome.runtime.id || !senderUrl || ![
@@ -30,11 +39,23 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     const parsed = requestSchema.safeParse(message);
     if (!parsed.success) { sendResponse({ ok: false, error: '无效的扩展请求' }); return false; }
     const request = parsed.data;
+    if (request.type === 'RA_WORKFLOW_STATUS') {
+      sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: workflow.status() } }); return false;
+    }
+    if (request.type === 'RA_WORKFLOW_PAUSE' || request.type === 'RA_WORKFLOW_STOP') {
+      sendResponse({ ok: true, data: request.type === 'RA_WORKFLOW_PAUSE' ? workflow.pause() : workflow.stop() }); return false;
+    }
     if (request.type === 'RA_SELECTION') {
       sendResponse({ ok: true, data: window.getSelection()?.toString().trim().slice(0, 20_000) ?? '' });
       return false;
     }
     if (filling) { sendResponse({ ok: false, error: '正在填写，请等待完成后再操作' }); return false; }
+    if (request.type === 'RA_WORKFLOW_START' || request.type === 'RA_WORKFLOW_RESUME') {
+      try { sendResponse({ ok: true, data: request.type === 'RA_WORKFLOW_START' ? workflow.start(request.payload) : workflow.resume() }); }
+      catch (error) { sendResponse({ ok: false, error: error instanceof Error ? error.message : '启动连续填写失败' }); }
+      return false;
+    }
+    if (workflow.isRunning()) { sendResponse({ ok: false, error: '连续填写正在运行，可在网页右下角暂停或停止' }); return false; }
     if (request.type === 'RA_SCAN') {
       try {
         currentScan = scanDocument();

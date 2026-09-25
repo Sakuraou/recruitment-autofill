@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>中国移动简历连续填写 — 本地虚构测试夹具</title>
+  <style>
+    body { margin: 30px auto; max-width: 1000px; font-family: sans-serif; color: #24392e; background: #f5f8f6; }
+    .secon { background: white; border: 1px solid #ccd9d0; padding: 24px; margin: 32px 0; }
+    .secH { display: flex; justify-content: space-between; }
+    .lf2 { font-size: 13px; font-weight: normal; }
+    .secC { padding: 12px; }
+    .fill { min-height: 110px; display: grid; place-content: center; }
+    dl { margin: 10px 0 20px; }
+    dt { margin-bottom: 7px; }
+    dd { margin: 0; }
+    .red, .inputTip { color: #ac2438; }
+    .inputTip { margin-left: 8px; }
+    input[type=text], textarea { padding: 9px; width: 420px; border: 1px solid #becdc3; font: inherit; }
+    textarea { min-height: 75px; }
+    .slt, .dateSlt { border: 1px solid #becdc3; padding: 9px; width: 420px; position: relative; cursor: pointer; }
+    .slt ul, .inputStudyList { background: white; border: 1px solid #b4c9bc; padding: 4px; margin: 4px 0; list-style: none; }
+    li { padding: 6px; cursor: pointer; }
+    li:hover { background: #d8efe0; }
+    .slideCon { display: none; background: white; border: 1px solid #b4c9bc; }
+    .slideCon ul { display: grid; grid-template-columns: repeat(4, 1fr); list-style: none; padding: 0; }
+    .slideP { display: flex; gap: 16px; padding: 8px; }
+    .slideP font { order: -1; margin-right: auto; }
+    .btnP { display: flex; gap: 25px; padding: 20px 0; }
+    a, button { color: #1b6546; cursor: pointer; }
+    .btnP a, button { border: 1px solid #7faa90; padding: 10px 18px; border-radius: 6px; }
+    .secC_dl { border-top: 1px solid #ccd9d0; padding: 18px 0; }
+    .dd2 { display: flex; gap: 20px; }
+    #fixture-notice { color: #a52c3d; }
+  </style>
+</head>
+<body>
+  <h1>简历填写测试</h1>
+  <p>本页仅使用虚构档案，模拟公开页面的控件行为，不连接招聘服务器。</p>
+  <div id="fixture-notice" role="status"></div>
+  <main class="resumeCon1"></main>
+  <button id="final-submit" type="button">确认投递</button>
+  <script>
+    (() => {
+      'use strict';
+      const fixture = window.fixture = {
+        adds: { educationInfo: 0, projectInfo: 0, awardInfo: 0 },
+        saves: { educationInfo: 0, projectInfo: 0, awardInfo: 0 },
+        records: { educationInfo: [], projectInfo: [], awardInfo: [] },
+        cadre: undefined, cadreSaves: 0,
+        sequence: [], submits: 0, scrolls: [], deletes: 0,
+        config: { saveDelay: 200, cadreDelay: 400, cadreFailure: false, saveFailure: false, requireProof: false, baseInfoComplete: true },
+      };
+      const originalScroll = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (...args) {
+        fixture.scrolls.push(this.id || this.className || this.tagName);
+        return originalScroll.apply(this, args);
+      };
+      window.addEventListener('scroll', () => { fixture.scrolls.push({ top: window.scrollY }); }, { passive: true });
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+      const el = (tag, attributes = {}, text) => {
+        const node = document.createElement(tag);
+        for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+      const notice = text => { $('#fixture-notice').textContent = text; };
+      const panels = section => $$(':scope > .secC', section);
+      const editor = section => panels(section)[1];
+      const visibility = node => !node.closest('[style*="display: none"]');
+      const row = (root, label, required = true) => {
+        const dl = el('dl', { class: 'dl2' });
+        const dt = el('dt', {}, label);
+        if (required) dt.append(el('font', { class: 'red' }, '*'));
+        const dd = el('dd');
+        dl.append(dt, dd); root.append(dl);
+        return dd;
+      };
+      const tip = root => root.append(el('span', { class: 'inputTip' }));
+      const textField = (root, id, label, prompt, max, required = true, area = false) => {
+        const dd = row(root, label, required);
+        const input = area ? el('textarea', { id, class: 'textareaWork', maxlength: max }, prompt)
+          : el('input', { id, type: 'text', class: 'inputxt', value: prompt, maxlength: max });
+        dd.append(input); tip(dd);
+        input.addEventListener('focus', () => { if (input.value === input.defaultValue) input.value = ''; });
+        input.addEventListener('blur', () => { if (!input.value.trim()) input.value = input.defaultValue; });
+        return input;
+      };
+      const selectField = (root, id, label, options, required = true) => {
+        const dd = row(root, label, required);
+        const select = el('div', { id, class: 'slt' });
+        const value = el('span', {}, '请选择');
+        const list = el('ul', { style: 'display: none;' });
+        options.forEach((name, index) => {
+          const option = el('li', { 'data-code': String(index + 1) }, name);
+          option.addEventListener('click', event => {
+            event.stopPropagation(); value.textContent = name; value.dataset.code = option.dataset.code;
+            list.style.display = 'none';
+          });
+          list.append(option);
+        });
+        select.addEventListener('mouseover', () => {
+          $$('.slt > ul').forEach(other => { other.style.display = 'none'; });
+          list.style.display = 'block';
+        });
+        select.addEventListener('mouseout', event => {
+          if (!select.contains(event.relatedTarget)) list.style.display = 'none';
+        });
+        select.append(value, el('em', { class: 'img' }), list); dd.append(select); tip(dd);
+      };
+      const radios = (root, name, label, required = true, defaultValue) => {
+        const dl = el('dl', { class: 'dl2' });
+        const dt = el('dt', { class: 'xz' }, label + ' ');
+        if (required) dt.append(el('font', { class: 'red' }, '*'));
+        ['Y', 'N'].forEach(code => {
+          const input = el('input', { type: 'radio', name, 'data-code': code });
+          if (defaultValue === code) input.checked = input.defaultChecked = true;
+          dt.append(input, document.createTextNode(code === 'Y' ? ' 是 ' : ' 否 '));
+        });
+        tip(dt); dl.append(dt); root.append(dl); return dl;
+      };
+      const dateField = (root, id, label, monthOnly = false) => {
+        const dd = row(root, label, !monthOnly);
+        const date = el('div', { id, class: 'dateSlt' });
+        date.append(el('span', {}, '请选择'), el('em', { class: 'img' }));
+        const parts = ['Year', 'Mon', 'Day'].map(name => {
+          const pane = el('div', { class: 'slideCon slideCon' + name, style: 'display: none;' });
+          const p = el('p', { class: 'slideP clearfix' });
+          p.append(el('a', { href: 'javascript:;', class: 'lf' }, '<'), el('a', { href: 'javascript:;', class: 'rg' }, '>'), el('font'));
+          pane.append(p, el('ul'));
+          pane.addEventListener('click', event => event.stopPropagation());
+          date.append(pane); return pane;
+        });
+        const [yearPane, monthPane, dayPane] = parts;
+        let firstYear = 2020, selectedYear = 2026, selectedMonth = 1;
+        const show = pane => parts.forEach(part => { part.style.display = part === pane ? 'block' : 'none'; });
+        const fillDays = () => {
+          $('font', dayPane).textContent = selectedYear + '-' + String(selectedMonth).padStart(2, '0');
+          const list = $('ul', dayPane); list.replaceChildren();
+          const days = new Date(Date.UTC(selectedYear, selectedMonth, 0)).getUTCDate();
+          for (let day = 1; day <= days; day++) {
+            const li = el('li', {}, String(day));
+            li.addEventListener('click', event => {
+              event.stopPropagation();
+              $(':scope > span', date).textContent = [selectedYear, selectedMonth, day].map((part, index) => index ? String(part).padStart(2, '0') : part).join('-');
+              show(null);
+            });
+            list.append(li);
+          }
+        };
+        const fillYears = () => {
+          $('font', yearPane).textContent = firstYear + '-' + (firstYear + 11);
+          const list = $('ul', yearPane); list.replaceChildren();
+          for (let year = firstYear; year < firstYear + 12; year++) {
+            const li = el('li', {}, String(year));
+            li.addEventListener('click', event => {
+              event.stopPropagation(); selectedYear = year; $('font', monthPane).textContent = String(year); show(monthPane);
+            });
+            list.append(li);
+          }
+        };
+        fillYears();
+        $('.lf', yearPane).addEventListener('click', () => { firstYear -= 12; fillYears(); });
+        $('.rg', yearPane).addEventListener('click', () => { firstYear += 12; fillYears(); });
+        $('.lf', monthPane).addEventListener('click', () => { selectedYear--; $('font', monthPane).textContent = String(selectedYear); });
+        $('.rg', monthPane).addEventListener('click', () => { selectedYear++; $('font', monthPane).textContent = String(selectedYear); });
+        ['.lf', '.rg'].forEach((direction, index) => $(direction, dayPane).addEventListener('click', () => {
+          const next = new Date(Date.UTC(selectedYear, selectedMonth - 1 + (index ? 1 : -1), 1));
+          selectedYear = next.getUTCFullYear(); selectedMonth = next.getUTCMonth() + 1; fillDays();
+        }));
+        for (let month = 1; month <= 12; month++) {
+          const li = el('li', {}, String(month));
+          li.addEventListener('click', event => {
+            event.stopPropagation(); selectedMonth = month;
+            if (monthOnly) { $(':scope > span', date).textContent = selectedYear + '-' + String(month).padStart(2, '0'); show(null); }
+            else { fillDays(); show(dayPane); }
+          });
+          $('ul', monthPane).append(li);
+        }
+        date.addEventListener('click', event => {
+          event.stopPropagation(); $$('.slideCon').forEach(pane => { pane.style.display = 'none'; }); show(yearPane);
+        });
+        dd.append(date); tip(dd);
+      };
+      const makeSection = (id, title) => {
+        const section = el('div', { id, class: 'secon' });
+        const heading = el('h3', { class: 'secH clearfix' });
+        heading.append(el('span', { class: 'lf' }, title), el('span', { class: 'lf2' }, '请填写实际经历'), el('a', { href: 'javascript:;', class: 'rg' }, '添加'));
+        section.append(heading);
+        if (id === 'projectInfo' || id === 'awardInfo') {
+          const state = el('div', { class: 'secS' }); radios(state, id === 'awardInfo' ? 'isHasAwardInfo' : 'isHasProjectInfo', '是否有经历'); section.append(state);
+        }
+        const empty = el('div', { class: 'secC clearfix' });
+        const fill = el('div', { class: 'fill' });
+        const plus = el('a', { href: 'javascript:;' }); plus.append(el('span', {}, '+'), document.createTextNode(' 填写教育经历'));
+        fill.append(plus); empty.append(fill);
+        const edit = el('div', { class: 'secC clearfix', style: 'display: none;' });
+        const inputs = el('div', { class: 'lf660' }); edit.append(inputs);
+        const saved = el('div', { class: 'secC clearfix', style: 'display: none;' });
+        section.append(empty, edit, saved); $('main').append(section);
+        const add = event => {
+          event.preventDefault(); fixture.adds[id]++;
+          if (!fixture.config.baseInfoComplete) { notice('请完善基础信息'); return; }
+          if (id === 'educationInfo' && fixture.records[id].length >= 5) { notice('最多添加5段经历'); return; }
+          notice('');
+          $$('input[type=text], textarea', edit).forEach(input => { input.value = input.defaultValue; delete input.dataset.code; });
+          $$('input[type=radio]', edit).forEach(input => { input.checked = input.defaultChecked; });
+          $$('.slt > span, .dateSlt > span', edit).forEach(span => { span.textContent = '请选择'; delete span.dataset.code; });
+          $$('.slt > ul, .inputStudyList, .slideCon', edit).forEach(list => { list.style.display = 'none'; });
+          $$('.inputTip', edit).forEach(span => { span.textContent = ''; });
+          $('.btnP .save', edit).dataset.code = '';
+          if (id === 'awardInfo') {
+            $$('.cadres', edit).forEach(node => { node.style.display = fixture.cadre ? 'none' : 'block'; });
+            $$('.award', edit).forEach(node => { node.style.display = 'block'; });
+            $('#cadresDescRed').style.display = 'none';
+          }
+          empty.style.display = 'none'; edit.style.display = 'block'; saved.style.display = 'block';
+          const fulltime = $('.isFulltime', edit); if (fulltime) fulltime.style.display = 'none';
+        };
+        $('.secH a', section).addEventListener('click', add); plus.addEventListener('click', add);
+        return { section, inputs, edit, saved, empty };
+      };
+      const education = makeSection('educationInfo', '教育经历');
+      dateField(education.inputs, 'sltTime', '入学时间'); dateField(education.inputs, 'sltTime_t', '毕业时间');
+      selectField(education.inputs, 'education', '学历', ['博士研究生', '硕士研究生', '大学本科', '大学专科', '其他']);
+      selectField(education.inputs, 'educationType', '教育类型', ['统招', '统分统招', '海外留学', '成人教育', '定向', '非定向', '委培', '自费', '专升本', '其他']);
+      const school = textField(education.inputs, 'educationSchool', '学校名称', '输入学校名称', 100);
+      school.classList.add('inputStudy');
+      const suggestions = el('ul', { class: 'inputStudyList slt470', style: 'display: none;' }); school.after(suggestions);
+      const schools = ['青岚科技大学', '云川工程大学'];
+      school.addEventListener('input', () => {
+        suggestions.replaceChildren();
+        schools.filter(name => name.includes(school.value)).forEach(name => {
+          const li = el('li', { 'data-code': 'fictional-school-' + schools.indexOf(name), 'data-ccode': 'CN', 'data-cname': '中国' }, name);
+          li.addEventListener('click', () => {
+            school.value = name; school.dataset.code = li.dataset.code;
+            $('#country > span').textContent = '中国'; $('#country > span').dataset.code = 'CN';
+            suggestions.style.display = 'none'; suggestions.replaceChildren();
+          });
+          suggestions.append(li);
+        });
+        suggestions.style.display = suggestions.childElementCount ? 'block' : 'none';
+      });
+      selectField(education.inputs, 'schoolProperty', '院校性质', ['海外院校', '国内普通院校', '985', '211', '港澳台院校']);
+      radios(education.inputs, 'isFulltime', '是否全日制');
+      selectField(education.inputs, 'country', '国家地区', ['中国', '英国', '美国']);
+      selectField(education.inputs, 'lengthOfSchooling', '学制', Array.from({ length: 18 }, (_, index) => String((index + 1) / 2)));
+      radios(education.inputs, 'isHigestDegree', '是否最高学历');
+      const fulltimeRow = radios(education.inputs, 'isFulltimeMaxEdu', '是否全日制最高学历');
+      fulltimeRow.classList.add('isFulltime'); fulltimeRow.style.display = 'none';
+      $$('input[name=isFulltime]').forEach(input => input.addEventListener('change', () => { fulltimeRow.style.display = input.dataset.code === 'Y' ? 'block' : 'none'; }));
+      selectField(education.inputs, 'degree1', '学位', ['博士', '硕士', '学士', '无']);
+      textField(education.inputs, 'college1', '院系', '请输入院系', 50);
+      radios(education.inputs, 'isHigestAcademic1', '是否最高学位', false, 'N');
+      textField(education.inputs, 'specialty1', '专业名称', '请输入专业名称', 50);
+      textField(education.inputs, 'researchArea1', '研究方向', '请输入研究方向', 100, false);
+      textField(education.inputs, 'course1', '专业课程', '请输入专业课程', 100, false);
+      radios(education.inputs, 'isMainStudy1', '是否主学习经历');
+      selectField(education.inputs, 'rank', '年级排名', ['前5%', '前10%', '前20%', '前30%', '前40%', '前50%', '前60%', '前80%', '其他']);
+      const proof = textField(education.inputs, 'eduCertificateFileTip', '教育经历证明', '附件只支持zip和rar格式', 100, false);
+      proof.readOnly = true; proof.classList.add('inputAttach');
+      const proofRequired = el('font', { class: 'red', style: 'display: none;' }, '*'); $('dt', proof.closest('dl')).append(proofRequired);
+      proof.after(el('input', { type: 'file', id: 'eduCertificateFile', style: 'display: none;' }));
+      const upload = el('button', { type: 'button', id: 'fixture-upload-proof' }, '测试：模拟证明上传成功');
+      upload.addEventListener('click', () => { proof.value = '虚构教育证明.zip'; $('.inputTip', proof.closest('dd')).textContent = '上传成功'; });
+      proof.parentElement.append(upload);
+      let requireProof = false;
+      Object.defineProperty(fixture.config, 'requireProof', {
+        enumerable: true, get: () => requireProof,
+        set: value => { requireProof = Boolean(value); proofRequired.style.display = requireProof ? 'inline' : 'none'; },
+      });
+      const project = makeSection('projectInfo', '项目经历');
+      textField(project.inputs, 'projectName', '项目名称', '输入项目名称', 100);
+      textField(project.inputs, 'projectCompany', '所在公司', '请输入所在公司名称', 50);
+      textField(project.inputs, 'projectJob', '职务', '请输入职务', 50);
+      dateField(project.inputs, 'projectTime', '项目开始时间'); dateField(project.inputs, 'projectTime_t', '项目结束时间');
+      textField(project.inputs, 'projectDuty', '项目职责', '字数控制在500个汉字以内', 500, true, true);
+      textField(project.inputs, 'projectDesc', '项目简述', '字数控制在500个汉字以内', 500, true, true);
+      textField(project.inputs, 'projectArchievement', '项目业绩', '字数控制在500个汉字以内', 500, false, true);
+      project.empty.style.display = 'none'; $('.secH a', project.section).style.display = 'none';
+      $$('input[name=isHasProjectInfo]').forEach(input => input.addEventListener('change', () => {
+        const yes = input.dataset.code === 'Y';
+        panels(project.section).forEach(pane => { pane.style.display = 'none'; });
+        $('.secH a', project.section).style.display = yes ? 'block' : 'none';
+        (fixture.records.projectInfo.length ? project.saved : project.empty).style.display = yes ? 'block' : 'none';
+      }));
+      const award = makeSection('awardInfo', '在校奖励活动');
+      const cadre = radios(award.inputs, 'isCadres', '是否学生干部', true, 'N'); cadre.classList.add('cadres');
+      const cadreDesc = textField(award.inputs, 'cadresDesc', '学生干部描述', '字数控制在500个字以内', 500, false, true);
+      cadreDesc.closest('dl').classList.add('cadres');
+      const cadreStar = el('font', { id: 'cadresDescRed', class: 'red', style: 'display: none;' }, '*'); $('dt', cadreDesc.closest('dl')).append(cadreStar);
+      $$('input[name=isCadres]').forEach(input => input.addEventListener('change', () => { cadreStar.style.display = input.dataset.code === 'Y' ? 'inline' : 'none'; }));
+      textField(award.inputs, 'awardSchool', '所在学校', '请输入所在学校', 50, false);
+      textField(award.inputs, 'awardType', '奖项类别', '请输入奖项类别', 50, false);
+      textField(award.inputs, 'awardName', '奖励名称', '请输入奖励名称', 50);
+      selectField(award.inputs, 'awardLevel', '奖励级别', ['国际级', '国家级', '省部级', '地市级', '院校级', '其他']);
+      dateField(award.inputs, 'awardObtainTime', '获奖时间', true);
+      selectField(award.inputs, 'scholarshipLevel', '奖学金等级', ['一等奖', '二等奖', '三等奖', '其他'], false);
+      textField(award.inputs, 'awardSummary', '简要描述', '字数控制在500个字以内', 500, true, true);
+      $$('dl:not(.cadres)', award.inputs).forEach(node => node.classList.add('award'));
+      award.empty.style.display = 'none'; $('.secH a', award.section).style.display = 'none';
+      $$('input[name=isHasAwardInfo]').forEach(input => input.addEventListener('change', () => {
+        const yes = input.dataset.code === 'Y';
+        panels(award.section).forEach(pane => { pane.style.display = 'none'; });
+        $('.secH a', award.section).style.display = yes ? 'block' : 'none';
+        (fixture.records.awardInfo.length || fixture.cadre ? award.saved : award.empty).style.display = yes ? 'block' : 'none';
+      }));
+      const emptyValue = input => !input.value.trim() || input.value === input.defaultValue;
+      const values = section => {
+        const result = {};
+        $$('input[type=text], textarea', editor(section)).forEach(input => { result[input.id] = emptyValue(input) ? '' : input.value; });
+        $$('.slt, .dateSlt', editor(section)).forEach(control => { result[control.id] = $(':scope > span', control).textContent; });
+        $$('input[type=radio]:checked', editor(section)).forEach(input => { result[input.name] = input.dataset.code; });
+        return result;
+      };
+      const validate = section => {
+        let valid = true;
+        $$('.inputTip', editor(section)).forEach(span => { span.textContent = ''; });
+        $$('dl', editor(section)).forEach(dl => {
+          if (!visibility(dl)) return;
+          const star = $(':scope > dt .red', dl);
+          if (!star || !visibility(star)) return;
+          let missing = $$('input[type=text], textarea', dl).some(emptyValue)
+            || $$('.slt > span, .dateSlt > span', dl).some(span => span.textContent === '请选择');
+          const radios = $$('input[type=radio]', dl); if (radios.length && !radios.some(input => input.checked)) missing = true;
+          if (missing) { $('.inputTip', dl).textContent = '请填写' + $('dt', dl).childNodes[0].textContent.trim(); valid = false; }
+        });
+        if (section.id === 'educationInfo' && !school.dataset.code) {
+          $('.inputTip', school.parentElement).textContent = '请选择学校列表中的学校'; valid = false;
+        }
+        return valid;
+      };
+      const paragraph = (parent, className, text, bold = false) => {
+        const p = el('p', { class: className }); if (bold) p.append(el('b', {}, text)); else p.textContent = text; parent.append(p); return p;
+      };
+      const renderRecord = (section, record) => {
+        const dl = el('dl', { class: 'secC_dl clearfix' });
+        const dd3 = el('dd', { class: 'dd3' }), dd2 = el('dd', { class: 'dd2' });
+        const educationRecord = section.id === 'educationInfo';
+        if (section.id === 'awardInfo') {
+          paragraph(dd3, 'p25', record.awardName).prepend(el('span', { class: 'circle' }));
+          ['awardLevel', 'awardType', 'awardSchool', 'scholarshipLevel', 'awardObtainTime'].forEach(key => {
+            if (record[key] && record[key] !== '请选择') paragraph(dd3, 'p25', key === 'awardObtainTime' ? record[key].replace('-', '.') : record[key]);
+          });
+          paragraph(dd3, 'p100', '简要描述：' + record.awardSummary);
+          dd2.append(el('a', { class: 'edit', 'data-code': record.id, href: 'javascript:;' }, '编辑'));
+          dl.append(dd3, dd2); panels(section)[2].append(dl); return;
+        }
+        const start = record[educationRecord ? 'sltTime' : 'projectTime'], end = record[educationRecord ? 'sltTime_t' : 'projectTime_t'];
+        const period = paragraph(dd3, educationRecord ? 'p25' : 'p33', start.replaceAll('-', '.') + '-' + end.replaceAll('-', '.'));
+        period.prepend(el('span', { class: 'circle' }));
+        if (educationRecord) {
+          paragraph(dd3, 'p75', [record.educationSchool, record.educationType, record.schoolProperty, record.education].join('\u00a0\u00a0\u00a0\u00a0'), true);
+          paragraph(dd3, 'p100', [record.degree1, record.college1, record.specialty1].join(' | '));
+          paragraph(dd3, 'p100', `国家地区：${record.country} 学制：${record.lengthOfSchooling} 年级排名：${record.rank}`);
+        } else {
+          paragraph(dd3, 'p33', record.projectCompany, true); paragraph(dd3, 'p33', record.projectJob, true);
+          paragraph(dd3, 'p100', '项目名称：' + record.projectName);
+          paragraph(dd3, 'p100', '项目职责：' + record.projectDuty); paragraph(dd3, 'p100', '项目简述：' + record.projectDesc);
+          if (record.projectArchievement) paragraph(dd3, 'p100', '项目业绩：' + record.projectArchievement);
+        }
+        dd2.append(el('a', { class: 'edit', 'data-code': record.id, href: 'javascript:;' }, '编辑'));
+        const remove = el('a', { class: 'dele', 'data-code': record.id, href: 'javascript:;' }, '删除');
+        remove.addEventListener('click', () => { fixture.deletes++; }); dd2.append(remove);
+        dl.append(dd3, dd2); panels(section)[2].append(dl);
+      };
+      const save = section => {
+        if (section.id === 'awardInfo') { saveAward(); return; }
+        fixture.saves[section.id]++;
+        if (!validate(section)) return;
+        if (fixture.config.saveFailure === true || fixture.config.saveFailure === section.id) {
+          notice('系统繁忙，请稍后重试'); return;
+        }
+        const record = { id: section.id + '-' + (fixture.records[section.id].length + 1), ...values(section) };
+        setTimeout(() => {
+          fixture.records[section.id].push(record); fixture.sequence.push({ section: section.id, ...record });
+          renderRecord(section, record);
+          panels(section)[0].style.display = 'none'; panels(section)[1].style.display = 'none'; panels(section)[2].style.display = 'block';
+        }, fixture.config.saveDelay);
+      };
+      window.saveEducationInfo = () => save(education.section);
+      window.saveProjectInfo = () => save(project.section);
+      const redrawAwards = () => {
+        award.saved.replaceChildren();
+        if (fixture.cadre) {
+          const dl = el('dl', { class: 'secC_dl' }); const dd = el('dd', { class: 'dd3' });
+          const p = paragraph(dd, 'p100', '是否学生干部：【' + (fixture.cadre === 'Y' ? '是' : '否') + '】'); p.prepend(el('span', { class: 'circle' }));
+          const edit = el('a', { class: 'edit', href: 'javascript:;' }, '编辑');
+          edit.addEventListener('click', () => {
+            $$('.cadres', award.edit).forEach(node => { node.style.display = 'block'; });
+            $$('.award', award.edit).forEach(node => { node.style.display = 'none'; });
+            $(`input[name=isCadres][data-code=${fixture.cadre}]`).click();
+            award.edit.style.display = 'block';
+          });
+          dl.append(dd, edit); award.saved.append(dl);
+        }
+        fixture.records.awardInfo.forEach(record => renderRecord(award.section, record));
+        award.empty.style.display = 'none'; award.edit.style.display = 'none'; award.saved.style.display = 'block';
+      };
+      const saveAward = () => {
+        fixture.saves.awardInfo++;
+        if (!validate(award.section)) return;
+        const record = { id: 'award-' + (fixture.records.awardInfo.length + 1), ...values(award.section) };
+        if (visibility(cadre)) {
+          fixture.cadreSaves++;
+          if (!fixture.config.cadreFailure) setTimeout(() => { fixture.cadre = record.isCadres; redrawAwards(); }, fixture.config.cadreDelay);
+        }
+        if (visibility($('#awardName')) && !fixture.config.saveFailure) {
+          setTimeout(() => { fixture.records.awardInfo.push(record); fixture.sequence.push({ section: 'awardInfo', ...record }); redrawAwards(); }, fixture.config.saveDelay);
+        }
+      };
+      window.saveAwardInfo = saveAward;
+      fixture.seedCadre = code => { fixture.cadre = code; redrawAwards(); };
+      [education, project, award].forEach(({ section, edit, saved, empty }) => {
+        const buttons = el('p', { class: 'btnP clearfix' });
+        const saveName = section.id === 'educationInfo' ? 'saveEducationInfo' : section.id === 'awardInfo' ? 'saveAwardInfo' : 'saveProjectInfo';
+        const saveButton = el('a', { class: 'cur save', href: 'javascript:' + saveName + '();', 'data-code': '' }, '保存');
+        saveButton.addEventListener('click', event => { event.preventDefault(); save(section); });
+        const cancel = el('a', { class: 'cancel', href: 'javascript:;' }, '取消');
+        cancel.addEventListener('click', event => {
+          event.preventDefault(); edit.style.display = 'none';
+          (fixture.records[section.id].length ? saved : empty).style.display = 'block';
+        });
+        buttons.append(saveButton, cancel); edit.append(buttons);
+      });
+      $('#final-submit').addEventListener('click', () => { fixture.submits++; });
+      fixture.seed = (sectionId, record) => {
+        const section = $('#' + sectionId);
+        const entry = { id: 'seed-' + (fixture.records[sectionId].length + 1), ...record };
+        fixture.records[sectionId].push(entry); renderRecord(section, entry);
+        panels(section)[0].style.display = 'none'; panels(section)[2].style.display = 'block';
+      };
+      fixture.controls = { el, row, textField, selectField, dateField, radios, makeSection };
+    })();
+  </script>
+</body>
+</html>

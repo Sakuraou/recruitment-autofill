@@ -54,6 +54,58 @@ export function previousText(node: FormControl): string {
   return '';
 }
 
+function conciseContext(element: Element | null): string {
+  const text = contextText(element);
+  return text.length > 0 && text.length <= 80 ? text : '';
+}
+
+/**
+ * Find the visible caption used by older table layouts and newer grid/form-item
+ * layouts when the page does not use a real <label for>. Values in neighboring
+ * controls are removed by contextText before anything leaves the page.
+ */
+export function structuralLabel(node: FormControl): string {
+  const cell = node.closest('td, th');
+  if (cell) {
+    let previous = cell.previousElementSibling;
+    while (previous) {
+      const text = conciseContext(previous);
+      if (text) return text;
+      if (previous.querySelector(CONTROL_SELECTOR)) break;
+      previous = previous.previousElementSibling;
+    }
+  }
+  const dd = node.closest('dd');
+  if (dd) {
+    let previous = dd.previousElementSibling;
+    while (previous) {
+      if (previous.matches('dt')) return conciseContext(previous);
+      if (previous.matches('dd')) break;
+      previous = previous.previousElementSibling;
+    }
+  }
+  let target: Element | null = node;
+  for (let depth = 0; target && depth < 6; depth++) {
+    let sibling = target.previousElementSibling;
+    for (let distance = 0; sibling && distance < 4; distance++, sibling = sibling.previousElementSibling) {
+      if (sibling.matches(CONTROL_SELECTOR) || sibling.querySelector(CONTROL_SELECTOR)) break;
+      const explicit = sibling.matches('label, dt, th, [class*="label" i], [class*="title" i], [class*="caption" i], [data-label]');
+      const text = conciseContext(sibling);
+      if (text && (explicit || distance === 0)) return text;
+    }
+    const container: Element | null = target.parentElement;
+    if (!container || container.matches('form, body, html, table')) break;
+    const controls = container.querySelectorAll(CONTROL_SELECTOR);
+    if (controls.length === 1) {
+      const candidates = Array.from(container.querySelectorAll<Element>(':scope > label, :scope > dt, :scope > th, :scope > [class*="label" i], :scope > [class*="title" i], :scope > [class*="caption" i], :scope > [data-label]'));
+      const text = candidates.map(conciseContext).find(Boolean);
+      if (text) return text;
+    }
+    target = container;
+  }
+  return '';
+}
+
 export function sectionText(node: FormControl): string {
   const fieldset = node.closest('fieldset');
   if (fieldset) {
@@ -119,6 +171,52 @@ export function selectOptions(node: HTMLSelectElement): FieldOption[] {
   }));
 }
 
+export interface CollectedControls {
+  nodes: FormControl[];
+  sameOriginFrameCount: number;
+  openShadowRootCount: number;
+  inaccessibleFrameCount: number;
+}
+
+/** Walk every browser-accessible form root without crossing an origin boundary. */
+export function collectControls(doc: Document): CollectedControls {
+  const nodes: FormControl[] = [];
+  const seenRoots = new Set<Document | ShadowRoot>();
+  let sameOriginFrameCount = 0;
+  let openShadowRootCount = 0;
+  let inaccessibleFrameCount = 0;
+  const walk = (root: Document | ShadowRoot): void => {
+    if (seenRoots.has(root)) return;
+    seenRoots.add(root);
+    nodes.push(...Array.from(root.querySelectorAll<FormControl>(CONTROL_SELECTOR)));
+    for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+      if (element.shadowRoot) { openShadowRootCount++; walk(element.shadowRoot); }
+    }
+    for (const frame of Array.from(root.querySelectorAll<HTMLIFrameElement>('iframe, frame'))) {
+      try {
+        const child = frame.contentDocument;
+        if (child) { sameOriginFrameCount++; walk(child); } else inaccessibleFrameCount++;
+      } catch { inaccessibleFrameCount++; }
+    }
+  };
+  walk(doc);
+  return { nodes, sameOriginFrameCount, openShadowRootCount, inaccessibleFrameCount };
+}
+
+/** Validate that an element is still connected through accessible nested frames. */
+export function belongsToDocument(node: Element, rootDocument: Document): boolean {
+  if (!node.isConnected) return false;
+  let owner: Document | null = node.ownerDocument;
+  while (owner && owner !== rootDocument) {
+    try {
+      const frame: Element | null | undefined = owner.defaultView?.frameElement;
+      if (!frame || !frame.isConnected) return false;
+      owner = frame.ownerDocument;
+    } catch { return false; }
+  }
+  return owner === rootDocument;
+}
+
 export function isPlaceholderOption(option: HTMLOptionElement | undefined): boolean {
   if (!option) return true;
   const label = cleanText(option.label).replace(/^[-—–_\s]+|[-—–_\s]+$/gu, '');
@@ -129,7 +227,10 @@ export function isPlaceholderOption(option: HTMLOptionElement | undefined): bool
 export function hasValue(node: FormControl): boolean {
   if (node.tagName === 'SELECT') {
     const select = node as HTMLSelectElement;
-    return Array.from(select.selectedOptions).some((option) => !isPlaceholderOption(option));
+    const meaningful = Array.from(select.selectedOptions).filter((option) => !isPlaceholderOption(option));
+    if (meaningful.length === 1 && select.selectedIndex === 0 && meaningful[0]
+      && !meaningful[0].defaultSelected && /^(?:无|暂无|未填|未设置|none|not set)$/iu.test(cleanText(meaningful[0].label))) return false;
+    return meaningful.length > 0;
   }
   if (node.tagName === 'INPUT' && ['radio', 'checkbox'].includes((node as HTMLInputElement).type)) return (node as HTMLInputElement).checked;
   return node.value !== '' && !mobilePlaceholder(node as HTMLInputElement | HTMLTextAreaElement);

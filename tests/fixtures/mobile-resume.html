@@ -22,7 +22,7 @@
 <dl><dt>邮箱</dt><dd><input class="inputxt" id="existingEmail" value="keep@example.invalid"></dd></dl>
 <dl><dt>紧急联系人姓名</dt><dd><input class="inputxt" id="emergencyContactPerson" value="请输入紧急联系人姓名"></dd></dl>
 </div></div>
-<div class="secon" id="projectInfo"><h3 class="secH"><span class="lf">项目经历</span></h3><div class="secC" style="display:none">
+<div class="secon" id="projectInfo"><h3 class="secH"><span class="lf">项目经历</span></h3><button type="button" id="edit-project">编辑项目经历（测试）</button><div class="secC" style="display:none">
 <dl><dt>项目名称</dt><dd><input class="inputxt" id="projectName" value="输入项目名称"></dd></dl>
 <dl><dt>项目职责</dt><dd><textarea class="textareaWork" id="projectDuty">字数控制在500个汉字以内</textarea></dd></dl>
 </div></div>
@@ -31,6 +31,7 @@
 <script>
 // Independent reproduction of the site's local option click behavior. No server or saved session.
 const selections = new Map();
+document.getElementById('edit-project').addEventListener('click', () => { document.querySelector('#projectInfo .secC').style.display = ''; });
 document.querySelectorAll('.slt > ul > li').forEach(option => option.addEventListener('click', () => {
   const widget = option.closest('.slt');
   widget.querySelector(':scope > span').textContent = option.textContent;

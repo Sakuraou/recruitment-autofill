@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "basic": { "name": "测试同学" },
+  "education": [
+    {
+      "id": "fictional-master",
+      "level": "硕士研究生",
+      "school": "云川工程大学",
+      "college": "智能科学学院",
+      "major": "计算机技术",
+      "degree": "工学硕士",
+      "startDate": "2023-09-04",
+      "endDate": "2026-06-30",
+      "studyMode": "全日制",
+      "ranking": "前20%",
+      "researchDirection": "视觉信息处理",
+      "courses": "机器学习、计算机视觉",
+      "educationType": "统招",
+      "schoolProperty": "国内普通院校",
+      "country": "中国",
+      "durationYears": "3"
+    },
+    {
+      "id": "fictional-bachelor",
+      "level": "本科",
+      "school": "青岚科技大学",
+      "college": "计算机学院",
+      "major": "软件工程",
+      "degree": "工学学士",
+      "startDate": "2019-09-07",
+      "endDate": "2023-06-25",
+      "studyMode": "全日制",
+      "ranking": "专业前25%",
+      "courses": "数据结构、数据库系统",
+      "educationType": "统招",
+      "schoolProperty": "国内普通院校",
+      "country": "中国",
+      "durationYears": "4"
+    }
+  ],
+  "research": { "papers": [], "patents": [] },
+  "projects": [
+    {
+      "id": "fictional-library",
+      "name": "校园图书检索平台",
+      "organization": "青岚科技大学",
+      "role": "开发成员",
+      "startDate": "2022-03-02",
+      "endDate": "2022-11-28",
+      "description": "面向课程实践的虚构图书检索应用，支持分类查询和收藏。",
+      "responsibilities": "实现查询接口、结果分页和收藏管理，编写接口测试。",
+      "achievements": "完成课程展示和使用说明。",
+      "technologies": ["TypeScript", "SQLite"]
+    },
+    {
+      "id": "fictional-sensor",
+      "name": "环境传感数据看板",
+      "organization": "云川工程大学",
+      "role": "开发负责人",
+      "startDate": "2024-01-08",
+      "endDate": "2024-08-20",
+      "description": "虚构传感器数据的可视化实验平台，展示采样趋势与异常提示。",
+      "responsibilities": "实现数据导入、趋势图和异常规则配置，组织模块联调。",
+      "achievements": "完成演示版本与实验记录。",
+      "technologies": ["Python", "React"]
+    }
+  ],
+  "internships": [],
+  "studentWork": [],
+  "awards": [],
+  "certificates": [],
+  "skills": { "programmingLanguages": [], "frameworks": [], "tools": [], "other": [] },
+  "commonAnswers": {},
+  "family": []
+}

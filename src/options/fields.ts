@@ -21,6 +21,9 @@ export const basicFields: EditorField[] = [
   { key: 'sourcePlace', label: '生源地' }, { key: 'hometown', label: '家乡' },
   { key: 'householdLocation', label: '户籍所在地' }, { key: 'address', label: '通讯地址' },
   { key: 'postalCode', label: '邮政编码' },
+  { key: 'interests', label: '兴趣爱好', kind: 'textarea' },
+  { key: 'studentCadre', label: '是否学生干部', kind: 'select', options: ['是', '否'] },
+  { key: 'studentCadreDescription', label: '学生干部描述', kind: 'textarea' },
 ];
 const dates: EditorField[] = [
   { key: 'startDate', label: '开始时间', kind: 'date' }, { key: 'endDate', label: '结束时间', kind: 'date' },
@@ -29,6 +32,13 @@ const experience: EditorField[] = [
   { key: 'organization', label: '单位 / 组织' }, { key: 'department', label: '部门' },
   { key: 'role', label: '职务' }, ...dates,
   { key: 'description', label: '工作内容', kind: 'textarea' }, { key: 'achievements', label: '实际成果', kind: 'textarea' },
+  { key: 'shortDuties', label: '校内职务职责与成就（50字内）' }, { key: 'cadreLevel', label: '干部级别（如适用）' },
+  { key: 'experienceType', label: '活动经历类型', kind: 'select', options: ['实习经历', '校内经历', '社会实践'] },
+  { key: 'workType', label: '工作类型', kind: 'select', options: ['实习', '全职', '兼职'] },
+  { key: 'companyProperty', label: '企业性质' }, { key: 'monthlySalary', label: '税前月薪范围', hint: '使用网站选项，例如1000-2000/月；未知时留空' },
+  { key: 'hasProof', label: '是否有证明', kind: 'select', options: ['是', '否'] },
+  { key: 'certifierName', label: '证明人姓名' }, { key: 'certifierRelation', label: '与证明人关系' },
+  { key: 'certifierDuty', label: '证明人职务' }, { key: 'certifierCompany', label: '证明人单位' }, { key: 'certifierContact', label: '证明人电话', kind: 'secret' },
 ];
 export const collections: Record<string, CollectionSpec> = {
   education: { path: 'education', title: '教育经历', fields: [
@@ -37,11 +47,14 @@ export const collections: Record<string, CollectionSpec> = {
     { key: 'school', label: '院校名称' }, { key: 'college', label: '学院' },
     { key: 'major', label: '专业名称' }, { key: 'majorCategory', label: '专业类别', hint: '不确定时留空，不根据专业名自动确定' },
     ...dates, { key: 'studyMode', label: '学习形式' }, { key: 'gpa', label: 'GPA / 成绩' },
+    { key: 'educationType', label: '教育类型', hint: '例如统招、非定向，按真实资料填写' },
+    { key: 'schoolProperty', label: '院校性质', hint: '例如211、985、国内普通院校' },
+    { key: 'country', label: '院校所属国家/地区' }, { key: 'durationYears', label: '学制（年）' },
     { key: 'gpaScale', label: 'GPA 满分' }, { key: 'ranking', label: '成绩排名' },
     { key: 'researchDirection', label: '研究方向', kind: 'textarea' }, { key: 'courses', label: '主修课程', kind: 'textarea' },
   ] },
   projects: { path: 'projects', title: '项目经历', defaults: { technologies: [] }, fields: [
-    { key: 'name', label: '项目名称' }, { key: 'role', label: '承担角色' }, ...dates,
+    { key: 'name', label: '项目名称' }, { key: 'organization', label: '项目所在单位', hint: '学校、公司或个人项目，按实际所属填写' }, { key: 'role', label: '承担角色' }, ...dates,
     { key: 'description', label: '项目描述', kind: 'textarea' },
     { key: 'responsibilities', label: '本人职责', kind: 'textarea' },
     { key: 'achievements', label: '实际成果', kind: 'textarea' },
@@ -54,6 +67,9 @@ export const collections: Record<string, CollectionSpec> = {
     { key: 'venue', label: '期刊 / 会议' }, { key: 'status', label: '当前状态' },
     { key: 'date', label: '发表 / 接收时间', kind: 'date' }, { key: 'doi', label: 'DOI' },
     { key: 'description', label: '本人贡献', kind: 'textarea' },
+    { key: 'shortTitle', label: '网申论文简称（50字内）' }, { key: 'abstract', label: '网申内容摘要（50字内）' },
+    { key: 'authorOrder', label: '实际作者排序', kind: 'select', options: ['第一作者', '第二作者', '其他'] },
+    { key: 'publicationSituation', label: '发表情况（50字内）' }, { key: 'coauthors', label: '合独著说明（50字内）' },
   ] },
   patents: { path: 'research.patents', title: '专利', fields: [
     { key: 'title', label: '专利名称' }, { key: 'number', label: '申请 / 授权号' },
@@ -62,6 +78,9 @@ export const collections: Record<string, CollectionSpec> = {
   ] },
   awards: { path: 'awards', title: '获奖情况', fields: [
     { key: 'name', label: '奖项名称' }, { key: 'level', label: '级别' },
+    { key: 'shortName', label: '网申用奖项简称', hint: '中国移动奖励名称最多50字；留空时使用完整名称' },
+    { key: 'school', label: '获奖时所在学校' }, { key: 'category', label: '奖项类别' },
+    { key: 'scholarshipLevel', label: '奖学金等级', hint: '仅奖学金填写，例如二等奖' },
     { key: 'issuer', label: '颁发单位' }, { key: 'date', label: '获奖时间', kind: 'date' },
     { key: 'description', label: '说明', kind: 'textarea' },
   ] },

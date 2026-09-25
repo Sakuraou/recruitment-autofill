@@ -91,7 +91,7 @@ try {
   await popup.getByRole('heading', { name: /匹配结果/ }).waitFor();
   const initialStats = await popup.locator('.popup-stats strong').allTextContents();
   report.initialStats = initialStats;
-  assert.equal(initialStats[0], '43');
+  assert.equal(initialStats[0], '42');
   assert.ok(Number(initialStats[1]) >= 25, `Too few high-confidence matches: ${initialStats}`);
   assert.equal(await form.locator('#major-category').inputValue(), '');
   await popup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'popup.png') });
@@ -149,12 +149,73 @@ try {
   });
   await nextPopup.getByRole('button', { name: '扫描页面', exact: true }).click();
   await nextPopup.getByRole('heading', { name: /匹配结果/ }).waitFor();
-  assert.equal((await nextPopup.locator('.popup-stats strong').allTextContents())[0], '44');
+  assert.equal((await nextPopup.locator('.popup-stats strong').allTextContents())[0], '43');
   await nextPopup.getByRole('button', { name: '一键填写高置信度字段' }).click();
   await nextPopup.getByRole('status').filter({ hasText: /已填写 1 项/ }).waitFor();
   assert.equal(await form.getByLabel('民族', { exact: true }).inputValue(), profile.basic.ethnicity);
   assert.equal(await form.locator('#submit-count').textContent(), '0');
   report.checks.push('Reopened popup rescans a dynamic field and preserves all previously filled values');
+
+  // A second, deliberately old-fashioned portal fixture exercises semantic IDs,
+  // table/div labels, readonly calendar inputs, same-origin frames and open shadow roots.
+  await nextPopup.close();
+  const legacyUrl = 'http://127.0.0.1:4173/legacy-recruitment-form.html';
+  const legacy = await context.newPage();
+  await legacy.goto(legacyUrl);
+  await legacy.locator('#RecruitmentPortalPersonProfile_Birthday').waitFor();
+  await legacy.frameLocator('#legacy-profile-frame').locator('#LegacyIframeHouseholdLocation').waitFor();
+  await legacy.locator('#legacy-shadow-host').locator('#LegacyShadowPoliticalStatus').waitFor();
+  const legacyTargets = await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] });
+  const legacyTarget = legacyTargets.targetInfos.find(target => target.url === legacyUrl);
+  assert.ok(legacyTarget, `Legacy fixture tab target missing: ${JSON.stringify(legacyTargets.targetInfos)}`);
+  await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: legacyTarget.targetId });
+  const legacyPopup = await context.newPage();
+  await legacyPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await worker.evaluate(async url => {
+    const tabs = await chrome.tabs.query({});
+    const target = tabs.find(tab => tab.url === url);
+    if (!target?.id) throw new Error('Legacy fixture activeTab grant missing');
+    await chrome.tabs.update(target.id, { active: true });
+  }, legacyUrl);
+  await legacyPopup.getByRole('button', { name: '扫描页面', exact: true }).click();
+  await legacyPopup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+  const legacyStats = await legacyPopup.locator('.popup-stats strong').allTextContents();
+  report.legacyStats = legacyStats;
+  assert.ok(Number(legacyStats[0]) >= 22, `Nested controls were not all scanned: ${legacyStats}`);
+  assert.ok(Number(legacyStats[1]) >= 17, `Too few legacy fields are high confidence: ${legacyStats}`);
+  await legacyPopup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+  await legacyPopup.getByRole('status').filter({ hasText: /已填写/ }).waitFor();
+  report.legacyFillMessage = await legacyPopup.getByRole('status').textContent();
+  assert.match(report.legacyFillMessage, /自动重扫 1 次/, 'Dependent field did not trigger the bounded rescan loop');
+
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_Name').inputValue(), profile.basic.name);
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_Birthday').inputValue(), profile.basic.birthday);
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_CertificateType').inputValue(), 'ID');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_CertificateNumber').inputValue(), profile.basic.idNumber);
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_HighestEducation').inputValue(), 'master');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_HighestDegree').inputValue(), 'master');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_EducationStudyMode').inputValue(), 'fulltime');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_MajorCourse').inputValue(), profile.education[0].courses);
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_ProfessionalRanking').inputValue(), '');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_RecruitmentChannel').inputValue(), '');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_TalentSource').inputValue(), '');
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_Gender_Male').isChecked(), true);
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_Gender_Female').isChecked(), false);
+
+  assert.equal(await legacy.locator('#RecruitmentPortalPersonProfile_Interests').inputValue(), profile.basic.interests);
+  assert.ok((await legacy.locator('#RecruitmentPortalPersonProfile_Honors').inputValue()).includes(profile.awards[0].name));
+  assert.ok((await legacy.locator('#RecruitmentPortalPersonProfile_AcademicWorks').inputValue()).includes(profile.research.papers[0].title));
+  assert.ok((await legacy.locator('#RecruitmentPortalPersonProfile_PatentAchievements').inputValue()).includes(profile.research.patents[0].title));
+  assert.ok((await legacy.locator('#RecruitmentPortalPersonProfile_Strengths').inputValue()).includes(profile.skills.programmingLanguages[0]));
+  assert.ok((await legacy.locator('#RecruitmentPortalPersonProfile_SpecialSkills').inputValue()).includes(profile.skills.programmingLanguages[0]));
+  assert.ok((await legacy.locator('#RecruitmentPortalPersonProfile_SocialActivities').inputValue()).includes(profile.studentWork[0].organization));
+  assert.equal(await legacy.frameLocator('#legacy-profile-frame').locator('#LegacyIframeHouseholdLocation').inputValue(), profile.basic.householdLocation);
+  assert.equal(await legacy.locator('#legacy-shadow-host').locator('#LegacyShadowPoliticalStatus').inputValue(), profile.basic.politicalStatus);
+  assert.equal(await legacy.locator('#legacy-submit-count').textContent(), '0');
+  await legacyPopup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'legacy-popup.png') });
+  await legacy.screenshot({ path: resolve(artifacts, 'legacy-form.png'), fullPage: true });
+  report.checks.push('Traditional portal: semantic long IDs, table/div labels, readonly birthday, radio, profile-level education, aggregate answers, iframe and open shadow fields fill automatically; unknown source fields stay empty; no submit');
+  await legacyPopup.close();
 
   // Fulfill an isolated synthetic fixture at the adapter's origin. This never reaches the actual site.
   const mobileUrl = 'https://job.10086.cn/personal/resume_campus.html?fixture=1';
@@ -199,6 +260,38 @@ try {
   await mobilePopup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'mobile-popup.png') });
   await mobile.screenshot({ path: resolve(artifacts, 'mobile-form.png'), fullPage: true });
   report.checks.push('Synthetic China Mobile template: value prompts filled, custom select event updates site state, existing/hidden/English/contact/dependent controls protected; no actual site request or submit');
+  await mobile.getByRole('button', { name: '编辑项目经历（测试）' }).click();
+  await mobilePopup.getByRole('button', { name: '扫描页面', exact: true }).click();
+  await mobilePopup.getByRole('combobox', { name: '项目名称：选择档案经历' }).waitFor();
+  assert.equal(await mobilePopup.getByRole('combobox', { name: '项目名称：选择档案经历' }).inputValue(), '');
+  await mobilePopup.getByRole('combobox', { name: '项目名称：选择档案经历' }).selectOption('projects.1.name');
+  await mobilePopup.getByRole('button', { name: '同组使用这段经历（2 项，仍需核对）' }).click();
+  assert.equal(await mobilePopup.getByRole('combobox', { name: '项目职责：选择档案经历' }).inputValue(), 'projects.1.responsibilities');
+  const confirmations = mobilePopup.getByLabel('我已核对这个候选');
+  assert.equal(await confirmations.count(), 2);
+  for (const checkbox of await confirmations.all()) { assert.equal(await checkbox.isChecked(), false); await checkbox.check(); }
+  await mobilePopup.getByRole('button', { name: '确认填写已勾选的 2 项' }).click();
+  await mobilePopup.getByRole('status').filter({ hasText: '已填写 2 项，跳过或未完成 0 项' }).waitFor();
+  assert.equal(await mobile.locator('#projectName').inputValue(), profile.projects[1].name);
+  assert.equal(await mobile.locator('#projectDuty').inputValue(), profile.projects[1].responsibilities);
+  assert.equal(await mobile.locator('#submit-count').textContent(), '0');
+  report.checks.push('Open hidden project editor, rescan, choose second original project for both fields, confirm and fill; never defaults to first project');
+  const problemDownload = mobilePopup.waitForEvent('download');
+  await mobilePopup.getByRole('button', { name: '下载问题报告（填写值已隐藏）' }).click();
+  const problemFile = await problemDownload;
+  const problemPath = resolve(artifacts, 'problem-report.json');
+  await problemFile.saveAs(problemPath);
+  const problem = JSON.parse(await readFile(problemPath, 'utf8'));
+  const manifest = JSON.parse(await readFile(resolve(root, 'dist/manifest.json'), 'utf8'));
+  assert.equal(problem.extensionVersion, manifest.version);
+  assert.equal(problem.contentVersion, manifest.version);
+  assert.equal(problem.summary.filled, 2);
+  assert.equal(problem.pageType, 'china-mobile-campus');
+  assert.ok(!JSON.stringify(problem).includes(profile.basic.name));
+  assert.ok(!JSON.stringify(problem).includes(profile.projects[1].name));
+  report.extensionVersion = manifest.version;
+  report.checks.push('Actual diagnostic download has current versions and fill outcomes, masks candidate names and project names');
+  await mobilePopup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'mobile-project-popup.png') });
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);
   report.passed = true;

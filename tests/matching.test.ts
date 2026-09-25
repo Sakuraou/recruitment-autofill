@@ -11,8 +11,8 @@ function field(label: string, overrides: Partial<FieldDescriptor> = {}): FieldDe
 
 function profile(): UserProfile {
   const value = createEmptyProfile();
-  value.basic = { name: '测试申请人', phone: '13800000000', email: 'example@example.com', birthday: '2000-02-03',
-    gender: '男', idNumber: '110101200002031234', address: '示例市示例路 1 号', nativePlace: '示例省', sourcePlace: '示例市' };
+  value.basic = { name: '测试申请人', phone: '00000000000', email: 'student@example.invalid', birthday: '2000-02-03',
+    gender: '男', idNumber: 'TEST-ID-NOT-VALID', address: '示例市示例路 1 号', nativePlace: '示例省', sourcePlace: '示例市' };
   value.education = [
     { id: 'bachelor', level: '本科', school: '示例理工大学', major: '计算机科学与技术', degree: '工学学士', startDate: '2019-09', endDate: '2023-06' },
     { id: 'master', level: '硕士研究生', school: '示例科技大学', college: '计算机学院', major: '软件工程', degree: '电子信息硕士',
@@ -26,9 +26,9 @@ function profile(): UserProfile {
 describe('local rule and Chinese alias matcher', () => {
   it.each([
     ['姓名', 'basic.name', '测试申请人'], ['真实姓名', 'basic.name', '测试申请人'],
-    ['Applicant Name', 'basic.name', '测试申请人'], ['手机号', 'basic.phone', '13800000000'],
-    ['联系电话（手机）', 'basic.phone', '13800000000'], ['Mobile', 'basic.phone', '13800000000'],
-    ['电子邮箱', 'basic.email', 'example@example.com'], ['E-mail', 'basic.email', 'example@example.com'],
+    ['Applicant Name', 'basic.name', '测试申请人'], ['手机号', 'basic.phone', '00000000000'],
+    ['联系电话（手机）', 'basic.phone', '00000000000'], ['Mobile', 'basic.phone', '00000000000'],
+    ['电子邮箱', 'basic.email', 'student@example.invalid'], ['E-mail', 'basic.email', 'student@example.invalid'],
     ['出生日期', 'basic.birthday', '2000-02-03'], ['籍贯', 'basic.nativePlace', '示例省'],
     ['生源地', 'basic.sourcePlace', '示例市'], ['家庭住址', 'basic.address', '示例市示例路 1 号'],
   ])('%s uses actual %s', (label, key, expected) => {
@@ -42,6 +42,26 @@ describe('local rule and Chinese alias matcher', () => {
   it('reads labels before broad nearby text or generic IDs', () => {
     const result = matchField(field('电子邮箱', { name: 'name', parentText: '姓名 手机 电子邮箱 家庭成员 政治面貌' }), profile());
     expect(result).toMatchObject({ status: 'auto', matchedProfileKey: 'basic.email' });
+  });
+
+  it('ranks an exact visible row label above a conflicting framework resource key', () => {
+    expect(matchField(field('RecruitmentPortalPersonProfile_CertificateNumber', {
+      tableHeader: '证件号码', name: 'RecruitmentPortalPersonProfile_CertificateNumber',
+    }), profile())).toMatchObject({ status: 'auto', matchedProfileKey: 'basic.idNumber', value: 'TEST-ID-NOT-VALID' });
+  });
+
+  it('never substitutes a professional certificate number for a missing identity number', () => {
+    const data = profile();
+    delete data.basic.idNumber;
+    data.certificates = [{ id: 'cert', name: '测试证书', number: 'CERT-DO-NOT-USE' }];
+    expect(matchField(field('RecruitmentPortalPersonProfile_CertificateNumber', {
+      tableHeader: '证件号码', name: 'RecruitmentPortalPersonProfile_CertificateNumber',
+    }), data)).toMatchObject({ status: 'missing', matchedProfileKey: 'basic.idNumber', value: undefined });
+  });
+
+  it('tokenizes a camel-case profile resource key when no visible label is available', () => {
+    expect(matchField(field('', { name: 'RecruitmentPortalPersonProfile_Birthday' }), profile()))
+      .toMatchObject({ status: 'auto', matchedProfileKey: 'basic.birthday', value: '2000-02-03', confidence: 0.94 });
   });
 
   it.each([
@@ -92,6 +112,24 @@ describe('education and list ownership', () => {
   it('does not default to the first education record', () => {
     expect(matchField(field('学校'), profile())).toMatchObject({ status: 'review', value: undefined });
     expect(matchField(field('专业'), profile())).toMatchObject({ status: 'review', value: undefined });
+  });
+
+  it('uses a shared value across every education record without asking which record', () => {
+    const data = profile();
+    data.education[0]!.studyMode = '全日制';
+    data.education[1]!.studyMode = '全日制';
+    expect(matchField(field('', { name: 'RecruitmentPortalPersonProfile_EducationStudyMode' }), data))
+      .toMatchObject({ status: 'auto', matchedProfileKey: 'education.*.studyMode', value: '全日制' });
+  });
+
+  it('uses the highest education for flat personal-profile education summary fields', () => {
+    const data = profile();
+    data.education[0]!.ranking = '前30%';
+    data.education[1]!.ranking = '前80%';
+    expect(matchField(field('', { name: 'RecruitmentPortalPersonProfile_ProfessionalRanking' }), data))
+      .toMatchObject({ status: 'auto', matchedProfileKey: 'education.1.ranking', value: '前80%' });
+    expect(matchField(field('', { name: 'RecruitmentPortalPersonProfile_MajorCourse' }), data))
+      .toMatchObject({ status: 'auto', matchedProfileKey: 'education.1.courses', value: '机器学习；软件体系结构' });
   });
 
   it('does not default to the first record within the same education stage', () => {
@@ -256,16 +294,41 @@ describe('text variants and original facts', () => {
     expect(matchField(field('专业技能', { kind: 'textarea' }), profile())).toMatchObject({ status: 'auto', value: 'TypeScript；Python；React；Git' });
   });
 
+  it('aggregates every saved award, paper, patent and social activity for flat textareas', () => {
+    const data = profile();
+    data.awards = [
+      { id: 'a1', name: '校二等奖学金', level: '校级', date: '2023-11' },
+      { id: 'a2', name: '程序设计竞赛二等奖', level: '省级', date: '2022-06' },
+    ];
+    data.research.papers = [
+      { id: 'p1', title: '论文甲', venue: '期刊甲', status: '已发表' },
+      { id: 'p2', title: '论文乙', venue: '会议乙', status: '在投' },
+    ];
+    data.research.patents = [{ id: 't1', title: '专利甲', number: 'CN-TEST', status: '已受理' }];
+    data.studentWork = [
+      { id: 's1', organization: '就业办', role: '助理', description: '协助整理就业材料。' },
+      { id: 's2', organization: '学院', role: '辅导员助理', description: '协助新生事务。' },
+    ];
+    expect(matchField(field('获得荣誉', { kind: 'textarea' }), data).value).toContain('校二等奖学金');
+    expect(matchField(field('获得荣誉', { kind: 'textarea' }), data).value).toContain('程序设计竞赛二等奖');
+    expect(matchField(field('学术专著', { kind: 'textarea' }), data)).toMatchObject({ status: 'auto', matchedProfileKey: 'research.papers' });
+    expect(matchField(field('专利成果', { kind: 'textarea' }), data)).toMatchObject({ status: 'auto', matchedProfileKey: 'research.patents' });
+    const social = matchField(field('社会活动', { kind: 'textarea' }), data);
+    expect(social).toMatchObject({ status: 'auto', matchedProfileKey: 'studentWork' });
+    expect(social.value).toContain('就业办');
+    expect(social.value).toContain('学院');
+  });
+
   it('does not invent a day when only month precision is stored', () => {
     expect(matchField(field('硕士入学时间', { type: 'date' }), profile())).toMatchObject({ status: 'review', value: undefined });
     expect(matchField(field('出生日期', { type: 'month' }), profile())).toMatchObject({ status: 'auto', value: '2000-02' });
   });
 
-  it('summarizes actual paper fields for review with no invented metadata', () => {
+  it('summarizes actual paper fields deterministically with no invented metadata', () => {
     const data = profile();
     data.research.papers = [{ id: 'paper', title: '真实论文标题', status: '投稿中' }];
     const result = matchField(field('论文', { kind: 'textarea' }), data);
-    expect(result).toMatchObject({ status: 'review', value: '标题：真实论文标题；状态：投稿中' });
+    expect(result).toMatchObject({ status: 'auto', value: '真实论文标题（投稿中）' });
     expect(result.value).not.toContain('发表');
   });
 });

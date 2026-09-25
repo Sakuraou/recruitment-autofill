@@ -1,12 +1,12 @@
 import type { UserProfile } from '../profile/schema';
 import type { FieldDescriptor, MatchResult } from '../shared/types';
 import { candidateStatus } from './confidence';
-import { detectField, directTexts, fieldContext } from './fieldMatcher';
+import { bestFieldName, detectField, directTexts, fieldContext } from './fieldMatcher';
 import { matchOption } from './optionMatcher';
 import { effectiveMaxLength, resolveProfileValue } from './profileResolver';
 
 function blankResult(field: FieldDescriptor): MatchResult {
-  return { fieldId: field.id, fieldName: field.label || field.ariaLabel || field.placeholder || field.name || field.htmlId || '未命名字段',
+  return { fieldId: field.id, fieldName: bestFieldName(field),
     value: undefined, confidence: 0, source: 'rule', status: 'missing', reason: '未找到可靠信息，需要人工填写。', sensitive: false };
 }
 

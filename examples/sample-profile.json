@@ -17,7 +17,8 @@
     "householdLocation": "示例省示例市（虚构）",
     "politicalStatus": "群众",
     "address": "虚构测试地址，请勿用于真实投递",
-    "postalCode": "000000"
+    "postalCode": "000000",
+    "interests": "羽毛球（虚构测试资料）"
   },
   "education": [
     {

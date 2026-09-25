@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "校招智能网申助手 · 2027",
-  "version": "0.1.1",
-  "description": "从本地档案识别并填写网申表单，低置信度人工确认。不会主动提交申请。",
+  "version": "0.5.0",
+  "description": "从本地档案识别并补全网申表单；支持通用语义字段、动态重扫和中国移动多栏目连续填写。最终投递由本人完成。",
   "minimum_chrome_version": "114",
   "permissions": ["activeTab", "scripting", "storage"],
   "action": { "default_popup": "popup.html", "default_title": "校招智能网申助手" },

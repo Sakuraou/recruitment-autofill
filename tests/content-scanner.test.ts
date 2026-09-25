@@ -46,10 +46,11 @@ describe('扫描安全边界', () => {
     expect(result.fields[2]?.options[0]?.disabled).toBe(true);
   });
 
-  it('验证码、密码、上传、隐藏、禁用、只读、radio 和 checkbox 均禁止填写', () => {
+  it('验证码、密码、上传、隐藏、禁用、只读和 checkbox 受保护，普通 radio 交给语义层判断', () => {
     const { result } = scan('<label>验证码<input></label><input autocomplete="one-time-code"><input type="password"><input type="file"><input type="hidden"><fieldset disabled><input></fieldset><input readonly><input type="radio"><input type="checkbox"><select multiple></select><div hidden><input></div><div style="display:none"><textarea></textarea></div><div role="combobox"><input></div>');
     expect(result.fields).toHaveLength(13);
-    expect(result.fields.every((field) => Boolean(field.blockedReason))).toBe(true);
+    expect(result.fields.filter((field) => field.kind !== 'radio').every((field) => Boolean(field.blockedReason))).toBe(true);
+    expect(result.fields.find((field) => field.kind === 'radio')?.blockedReason).toBeUndefined();
   });
 
   it('身份证号码是本地普通字段，不能误当作身份认证验证码', () => {
@@ -60,5 +61,42 @@ describe('扫描安全边界', () => {
   it('空选项值但已有明确选择文字时仍保护现有答案', () => {
     const { result } = scan('<select><option value="">硕士</option><option value="b">本科</option></select>');
     expect(result.fields[0]?.hasValue).toBe(true);
+  });
+
+  it('把未显式选择的首项“无”视为站点默认值，把明确 selected 的“无”保留为已有答案', () => {
+    const { result } = scan('<select><option>无</option><option>硕士学位</option></select><select><option selected>无</option><option>有</option></select>');
+    expect(result.fields[0]?.hasValue).toBe(false);
+    expect(result.fields[1]?.hasValue).toBe(true);
+  });
+
+  it('提取嵌套传统表格和 grid 表单项的可见字段名', () => {
+    const { result } = scan('<table><tr><td><span>证件号码</span></td><td><div><input id="RecruitmentPortalPersonProfile_CertificateNumber"></div></td></tr></table><div class="form-item"><div class="field-label">出生日期</div><div class="control"><input name="RecruitmentPortalPersonProfile_Birthday"></div></div>');
+    expect(result.fields[0]?.tableHeader).toBe('证件号码');
+    expect(result.fields[1]?.tableHeader).toBe('出生日期');
+  });
+
+  it('允许空的只读日期文本框，同时继续阻止其他只读输入', () => {
+    const { result } = scan('<label>出生日期<input readonly name="Birthday"></label><label>姓名<input readonly></label>');
+    expect(result.fields[0]).toMatchObject({ readOnly: false, blockedReason: undefined });
+    expect(result.fields[1]?.blockedReason).toMatch(/只读/u);
+  });
+
+  it('把同 name 的普通 radio 扫描为一个带可见选项的逻辑字段', () => {
+    const { result, controls } = scan('<div><span>性别</span><label><input type="radio" name="gender" value="M">男</label><label><input type="radio" name="gender" value="F">女</label></div>');
+    expect(result.fields).toHaveLength(1);
+    expect(result.fields[0]).toMatchObject({ kind: 'radio', label: '性别', hasValue: false,
+      options: [{ value: '__radio_option_0', label: '男', disabled: false }, { value: '__radio_option_1', label: '女', disabled: false }] });
+    expect([...controls.values()][0]?.adapter).toBe('radio-group');
+  });
+
+  it('扫描同源 iframe 与开放 Shadow DOM', () => {
+    document.body.innerHTML = '<iframe></iframe><div id="host"></div>';
+    const frame = document.querySelector('iframe')!;
+    frame.contentDocument!.body.innerHTML = '<label>邮箱<input></label>';
+    const shadow = document.querySelector('#host')!.attachShadow({ mode: 'open' });
+    shadow.innerHTML = '<label>手机号<input></label>';
+    const { result } = scanDocument(document);
+    expect(result.fields.map((field) => field.label)).toEqual(expect.arrayContaining(['邮箱', '手机号']));
+    expect(result.warnings.join(' ')).toMatch(/同源 iframe.*开放 Shadow DOM/u);
   });
 });

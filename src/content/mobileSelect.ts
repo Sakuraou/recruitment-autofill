@@ -33,7 +33,7 @@ export function describeMobileSelect(node: HTMLElement, id: string): FieldDescri
   };
 }
 export function mobileFingerprint(node: HTMLElement, field: FieldDescriptor): string {
-  return JSON.stringify({ field, attributes: attributesFingerprint(node), selected: selectedLabel(node),
+  return JSON.stringify({ field: { ...field, groupId: undefined }, attributes: attributesFingerprint(node), selected: selectedLabel(node),
     options: mobileOptions(node).map(option => ({ attributes: attributesFingerprint(option), text: option.textContent })) });
 }
 

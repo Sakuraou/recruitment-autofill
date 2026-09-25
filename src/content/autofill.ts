@@ -1,7 +1,7 @@
 import type { FieldDescriptor, FillOutcome, FillRequest } from '../shared/types';
 import { effectiveMaxLength } from '../matching/profileResolver';
-import { hasValue, isPlaceholderOption, type FormControl } from './domUtils';
-import { controlFingerprint, describeControl, type ScanState } from './scanner';
+import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
+import { controlFingerprint, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
 
 function nativeSet(node: FormControl, value: string): void {
@@ -66,8 +66,31 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '下拉选择失败，请人工检查' }); }
       continue;
     }
+    if (control.adapter === 'radio-group') {
+      const { members } = control;
+      if (!members.length || members.some((member) => !belongsToDocument(member, state.document))) { skip('单选组已被页面替换或移除，请重新扫描'); continue; }
+      const current = describeRadioGroup(members, item.fieldId);
+      if (current.blockedReason) { skip(current.blockedReason); continue; }
+      if (current.hasValue) { skip('单选组已有答案，不覆盖'); continue; }
+      if (radioGroupFingerprint(members, current) !== control.fingerprint) { skip('单选组选项、标签或内容已改变，请重新扫描'); continue; }
+      const optionIndex = current.options.findIndex((option) => option.value === item.value && !option.disabled);
+      const target = members[optionIndex];
+      if (optionIndex < 0 || !target) { skip('没有唯一可用的单选项，请重新扫描或人工选择'); continue; }
+      try {
+        const view = target.ownerDocument.defaultView;
+        const setter = view && Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'checked')?.set;
+        if (!view || !setter) throw new Error('浏览器不支持单选填写');
+        setter.call(target, true);
+        target.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
+        target.dispatchEvent(new view.Event('change', { bubbles: true, composed: true }));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        outcomes.push({ fieldId: item.fieldId, status: target.checked ? 'filled' : 'error',
+          reason: target.checked ? '已选择唯一匹配的单选项；请在提交前复核' : '网页未保留预期单选答案，请人工检查' });
+      } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '单选控件未能安全完成填写，请人工检查' }); }
+      continue;
+    }
     const { node } = control;
-    if (node.ownerDocument !== state.document || !node.isConnected || !state.document.contains(node)) { skip('字段已被页面替换或移除，请重新扫描'); continue; }
+    if (!belongsToDocument(node, state.document)) { skip('字段已被页面替换或移除，请重新扫描'); continue; }
     const current = describeControl(node, item.fieldId);
     if (current.blockedReason) { skip(current.blockedReason); continue; }
     if (hasValue(node)) { skip('字段已有内容，不覆盖网页或您填写的信息'); continue; }
@@ -76,13 +99,13 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       const problem = candidateProblem(node, item.value, current);
       if (problem) { skip(problem); continue; }
       nativeSet(node, item.value);
-      const EventConstructor = state.document.defaultView?.Event;
+      const EventConstructor = node.ownerDocument.defaultView?.Event;
       if (!EventConstructor) throw new Error('页面已不可用');
       node.dispatchEvent(new EventConstructor('input', { bubbles: true, composed: true }));
       if (node.isConnected && node.value === item.value) node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
       // Let React/Vue and dependent native controls finish their queued updates.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      if (!node.isConnected || node.ownerDocument !== state.document || node.value !== item.value) {
+      if (!belongsToDocument(node, state.document) || node.value !== item.value) {
         outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '网页更新后未保留预期答案，请检查并重新扫描' });
       } else if (!node.validity.valid) {
         outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '已写入，但网页验证未通过，请人工检查' });
@@ -91,6 +114,32 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       }
     } catch {
       outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '网页控件未能安全完成填写，请人工检查' });
+    }
+  }
+  // A later field can reset an earlier one. Recheck the whole batch after a short
+  // settling window; never retry a rejected write or overwrite the site's result.
+  if (outcomes.some(outcome => outcome.status === 'filled')) {
+    await new Promise<void>(resolve => setTimeout(resolve, 200));
+    for (const outcome of outcomes) {
+      if (outcome.status !== 'filled') continue;
+      const control = state.controls.get(outcome.fieldId);
+      const value = request.items.find(item => item.fieldId === outcome.fieldId)?.value;
+      let retained = Boolean(control && value !== undefined && state.document.URL === state.result.url
+        && belongsToDocument(control.node, state.document));
+      if (control && retained) {
+        if (control.adapter === 'mobile-select') {
+          const field = describeMobileSelect(control.node, outcome.fieldId);
+          const expected = field.options.find(option => option.value === value);
+          retained = Boolean(expected && !expected.disabled && cleanText(control.node.querySelector(':scope > span')?.textContent) === expected.label);
+        } else if (control.adapter === 'radio-group') {
+          const index = Number(value?.replace('__radio_option_', ''));
+          retained = Number.isInteger(index) && control.members[index]?.checked === true;
+        } else retained = control.node.value === value && control.node.validity.valid;
+      }
+      if (!retained) {
+        outcome.status = 'error';
+        outcome.reason = '整批复核发现页面联动改写、移除了答案或验证未通过。没有重复覆盖，请检查网页后重新扫描。';
+      }
     }
   }
   console.info('[校招网申助手]', {

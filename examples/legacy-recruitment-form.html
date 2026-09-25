@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'none'; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'; frame-src 'self' about:" />
+    <title>传统招聘门户 · 本地兼容性回归</title>
+    <script src="legacy-recruitment-form.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>传统招聘门户兼容性回归</h1>
+      <p>这是虚构的本地表单，用于验证长内部字段名、表格布局、跨 DOM 根节点扫描和不提交保护。</p>
+      <output id="legacy-submit-count" aria-label="页面收到的提交事件">0</output>
+
+      <form id="legacy-application" novalidate>
+        <h2>投递意向</h2>
+        <table>
+          <tbody>
+            <tr>
+              <td><span>*</span> 面试站点：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_InterviewSite" name="RecruitmentPortalPersonProfile.InterviewSite">
+                  <option value="">请选择</option>
+                  <option value="campus" selected>2027 中南大学</option>
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>基本信息</h2>
+        <table>
+          <tbody>
+            <tr>
+              <td><span>*</span> 姓名：</td>
+              <td><div><input id="RecruitmentPortalPersonProfile_Name" name="RecruitmentPortalPersonProfile.Name" /></div></td>
+            </tr>
+            <tr>
+              <td><span>*</span> 性别：</td>
+              <td>
+                <div>
+                  <label><input id="RecruitmentPortalPersonProfile_Gender_Male" name="RecruitmentPortalPersonProfile.Gender" type="radio" value="M" /> 男</label>
+                  <label><input id="RecruitmentPortalPersonProfile_Gender_Female" name="RecruitmentPortalPersonProfile.Gender" type="radio" value="F" /> 女</label>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><span>*</span> 出生日期：</td>
+              <td><div><input id="RecruitmentPortalPersonProfile_Birthday" name="RecruitmentPortalPersonProfile.Birthday" class="legacy-date-picker" readonly /></div></td>
+            </tr>
+            <tr>
+              <td><span>*</span> 证件类型：</td>
+              <td>
+                <div>
+                  <select id="RecruitmentPortalPersonProfile_CertificateType" name="RecruitmentPortalPersonProfile.CertificateType">
+                    <option value="">请选择</option>
+                    <option value="ID">居民身份证</option>
+                    <option value="PASSPORT">护照</option>
+                  </select>
+                </div>
+              </td>
+            </tr>
+            <tr id="legacy-certificate-number-row" hidden>
+              <td><span>*</span> 证件号码：</td>
+              <td><div><input id="RecruitmentPortalPersonProfile_CertificateNumber" name="RecruitmentPortalPersonProfile.CertificateNumber" /></div></td>
+            </tr>
+            <tr>
+              <td><span>*</span> 最高学历：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_HighestEducation" name="RecruitmentPortalPersonProfile.HighestEducation">
+                  <option value="">请选择</option>
+                  <option value="bachelor">本科</option>
+                  <option value="master">硕士研究生</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td><span>*</span> 最高学位：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_HighestDegree" name="RecruitmentPortalPersonProfile.HighestDegree">
+                  <option value="">请选择</option>
+                  <option value="bachelor">学士</option>
+                  <option value="master">硕士</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td><span>*</span> 教育类型：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_EducationStudyMode" name="RecruitmentPortalPersonProfile.EducationStudyMode">
+                  <option value="">请选择</option>
+                  <option value="fulltime">全日制</option>
+                  <option value="parttime">非全日制</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td>专业成绩排名：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_ProfessionalRanking" name="RecruitmentPortalPersonProfile.ProfessionalRanking">
+                  <option value="">请选择</option>
+                  <option value="top20">前 20%</option>
+                  <option value="top50">前 50%</option>
+                  <option value="top80">前 80%</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td>主课程科：</td>
+              <td><textarea id="RecruitmentPortalPersonProfile_MajorCourse" name="RecruitmentPortalPersonProfile.MajorCourse" maxlength="300"></textarea></td>
+            </tr>
+            <tr>
+              <td>了解招聘信息的渠道：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_RecruitmentChannel" name="RecruitmentPortalPersonProfile.RecruitmentChannel">
+                  <option value="">请选择</option>
+                  <option value="school">学校就业网</option>
+                  <option value="social">社交媒体</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td>人才来源：</td>
+              <td>
+                <select id="RecruitmentPortalPersonProfile_TalentSource" name="RecruitmentPortalPersonProfile.TalentSource">
+                  <option value="">请选择</option>
+                  <option value="campus">校园招聘</option>
+                  <option value="referral">内部推荐</option>
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>附加信息</h2>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_Interests">兴趣爱好：</label><textarea id="RecruitmentPortalPersonProfile_Interests" name="RecruitmentPortalPersonProfile.Interests" maxlength="200"></textarea></div>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_Honors">获得荣誉：</label><textarea id="RecruitmentPortalPersonProfile_Honors" name="RecruitmentPortalPersonProfile.Honors" maxlength="500"></textarea></div>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_AcademicWorks">学术专著：</label><textarea id="RecruitmentPortalPersonProfile_AcademicWorks" name="RecruitmentPortalPersonProfile.AcademicWorks" maxlength="500"></textarea></div>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_PatentAchievements">专利成果：</label><textarea id="RecruitmentPortalPersonProfile_PatentAchievements" name="RecruitmentPortalPersonProfile.PatentAchievements" maxlength="500"></textarea></div>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_Strengths">特长：</label><textarea id="RecruitmentPortalPersonProfile_Strengths" name="RecruitmentPortalPersonProfile.Strengths" maxlength="500"></textarea></div>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_SpecialSkills">特殊技能：</label><textarea id="RecruitmentPortalPersonProfile_SpecialSkills" name="RecruitmentPortalPersonProfile.SpecialSkills" maxlength="500"></textarea></div>
+        <div class="legacy-field"><label for="RecruitmentPortalPersonProfile_SocialActivities">社会活动：</label><textarea id="RecruitmentPortalPersonProfile_SocialActivities" name="RecruitmentPortalPersonProfile.SocialActivities" maxlength="500"></textarea></div>
+
+        <h2>嵌套文档兼容性</h2>
+        <iframe
+          id="legacy-profile-frame"
+          title="同源个人信息子表单"
+          srcdoc="&lt;!doctype html&gt;&lt;html lang=&quot;zh-CN&quot;&gt;&lt;body&gt;&lt;form&gt;&lt;label for=&quot;LegacyIframeHouseholdLocation&quot;&gt;户籍所在地&lt;/label&gt;&lt;input id=&quot;LegacyIframeHouseholdLocation&quot; name=&quot;LegacyIframeHouseholdLocation&quot; /&gt;&lt;/form&gt;&lt;/body&gt;&lt;/html&gt;"
+        ></iframe>
+        <div id="legacy-shadow-host"></div>
+
+        <button type="submit">保存并下一步（仅用于提交保护测试）</button>
+      </form>
+    </main>
+  </body>
+</html>

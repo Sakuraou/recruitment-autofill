@@ -82,6 +82,15 @@ describe('中国移动网站回归', () => {
     expect((await fillById('sltNation', '01'))[0]?.status).toBe('filled');
     expect(handler).toHaveBeenCalledOnce(); expect(selected.textContent).toBe('汉族');
   });
+  it('下拉先显示正确但随后被网站回滚，不报告成功', async () => {
+    const option = document.querySelector<HTMLElement>('#sltNation li')!;
+    const selected = document.querySelector('#sltNation > span')!;
+    option.addEventListener('click', () => {
+      selected.textContent = option.textContent;
+      setTimeout(() => { selected.textContent = '请选择'; }, 30);
+    });
+    expect((await fillById('sltNation', '01'))[0]?.status).toBe('error');
+  });
   it('下拉选项改变、重复值、已有选择及禁用选项均不触发点击', async () => {
     const click = vi.fn(); document.addEventListener('click', click, { once: true });
     const state = scanDocument(); document.querySelector('#sltNation li')!.textContent = '已改变';
@@ -125,7 +134,8 @@ describe('中国移动网站回归', () => {
   });
   it('没有明确阶段的教育研究方向不默认填入全局硕士研究方向', () => {
     const field = scanDocument().result.fields.find(item => item.htmlId === 'name')!;
-    const educationField = { ...field, label: '研究方向', placeholder: '', htmlId: 'researchArea1', sectionText: '教育经历' };
+    const educationField = { ...field, label: '研究方向', placeholder: '', htmlId: 'researchArea1', sectionText: '教育经历',
+      tableHeader: '', parentText: '', previousText: '' };
     const candidate = structuredClone(profile);
     candidate.education = [{ id: 'b', level: '本科' }, { id: 'm', level: '硕士研究生', researchDirection: '硕士方向' }];
     candidate.research.researchDirection = '硕士方向';

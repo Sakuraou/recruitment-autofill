@@ -9,6 +9,30 @@ function fill(state: ScanState, values: string[], confirmed = true) {
 }
 
 describe('安全填写原生 HTML 控件', () => {
+  it('整批核对发现后填字段清空前面答案时不再假报成功', async () => {
+    const state = prepare('<input><input>');
+    const [first, second] = document.querySelectorAll('input');
+    second!.addEventListener('change', () => { first!.value = ''; });
+    expect((await fill(state, ['原答案', '后续答案'])).map(item => item.status)).toEqual(['error', 'filled']);
+    expect(first!.value).toBe('');
+  });
+
+  it('短暂延迟的网页回滚也报告失败，且不再次写入', async () => {
+    const state = prepare('<input>');
+    const node = document.querySelector('input')!;
+    let changes = 0;
+    node.addEventListener('change', () => { changes++; setTimeout(() => { node.value = '网页回滚'; }, 30); });
+    expect((await fill(state, ['原答案']))[0]?.status).toBe('error');
+    expect(changes).toBe(1);
+    expect(node.value).toBe('网页回滚');
+  });
+
+  it('联动移除已填控件或增加校验错误时整批复核失败', async () => {
+    const state = prepare('<input><input><input>');
+    const [first, second, third] = document.querySelectorAll('input');
+    third!.addEventListener('change', () => { first!.remove(); second!.setCustomValidity('网页验证失败'); });
+    expect((await fill(state, ['甲', '乙', '丙'])).map(item => item.status)).toEqual(['error', 'error', 'filled']);
+  });
   it('填写文本、多行、下拉、完整日期，仅触发 input/change，不点击或提交', async () => {
     const state = prepare('<form><input><textarea></textarea><select><option value="-1">请选择</option><option value="m">硕士</option></select><input type="date"><button type="submit">提交</button></form>');
     const events: string[] = [];
@@ -87,5 +111,31 @@ describe('安全填写原生 HTML 控件', () => {
   it('禁用和重复下拉选项不能被强制填写', async () => {
     const state = prepare('<select><option value="">请选择</option><option disabled value="x">禁用</option></select><select><option value="">请选择</option><option value="x">甲</option><option value="x">乙</option></select>');
     expect((await fill(state, ['x', 'x'])).every((outcome) => outcome.status === 'skipped')).toBe(true);
+  });
+
+  it('填写普通 radio 组但不点击控件或提交表单', async () => {
+    const state = prepare('<form><span>性别</span><label><input type="radio" name="gender" value="M">男</label><label><input type="radio" name="gender" value="F">女</label><button type="submit">提交</button></form>');
+    let clicks = 0; let submits = 0;
+    document.querySelector('form')!.addEventListener('click', () => { clicks++; });
+    document.querySelector('form')!.addEventListener('submit', event => { submits++; event.preventDefault(); });
+    const outcomes = await fill(state, ['__radio_option_0']);
+    expect(outcomes[0]?.status).toBe('filled');
+    expect(document.querySelector<HTMLInputElement>('input[value="M"]')?.checked).toBe(true);
+    expect(clicks).toBe(0);
+    expect(submits).toBe(0);
+  });
+
+  it('填写同源 iframe、开放 Shadow DOM 和空的只读日期字段', async () => {
+    document.body.innerHTML = '<label>出生日期<input id="birthday" readonly></label><iframe></iframe><div id="host"></div>';
+    document.querySelector('iframe')!.contentDocument!.body.innerHTML = '<label>邮箱<input id="frame-email"></label>';
+    document.querySelector('#host')!.attachShadow({ mode: 'open' }).innerHTML = '<label>手机号<input id="shadow-phone"></label>';
+    const state = scanDocument(document);
+    const values = new Map([['出生日期', '2002-04-15'], ['邮箱', 'test@example.invalid'], ['手机号', '00000000000']]);
+    const items = state.result.fields.map(field => ({ fieldId: field.id, value: values.get(field.label)!, confirmed: true }));
+    const outcomes = await fillScan(state, { scanId: state.result.scanId, items });
+    expect(outcomes.every((outcome) => outcome.status === 'filled')).toBe(true);
+    expect((document.querySelector('#birthday') as HTMLInputElement).value).toBe('2002-04-15');
+    expect((document.querySelector('iframe')!.contentDocument!.querySelector('#frame-email') as HTMLInputElement).value).toBe('test@example.invalid');
+    expect((document.querySelector('#host')!.shadowRoot!.querySelector('#shadow-phone') as HTMLInputElement).value).toBe('00000000000');
   });
 });

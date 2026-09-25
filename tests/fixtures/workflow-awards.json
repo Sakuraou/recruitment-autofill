@@ -1,0 +1,5 @@
+[
+  { "id": "fictional-national", "name": "虚构全国创新竞赛一等奖", "level": "国家级一等奖", "date": "2022-08", "school": "青岚科技大学", "category": "竞赛", "description": "虚构测试奖项：完成校园应用开发并参加成果展示。" },
+  { "id": "fictional-provincial", "name": "虚构省级编程竞赛二等奖", "level": "省级二等奖", "date": "2023-05-27", "school": "青岚科技大学", "category": "竞赛", "description": "虚构测试奖项：作为团队成员完成编程竞赛。" },
+  { "id": "fictional-scholarship", "name": "虚构年度二等奖学金", "level": "校级二等奖学金", "school": "青岚科技大学", "category": "奖学金", "description": "虚构测试奖项：获奖月份尚未确认。" }
+]

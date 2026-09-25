@@ -12,8 +12,9 @@ const knownPrompts = new Set([
   '请输入活动/实践名称', '请输入活动/实践类型', '输入项目名称', '请输入所在公司名称', '请输入职务',
   '请输入组织团体名称', '请输入担任职务', '请输入干部级别', '请输入职责和成就', '请输入自定义标题',
   '请输入技能名称', '请输入论著名称', '请输入成就/等级', '请输入内容',
-  '字数控制在500个字以内', '字数控制在500个汉字以内', '毕业论文请从题目、主题、研究方向等方面描述（500字以内）',
+  '字数控制在50个字以内', '字数控制在500个字以内', '字数控制在500个汉字以内', '毕业论文请从题目、主题、研究方向等方面描述（500字以内）',
 ]);
+export function isMobilePrompt(value: string): boolean { return knownPrompts.has(value); }
 export function isMobileResume(doc: Document): boolean {
   const url = new URL(doc.URL);
   return url.hostname === 'job.10086.cn' && url.pathname === '/personal/resume_campus.html';
