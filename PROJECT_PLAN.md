@@ -2,7 +2,7 @@
 
 > 最后更新：2026-09-26  
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-001 页面语义图契约  
+> 当前迭代：I-002 只读 Section 与 Action 构图
 > 最近完整验证：2026-09-26，`npm run check` 与 `npm run test:e2e` 通过  
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
@@ -135,7 +135,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ### M1：页面语义图基础
 
-状态：`planned`
+状态：`in_progress`
 
 产物：
 
@@ -306,9 +306,9 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 | ID | 工作项 | 状态 | 验收证据 | 下一动作 |
 |---|---|---|---|---|
-| I-000 | 审查并冻结 v0.5.0 基线 | verified | `npm run check`、完整 E2E、隐私扫描通过 | 建立本地基线提交 |
-| I-001 | 定义 Page Semantic Graph 类型 | in_progress | 类型测试与序列化测试 | 增加兼容的可选语义图契约 |
-| I-002 | 扫描 Section 与 Action | planned | 项目栏目夹具 | I-001 完成后开始 |
+| I-000 | 审查并冻结 v0.5.0 基线 | done | 提交 `82bd7dc`、标签 `v0.5.0`、完整 E2E | 保持为回归基线 |
+| I-001 | 定义 Page Semantic Graph 类型 | verified | 273 项测试、构建及独立安全复审通过 | 由 I-002 接入只读扫描 |
+| I-002 | 扫描 Section 与 Action | in_progress | 项目栏目夹具 | 构建 Page/Section/Field/Action，不点击页面 |
 | I-003 | DOM 稳定等待器 | planned | 延迟显示与延迟保存测试 | 与 I-002 并行设计 |
 | I-004 | 通用 Record Planner | planned | 六项目端到端测试 | I-002、I-003 完成后开始 |
 
@@ -324,6 +324,16 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 - 修正了本机绝对安装路径、容易触发隐私扫描的测试号码、历史版本展示和本地 ZIP 校验值。
 - 冻结前再次运行 `npm run check` 与 `npm run test:e2e`，224 项测试、12 项通用浏览器检查和 7 项连续流程检查全部通过；提交、删除、外部请求和页面脚本错误均为 0。
 - 下一轮已切换为 I-001，只建立向后兼容的页面语义图类型和隐私序列化测试，不执行任何网页动作。
+
+### 2026-09-26 · I-001
+
+- 新增向后兼容的 `PageSemanticGraph` 契约；现有 `ScanResult.fields` 与填写消息保持不变。
+- 定义栏目、记录列表、记录、字段与动作节点，并为添加、保存、取消、删除、提交、撤回和上传建立风险下限。
+- 新增仅基于固定结构白名单的指纹；页面文字、输入值、URL、动态属性名和异常自定义角色不会进入指纹。
+- 字段全集校验为强制参数；验证父子双向关系、循环、孤儿、节点语法、跨栏目目标和同栏目跨列表目标。
+- 复合动作、导航、原生提交、删除、撤回、上传、授权和验证保持受限；本阶段没有任何点击或填写行为。
+- 49 项定向语义测试和完整 `npm run check` 通过；全套共 273 项测试通过，独立复审未发现剩余 P0/P1。
+- 下一轮 I-002 将在脱敏夹具上实现 Page/Section/Field/Action 的只读构图，并用严格校验器验证每个扫描字段恰好出现一次。
 
 ## 8. 每轮通用提示词
 

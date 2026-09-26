@@ -1,3 +1,5 @@
+import type { PageSemanticGraph } from './semanticGraph';
+
 export type FieldKind = 'input' | 'textarea' | 'select' | 'radio' | 'checkbox';
 export interface FieldOption { value: string; label: string; disabled: boolean }
 export interface FieldDescriptor {
@@ -42,6 +44,8 @@ export interface ScanResult {
   url: string;
   title: string;
   fields: FieldDescriptor[];
+  /** Optional during migration; old content scripts and reports remain compatible. */
+  semanticGraph?: PageSemanticGraph;
   warnings: string[];
 }
 export interface FillItem { fieldId: string; value: string; confirmed: boolean }
