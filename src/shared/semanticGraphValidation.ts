@@ -4,7 +4,7 @@ import { SEMANTIC_CANONICAL_ACTION_LABELS, SEMANTIC_GRAPH_SCHEMA_VERSION } from 
 export interface SemanticGraphProblem {
   code: 'schema-version' | 'duplicate-id' | 'root' | 'parent' | 'child' | 'cycle' | 'orphan'
     | 'duplicate-field' | 'missing-field' | 'unexpected-field' | 'action-target' | 'node-shape' | 'node-value'
-    | 'risk' | 'canonical-label' | 'fingerprint' | 'frame-path' | 'bounds' | 'size';
+    | 'record-topology' | 'risk' | 'canonical-label' | 'fingerprint' | 'frame-path' | 'bounds' | 'size';
   message: string;
   nodeId?: string;
 }
@@ -45,13 +45,84 @@ function validateNodeShape(node: SemanticNode, problems: SemanticGraphProblem[])
 }
 
 const allowedChildren: Record<SemanticNode['kind'], ReadonlySet<SemanticNode['kind']>> = {
-  page: new Set(['section', 'record-list', 'field', 'action']),
-  section: new Set(['record-list', 'record', 'field', 'action']),
+  page: new Set(['section', 'field', 'action']),
+  section: new Set(['record-list', 'field', 'action']),
   'record-list': new Set(['record', 'field', 'action']),
   record: new Set(['field', 'action']),
   field: new Set(),
   action: new Set(),
 };
+
+const nonRepeatableSectionRoles = new Set(['basic', 'job-intent', 'other']);
+
+function sameFramePath(left?: readonly number[], right?: readonly number[]): boolean {
+  const normalizedLeft = left ?? [];
+  const normalizedRight = right ?? [];
+  return normalizedLeft.length === normalizedRight.length
+    && normalizedLeft.every((part, index) => part === normalizedRight[index]);
+}
+
+function validateRecordTopology(node: SemanticNode, byId: ReadonlyMap<string, SemanticNode>,
+  problems: SemanticGraphProblem[]): void {
+  if (node.kind === 'record-list') {
+    const parent = node.parentId ? byId.get(node.parentId) : undefined;
+    if (!parent || parent.kind !== 'section') {
+      problems.push({ code: 'record-topology', nodeId: node.id, message: '记录列表必须直属一个语义栏目。' });
+      return;
+    }
+    if (node.recordType !== parent.role || nonRepeatableSectionRoles.has(parent.role)) {
+      problems.push({ code: 'record-topology', nodeId: node.id,
+        message: '记录列表类型必须与可重复的父栏目类型一致。' });
+    }
+    if (!sameFramePath(node.framePath, parent.framePath)) {
+      problems.push({ code: 'record-topology', nodeId: node.id, message: '记录列表与父栏目必须位于同一文档框架。' });
+    }
+
+    const records = node.childIds
+      .map(childId => byId.get(childId))
+      .filter((child): child is Extract<SemanticNode, { kind: 'record' }> => child?.kind === 'record');
+    const summaries = records.filter(record => record.state === 'summary');
+    const editors = records.filter(record => record.state !== 'summary');
+    const summaryIndexes = summaries.map(record => record.index).sort((left, right) => left - right);
+    const indexesAreContiguous = summaryIndexes.length === new Set(summaryIndexes).size
+      && summaryIndexes.every((index, position) => index === position);
+
+    if (node.existingRecordCount !== summaries.length || !indexesAreContiguous) {
+      problems.push({ code: 'record-topology', nodeId: node.id,
+        message: '已有记录数量必须等于序号从 0 连续排列的摘要记录数量。' });
+    }
+    if (editors.length > 1) {
+      problems.push({ code: 'record-topology', nodeId: node.id, message: '一个记录列表最多只能包含一个编辑器记录。' });
+    }
+
+    const editor = editors[0];
+    const editorMatchesState = node.editorState === 'closed'
+      ? editors.length === 0
+      : editors.length === 1 && editor?.state === node.editorState;
+    if (!editorMatchesState) {
+      problems.push({ code: 'record-topology', nodeId: node.id, message: '记录列表的编辑器状态必须与直属编辑器记录严格一致。' });
+    }
+    if (editor && (editor.state === 'creating' || editor.state === 'unknown')
+      && editor.index !== summaries.length) {
+      problems.push({ code: 'record-topology', nodeId: editor.id,
+        message: '新增或未知编辑器必须使用摘要记录数量作为稳定序号。' });
+    }
+    if (editor?.state === 'editing' && !summaryIndexes.includes(editor.index)) {
+      problems.push({ code: 'record-topology', nodeId: editor.id,
+        message: '编辑器必须引用列表中一个已确认的摘要记录序号。' });
+    }
+    return;
+  }
+
+  if (node.kind === 'record') {
+    const parent = node.parentId ? byId.get(node.parentId) : undefined;
+    if (!parent || parent.kind !== 'record-list') {
+      problems.push({ code: 'record-topology', nodeId: node.id, message: '记录必须直属一个记录列表。' });
+    } else if (!sameFramePath(node.framePath, parent.framePath)) {
+      problems.push({ code: 'record-topology', nodeId: node.id, message: '记录与所属列表必须位于同一文档框架。' });
+    }
+  }
+}
 
 function nearestSection(node: SemanticNode, byId: ReadonlyMap<string, SemanticNode>): string | undefined {
   let current: SemanticNode | undefined = node;
@@ -89,6 +160,8 @@ export function semanticGraphProblems(graph: PageSemanticGraph, expectedFieldIds
       const parent = node.parentId ? byId.get(node.parentId) : undefined;
       if (!parent || !parent.childIds.includes(node.id)) {
         problems.push({ code: 'parent', nodeId: node.id, message: '非根节点必须有一个有效且双向一致的父节点。' });
+      } else if (parent.kind !== 'page' && !sameFramePath(node.framePath, parent.framePath)) {
+        problems.push({ code: 'frame-path', nodeId: node.id, message: '同一语义子树的直属节点必须位于同一文档框架。' });
       }
     }
     const uniqueChildren = new Set(node.childIds);
@@ -108,6 +181,7 @@ export function semanticGraphProblems(graph: PageSemanticGraph, expectedFieldIds
       if (fieldIds.has(node.fieldId)) problems.push({ code: 'duplicate-field', nodeId: node.id, message: '每个字段只能在语义图中出现一次。' });
       fieldIds.add(node.fieldId);
     }
+    validateRecordTopology(node, byId, problems);
     if (node.kind === 'action') {
       if (node.canonicalLabel !== SEMANTIC_CANONICAL_ACTION_LABELS[node.action]) {
         problems.push({ code: 'canonical-label', nodeId: node.id, message: '动作名称与动作类型不一致。' });
@@ -115,29 +189,27 @@ export function semanticGraphProblems(graph: PageSemanticGraph, expectedFieldIds
       if (riskRank[node.risk] < riskRank[minimumRisk(node.action)]) {
         problems.push({ code: 'risk', nodeId: node.id, message: '动作风险被降到了安全策略允许值以下。' });
       }
-      if (node.action === 'add-record') {
-        if (byId.get(node.targetId)?.kind !== 'record-list') problems.push({ code: 'action-target', nodeId: node.id, message: '添加动作必须指向记录列表。' });
-      } else if (node.action === 'edit-record' || node.action === 'save-record'
-        || node.action === 'cancel-record' || node.action === 'delete-record') {
-        if (byId.get(node.targetId)?.kind !== 'record') problems.push({ code: 'action-target', nodeId: node.id, message: '记录动作必须指向具体记录。' });
-      } else if (node.targetId && !byId.has(node.targetId)) {
-        problems.push({ code: 'action-target', nodeId: node.id, message: '动作目标不存在。' });
-      }
-      if (node.targetId) {
-        const target = byId.get(node.targetId);
-        const isAncestor = (ancestorId: string): boolean => {
-          let current: SemanticNode | undefined = node;
-          const seen = new Set<string>();
-          while (current?.parentId && !seen.has(current.id)) {
-            if (current.parentId === ancestorId) return true;
-            seen.add(current.id);
-            current = byId.get(current.parentId);
-          }
-          return false;
-        };
-        if (target && (!isAncestor(target.id) || nearestSection(node, byId) !== nearestSection(target, byId))) {
-          problems.push({ code: 'action-target', nodeId: node.id, message: '动作不能指向其他栏目的记录或列表。' });
+      const isTargeted = node.action === 'add-record' || node.action === 'edit-record'
+        || node.action === 'save-record' || node.action === 'cancel-record' || node.action === 'delete-record';
+      if (isTargeted) {
+        const target = byId.get(node.targetId!);
+        const wrongTargetKind = node.action === 'add-record'
+          ? target?.kind !== 'record-list'
+          : target?.kind !== 'record';
+        const wrongRecordState = target?.kind === 'record'
+          && ((node.action === 'edit-record' || node.action === 'delete-record')
+            ? target.state !== 'summary'
+            : (node.action === 'save-record' || node.action === 'cancel-record') && target.state === 'summary');
+        const wrongRelationship = node.parentId !== node.targetId
+          || (target !== undefined && nearestSection(node, byId) !== nearestSection(target, byId));
+        const wrongFrame = target !== undefined && !sameFramePath(node.framePath, target.framePath);
+        if (wrongTargetKind || wrongRecordState || wrongRelationship || wrongFrame) {
+          problems.push({ code: 'action-target', nodeId: node.id,
+            message: '记录动作必须直属其同框架目标；添加指向列表，编辑/删除指向摘要，保存/取消指向编辑器。' });
         }
+      } else if (node.targetId) {
+        problems.push({ code: 'action-target', nodeId: node.id,
+          message: '只有记录级添加、编辑、保存、取消和删除动作可以声明目标。' });
       }
     }
   }

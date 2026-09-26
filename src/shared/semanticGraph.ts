@@ -1,4 +1,4 @@
-export const SEMANTIC_GRAPH_SCHEMA_VERSION = 1 as const;
+export const SEMANTIC_GRAPH_SCHEMA_VERSION = 2 as const;
 
 export type SemanticSectionRole =
   | 'basic'
@@ -92,6 +92,7 @@ export interface SectionSemanticNode extends SemanticNodeBase {
 export interface RecordListSemanticNode extends SemanticNodeBase {
   kind: 'record-list';
   recordType: SemanticSectionRole;
+  /** Exact count of high-confidence summary records observed in the current DOM. */
   existingRecordCount: number;
   editorState: 'closed' | 'creating' | 'editing' | 'unknown';
 }
@@ -99,7 +100,7 @@ export interface RecordListSemanticNode extends SemanticNodeBase {
 export interface RecordSemanticNode extends SemanticNodeBase {
   kind: 'record';
   index: number;
-  state: 'summary' | 'creating' | 'editing';
+  state: 'summary' | 'creating' | 'editing' | 'unknown';
 }
 
 export interface FieldSemanticNode extends SemanticNodeBase {

@@ -5,6 +5,8 @@ import {
   type FieldSemanticNode,
   type PageSemanticGraph,
   type PageSemanticNode,
+  type RecordListSemanticNode,
+  type RecordSemanticNode,
   type SectionSemanticNode,
   type SemanticActionKind,
   type SemanticBounds,
@@ -13,7 +15,12 @@ import {
 } from '../../shared/semanticGraph';
 import { semanticGraphProblems } from '../../shared/semanticGraphValidation';
 import { contextText } from '../domUtils';
-import { classifyAction, type ActionCandidate } from './actionClassifier';
+import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
+import {
+  detectRecordStructures,
+  type RecordTopologyActionDraft,
+  type RecordTopologyFieldDraft,
+} from './recordStructureDetector';
 import { classifySection, type SectionLabelCandidate } from './sectionClassifier';
 import { structuralFingerprint, type StructuralFingerprintInput } from './structuralFingerprint';
 
@@ -30,6 +37,13 @@ export interface SemanticGraphBuildResult {
 interface RootEntry {
   root: Document | ShadowRoot;
   framePath: number[];
+}
+
+interface CollectedAction {
+  element: Element;
+  framePath: number[];
+  sectionMatch?: SectionMatch;
+  classified: ClassifiedAction;
 }
 
 const ACTION_SELECTOR = [
@@ -54,6 +68,15 @@ const TARGETED_ACTIONS: ReadonlySet<TargetedActionKind> = new Set([
 
 function isTargetedAction(action: SemanticActionKind): action is TargetedActionKind {
   return TARGETED_ACTIONS.has(action as TargetedActionKind);
+}
+
+function asRecordTopologyAction(draft: CollectedAction): RecordTopologyActionDraft | undefined {
+  if (!isTargetedAction(draft.classified.action)) return undefined;
+  return {
+    element: draft.element,
+    framePath: draft.framePath,
+    classified: { ...draft.classified, action: draft.classified.action },
+  };
 }
 
 const CANONICAL_SECTION_HEADINGS: Readonly<Record<SemanticSectionRole, string>> = {
@@ -364,6 +387,9 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
     return node;
   };
 
+  const nodeById = new Map<string, SemanticNode>([[page.id, page]]);
+  const fieldNodesById = new Map<string, FieldSemanticNode>();
+  const fieldDrafts: RecordTopologyFieldDraft[] = [];
   fields.forEach((field, index) => {
     const control = controls.get(field.id);
     if (!control) throw new Error('扫描字段缺少页面内控件引用');
@@ -386,21 +412,179 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
       fieldId: field.id,
     };
     nodes.push(node);
+    nodeById.set(node.id, node);
+    fieldNodesById.set(field.id, node);
+    fieldDrafts.push({ fieldId: field.id, element });
     parent.childIds.push(node.id);
     targets.set(node.id, element);
   });
 
+  const collectedActions: CollectedAction[] = actionableElements(roots).map(({ element, framePath }) => ({
+    element,
+    framePath,
+    sectionMatch: sectionFor(element, headingCache),
+    classified: classifyAction(actionCandidate(element, false)),
+  }));
+  const targetedDrafts = collectedActions
+    .map(asRecordTopologyAction)
+    .filter((draft): draft is RecordTopologyActionDraft => Boolean(draft));
+
   let actionIndex = 0;
-  let omittedTargetedActionCount = 0;
-  for (const { element, framePath } of actionableElements(roots)) {
-    if (nodes.length >= 1498) break;
-    const sectionMatch = sectionFor(element, headingCache);
-    const classified = classifyAction(actionCandidate(element, false));
-    const action = classified.action;
-    if (isTargetedAction(action)) {
-      omittedTargetedActionCount++;
-      continue;
+  let listIndex = 0;
+  let recordIndex = 0;
+  const emittedTargetedElements = new Set<Element>();
+  const topologyGroups = new Map<Element, { match: SectionMatch; framePath: number[]; actions: RecordTopologyActionDraft[] }>();
+  for (const draft of collectedActions) {
+    if (!isTargetedAction(draft.classified.action)) continue;
+    const match = draft.sectionMatch;
+    const sectionRoot = match?.container ?? match?.anchor;
+    if (!match || !sectionRoot) continue;
+    const existing = topologyGroups.get(sectionRoot);
+    const targeted = asRecordTopologyAction(draft);
+    if (!targeted) continue;
+    if (existing) existing.actions.push(targeted);
+    else topologyGroups.set(sectionRoot, { match, framePath: draft.framePath, actions: [targeted] });
+  }
+
+  const appendTargetedAction = (draft: RecordTopologyActionDraft,
+    parent: RecordListSemanticNode | RecordSemanticNode): void => {
+    const node: ActionSemanticNode = {
+      id: `action:${actionIndex++}`,
+      kind: 'action',
+      parentId: parent.id,
+      childIds: [],
+      order: parent.childIds.length,
+      structuralFingerprint: fingerprintFor('action', draft.element, draft.framePath, siblingIndexes),
+      evidence: draft.classified.action === 'add-record' ? ['add-action']
+        : draft.classified.action === 'edit-record' ? ['edit-action'] : ['editor-actions'],
+      framePath: [...draft.framePath],
+      bounds: boundsFor(draft.element, draft.framePath),
+      action: draft.classified.action,
+      risk: draft.classified.risk,
+      disabled: draft.classified.disabled,
+      canonicalLabel: draft.classified.canonicalLabel,
+      targetId: parent.id,
+    };
+    nodes.push(node);
+    nodeById.set(node.id, node);
+    parent.childIds.push(node.id);
+    targets.set(node.id, draft.element);
+    emittedTargetedElements.add(draft.element);
+  };
+
+  for (const [sectionRoot, group] of topologyGroups) {
+    const currentSection = existingSection(group.match, group.framePath);
+    const sectionFields = currentSection
+      ? fieldDrafts.filter(field => fieldNodesById.get(field.fieldId)?.parentId === currentSection.id)
+      : [];
+    const detected = detectRecordStructures({
+      sectionRoot,
+      sectionRole: group.match.role,
+      actions: group.actions,
+      fields: sectionFields,
+    });
+    if (detected.length !== 1) continue;
+    const topology = detected[0]!;
+    const editorFieldCount = topology.editor?.fields.length ?? 0;
+    const targetedCount = topology.actionOwnerships.length;
+    const extraNodeCount = 1 + topology.summaryRecords.length + (topology.editor ? 1 : 0) + targetedCount;
+    const listChildCount = topology.summaryRecords.length + (topology.editor ? 1 : 0) + topology.addActions.length;
+    const sectionNodeCount = currentSection ? 0 : 1;
+    if (nodes.length + sectionNodeCount + extraNodeCount > 1500 || listChildCount > 500) continue;
+    if (!currentSection && page.childIds.length >= 500) continue;
+    if (topology.summaryRecords.some(record => record.editActions.length + record.deleteActions.length > 500)
+      || editorFieldCount + (topology.editor?.saveActions.length ?? 0) + (topology.editor?.cancelActions.length ?? 0) > 500) continue;
+
+    const section = ensureSection(group.match, sectionRoot, group.framePath);
+    if (section.childIds.length >= 500) continue;
+    nodeById.set(section.id, section);
+    const list: RecordListSemanticNode = {
+      id: `record-list:${listIndex++}`,
+      kind: 'record-list',
+      parentId: section.id,
+      childIds: [],
+      order: section.childIds.length,
+      structuralFingerprint: fingerprintFor('record-list', topology.root, group.framePath, siblingIndexes),
+      evidence: ['repeated-structure', 'add-action'],
+      framePath: [...group.framePath],
+      bounds: boundsFor(topology.root, group.framePath),
+      recordType: topology.recordType,
+      existingRecordCount: topology.summaryRecords.length,
+      editorState: topology.editor?.state ?? 'closed',
+    };
+    nodes.push(list);
+    nodeById.set(list.id, list);
+    section.childIds.push(list.id);
+    targets.set(list.id, topology.root);
+
+    for (const summary of topology.summaryRecords) {
+      const record: RecordSemanticNode = {
+        id: `record:${recordIndex++}`,
+        kind: 'record',
+        parentId: list.id,
+        childIds: [],
+        order: list.childIds.length,
+        structuralFingerprint: fingerprintFor('record', summary.root, group.framePath, siblingIndexes),
+        evidence: ['repeated-structure', 'edit-action'],
+        framePath: [...group.framePath],
+        bounds: boundsFor(summary.root, group.framePath),
+        index: summary.index,
+        state: 'summary',
+      };
+      nodes.push(record);
+      nodeById.set(record.id, record);
+      list.childIds.push(record.id);
+      targets.set(record.id, summary.root);
+      summary.editActions.forEach(action => appendTargetedAction(action, record));
+      summary.deleteActions.forEach(action => appendTargetedAction(action, record));
     }
+
+    if (topology.editor) {
+      const editor = topology.editor;
+      const editorRecord: RecordSemanticNode = {
+        id: `record:${recordIndex++}`,
+        kind: 'record',
+        parentId: list.id,
+        childIds: [],
+        order: list.childIds.length,
+        structuralFingerprint: fingerprintFor('record', editor.root, group.framePath, siblingIndexes),
+        evidence: ['editor-actions'],
+        framePath: [...group.framePath],
+        bounds: boundsFor(editor.root, group.framePath),
+        index: editor.state === 'editing'
+          ? (editor.sourceIndex ?? topology.summaryRecords.length)
+          : topology.summaryRecords.length,
+        state: editor.state,
+      };
+      nodes.push(editorRecord);
+      nodeById.set(editorRecord.id, editorRecord);
+      list.childIds.push(editorRecord.id);
+      targets.set(editorRecord.id, editor.root);
+      for (const field of editor.fields) {
+        const fieldNode = fieldNodesById.get(field.fieldId);
+        if (!fieldNode) continue;
+        const oldParent = fieldNode.parentId ? nodeById.get(fieldNode.parentId) : undefined;
+        if (oldParent) {
+          oldParent.childIds = oldParent.childIds.filter(id => id !== fieldNode.id);
+          oldParent.childIds.forEach((id, order) => {
+            const child = nodeById.get(id);
+            if (child) child.order = order;
+          });
+        }
+        fieldNode.parentId = editorRecord.id;
+        fieldNode.order = editorRecord.childIds.length;
+        editorRecord.childIds.push(fieldNode.id);
+      }
+      editor.saveActions.forEach(action => appendTargetedAction(action, editorRecord));
+      editor.cancelActions.forEach(action => appendTargetedAction(action, editorRecord));
+    }
+    topology.addActions.forEach(action => appendTargetedAction(action, list));
+  }
+
+  for (const { element, framePath, sectionMatch, classified } of collectedActions) {
+    if (nodes.length >= 1498) break;
+    const action = classified.action;
+    if (isTargetedAction(action)) continue;
     let parent: PageSemanticNode | SectionSemanticNode = page;
     if (sectionMatch) {
       const existing = existingSection(sectionMatch, framePath);
@@ -430,9 +614,13 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
       canonicalLabel: classified.canonicalLabel,
     };
     nodes.push(node);
+    nodeById.set(node.id, node);
     parent.childIds.push(node.id);
     targets.set(node.id, element);
   }
+
+  const omittedTargetedActionCount = targetedDrafts
+    .filter(draft => !emittedTargetedElements.has(draft.element)).length;
 
   const kindsById = new Map(nodes.map(node => [node.id, node.kind]));
   page.structuralFingerprint = fingerprintFor('page', doc.documentElement, [], siblingIndexes,

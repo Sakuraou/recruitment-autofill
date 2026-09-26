@@ -1,7 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import { classifyAction } from '../src/content/semantic/actionClassifier';
-import { SEMANTIC_GRAPH_SCHEMA_VERSION, type PageSemanticGraph } from '../src/shared/semanticGraph';
+import { SEMANTIC_GRAPH_SCHEMA_VERSION, type PageSemanticGraph, type SemanticNode } from '../src/shared/semanticGraph';
 import { isValidSemanticGraph, semanticGraphProblems } from '../src/shared/semanticGraphValidation';
+
+const validRecordTopologyGraph = (): PageSemanticGraph => ({
+  schemaVersion: SEMANTIC_GRAPH_SCHEMA_VERSION,
+  rootId: 'page:0',
+  nodes: [
+    { id: 'page:0', kind: 'page', parentId: null, childIds: ['section:0'], order: 0,
+      structuralFingerprint: '0123456789abcdef', evidence: [], framePath: [] },
+    { id: 'section:0', kind: 'section', parentId: 'page:0', childIds: ['list:0'], order: 0,
+      structuralFingerprint: '0123456789abcdea', evidence: ['heading'], framePath: [],
+      heading: '项目经历', role: 'project', confidence: 1 },
+    { id: 'list:0', kind: 'record-list', parentId: 'section:0',
+      childIds: ['record:0', 'record:1', 'editor:0', 'action:add'], order: 0,
+      structuralFingerprint: '0123456789abcdeb', evidence: ['repeated-structure'], framePath: [],
+      recordType: 'project', existingRecordCount: 2, editorState: 'creating' },
+    { id: 'record:0', kind: 'record', parentId: 'list:0', childIds: ['action:edit', 'action:delete'], order: 0,
+      structuralFingerprint: '0123456789abcdec', evidence: ['repeated-structure'], framePath: [], index: 0, state: 'summary' },
+    { id: 'action:edit', kind: 'action', parentId: 'record:0', childIds: [], order: 0,
+      structuralFingerprint: '0123456789abcded', evidence: ['edit-action'], framePath: [],
+      action: 'edit-record', risk: 'reversible', disabled: false, canonicalLabel: '编辑记录', targetId: 'record:0' },
+    { id: 'action:delete', kind: 'action', parentId: 'record:0', childIds: [], order: 1,
+      structuralFingerprint: '0123456789abcdee', evidence: ['edit-action'], framePath: [],
+      action: 'delete-record', risk: 'restricted', disabled: false, canonicalLabel: '删除记录', targetId: 'record:0' },
+    { id: 'record:1', kind: 'record', parentId: 'list:0', childIds: [], order: 1,
+      structuralFingerprint: '0123456789abcdef', evidence: ['repeated-structure'], framePath: [], index: 1, state: 'summary' },
+    { id: 'editor:0', kind: 'record', parentId: 'list:0', childIds: ['action:save', 'action:cancel'], order: 2,
+      structuralFingerprint: '1123456789abcdef', evidence: ['editor-actions'], framePath: [], index: 2, state: 'creating' },
+    { id: 'action:save', kind: 'action', parentId: 'editor:0', childIds: [], order: 0,
+      structuralFingerprint: '2123456789abcdef', evidence: ['editor-actions'], framePath: [],
+      action: 'save-record', risk: 'commit', disabled: false, canonicalLabel: '保存记录', targetId: 'editor:0' },
+    { id: 'action:cancel', kind: 'action', parentId: 'editor:0', childIds: [], order: 1,
+      structuralFingerprint: '3123456789abcdef', evidence: ['editor-actions'], framePath: [],
+      action: 'cancel-record', risk: 'restricted', disabled: false, canonicalLabel: '取消编辑', targetId: 'editor:0' },
+    { id: 'action:add', kind: 'action', parentId: 'list:0', childIds: [], order: 3,
+      structuralFingerprint: '4123456789abcdef', evidence: ['add-action'], framePath: [],
+      action: 'add-record', risk: 'reversible', disabled: false, canonicalLabel: '添加记录', targetId: 'list:0' },
+  ],
+});
 
 describe('semantic action classification', () => {
   it.each([
@@ -75,6 +112,93 @@ describe('semantic action classification', () => {
 });
 
 describe('semantic graph contract', () => {
+  it('accepts a precise record-list topology with direct, same-frame action targets', () => {
+    expect(semanticGraphProblems(validRecordTopologyGraph(), [])).toHaveLength(0);
+  });
+
+  it('accepts an unknown editor only when its list state and stable index agree', () => {
+    const graph = validRecordTopologyGraph();
+    const list = graph.nodes.find(node => node.id === 'list:0');
+    const editor = graph.nodes.find(node => node.id === 'editor:0');
+    if (list?.kind !== 'record-list' || editor?.kind !== 'record') throw new Error('missing topology fixture');
+    list.editorState = 'unknown';
+    editor.state = 'unknown';
+
+    expect(semanticGraphProblems(graph, [])).toHaveLength(0);
+  });
+
+  it('accepts an editing editor only when it references an existing summary index', () => {
+    const graph = validRecordTopologyGraph();
+    const list = graph.nodes.find(node => node.id === 'list:0');
+    const editor = graph.nodes.find(node => node.id === 'editor:0');
+    if (list?.kind !== 'record-list' || editor?.kind !== 'record') throw new Error('missing topology fixture');
+    list.editorState = 'editing';
+    editor.state = 'editing';
+    editor.index = 1;
+
+    expect(semanticGraphProblems(graph, [])).toHaveLength(0);
+  });
+
+  it('rejects inconsistent record-list counts, indexes, editor state, roles and frame paths', () => {
+    const graph = validRecordTopologyGraph();
+    const section = graph.nodes.find(node => node.id === 'section:0');
+    const list = graph.nodes.find(node => node.id === 'list:0');
+    const secondRecord = graph.nodes.find(node => node.id === 'record:1');
+    const editor = graph.nodes.find(node => node.id === 'editor:0');
+    if (section?.kind !== 'section' || list?.kind !== 'record-list'
+      || secondRecord?.kind !== 'record' || editor?.kind !== 'record') throw new Error('missing topology fixture');
+
+    section.role = 'basic';
+    list.recordType = 'basic';
+    list.existingRecordCount = 1;
+    secondRecord.index = 3;
+    list.editorState = 'editing';
+    editor.index = 9;
+    editor.framePath = [1];
+
+    expect(semanticGraphProblems(graph, []).map(problem => problem.code)).toContain('record-topology');
+  });
+
+  it('requires records and targeted actions to be direct children of compatible targets', () => {
+    const graph = validRecordTopologyGraph();
+    const list = graph.nodes.find(node => node.id === 'list:0');
+    const summary = graph.nodes.find(node => node.id === 'record:0');
+    const editor = graph.nodes.find(node => node.id === 'editor:0');
+    const edit = graph.nodes.find(node => node.id === 'action:edit');
+    const save = graph.nodes.find(node => node.id === 'action:save');
+    if (list?.kind !== 'record-list' || summary?.kind !== 'record' || editor?.kind !== 'record'
+      || edit?.kind !== 'action' || save?.kind !== 'action') throw new Error('missing topology fixture');
+
+    edit.parentId = editor.id;
+    edit.targetId = editor.id;
+    summary.childIds = summary.childIds.filter(id => id !== edit.id);
+    editor.childIds.push(edit.id);
+    save.parentId = summary.id;
+    save.targetId = summary.id;
+    editor.childIds = editor.childIds.filter(id => id !== save.id);
+    summary.childIds.push(save.id);
+    list.parentId = graph.rootId;
+
+    const codes = semanticGraphProblems(graph, []).map(problem => problem.code);
+    expect(codes).toEqual(expect.arrayContaining(['record-topology', 'action-target']));
+  });
+
+  it('rejects target IDs on actions that do not operate on records', () => {
+    const graph = validRecordTopologyGraph();
+    const section = graph.nodes.find(node => node.id === 'section:0');
+    if (section?.kind !== 'section') throw new Error('missing section fixture');
+    const action: SemanticNode = {
+      id: 'action:expand', kind: 'action' as const, parentId: section.id, childIds: [], order: section.childIds.length,
+      structuralFingerprint: '5123456789abcdef', evidence: [], framePath: [],
+      action: 'expand' as const, risk: 'inspect' as const, disabled: false, canonicalLabel: '展开或收起' as const,
+      targetId: section.id,
+    };
+    section.childIds.push(action.id);
+    graph.nodes.push(action);
+
+    expect(semanticGraphProblems(graph, []).map(problem => problem.code)).toContain('action-target');
+  });
+
   it('references fields without copying their private values', () => {
     const graph: PageSemanticGraph = {
       schemaVersion: SEMANTIC_GRAPH_SCHEMA_VERSION,
