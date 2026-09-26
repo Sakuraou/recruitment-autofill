@@ -2,6 +2,7 @@ import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { EXTENSION_VERSION } from '../shared/version';
 import { isMobileResume, mobileLabel, mobileMaxLength, mobilePlaceholder, mobileSection } from './mobilePage';
 import { describeMobileSelect, MOBILE_DATE_SELECTOR, MOBILE_SELECT_SELECTOR, mobileFingerprint } from './mobileSelect';
+import { buildPageSemanticGraph } from './semantic/graphBuilder';
 import {
   ariaLabel, attributesFingerprint, cleanText, collectControls, controlLabels, hasValue,
   hiddenReason, parentText, previousText, sectionText, selectOptions, structuralLabel, tableHeader,
@@ -16,6 +17,8 @@ export interface ScanState {
   document: Document;
   /** Private, page-local objects: never send through extension messaging or storage. */
   controls: Map<string, ScannedControl>;
+  /** Private semantic node targets: never send through extension messaging or storage. */
+  semanticTargets: Map<string, Element>;
 }
 
 function blockedReason(node: FormControl, field: FieldDescriptor): string | undefined {
@@ -153,6 +156,20 @@ export function scanDocument(doc: Document = document): ScanState {
       controls.set(id, { node, fingerprint: mobileFingerprint(node, field), adapter: 'mobile-select' });
     }
   }
+  let semanticTargets = new Map<string, Element>();
+  let semanticGraph: ScanResult['semanticGraph'];
+  try {
+    const semantic = buildPageSemanticGraph(doc, fields, controls);
+    semanticGraph = semantic.graph;
+    semanticTargets = semantic.targets;
+  } catch {
+    warnings.push('页面结构暂未通过语义校验；逐字段扫描仍可正常使用。');
+  }
   console.info('[校招网申助手]', { event: 'scan', fields: fields.length, blocked: fields.filter((field) => field.blockedReason).length });
-  return { result: { contentVersion: EXTENSION_VERSION, scanId, url: doc.URL, title: cleanText(doc.title), fields, warnings }, document: doc, controls };
+  return {
+    result: { contentVersion: EXTENSION_VERSION, scanId, url: doc.URL, title: cleanText(doc.title), fields, semanticGraph, warnings },
+    document: doc,
+    controls,
+    semanticTargets,
+  };
 }
