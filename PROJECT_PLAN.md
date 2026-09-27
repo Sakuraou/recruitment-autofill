@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-27
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-003 DOM 稳定等待器
-> 最近完整验证：2026-09-27，371 项测试、生产构建与完整浏览器 E2E 通过
+> 当前迭代：I-004A 通用记录计划契约与一对一匹配
+> 最近完整验证：2026-09-27，398 项测试、生产构建、9 项 DOM 浏览器检查及完整扩展 E2E 通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -159,7 +159,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ### M2：通用重复记录规划器
 
-状态：`planned`
+状态：`in_progress`
 
 产物：
 
@@ -311,8 +311,9 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-002A | 只读扫描 Section、Field 与无目标 Action | verified | 328 项测试、构建、两轮独立复审通过 | 保持零交互回归边界 |
 | I-002B | 识别 RecordList、Record 与有目标 Action | verified | 343 项测试、完整浏览器 E2E；7 个目标动作严格绑定 | 保持只读、字段唯一与失败关闭边界 |
 | I-002C | 识别上下文动作、空列表与更常见摘要卡片 | verified | 37 项拓扑测试、371 项全量测试及完整 E2E | 保持精确计数、唯一归属和失败关闭边界 |
-| I-003 | DOM 稳定等待器 | in_progress | 延迟显示、连续突变、超时与取消测试 | 建立动作前后可复用的稳定判据 |
-| I-004 | 通用 Record Planner | planned | 六项目端到端测试 | I-002、I-003 完成后开始 |
+| I-003 | DOM 稳定等待器 | verified | 27 项专项测试、9 项真实 Chromium 检查、398 项全量测试与完整 E2E | 保持先装等待器再触发动作的事务顺序 |
+| I-004A | Record Planner 契约与一对一匹配 | in_progress | 纯函数计划、重复与歧义失败关闭测试 | 定义档案记录、网页记录和动作后置条件 |
+| I-004B | Record Planner 执行状态机 | planned | 六项目、延迟保存、暂停恢复端到端测试 | I-004A 完成后接入执行器 |
 
 ## 7. 本轮记录
 
@@ -389,6 +390,26 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 阅读 I-002C 的只读语义图、现有流程等待逻辑和安全测试。先定义一个与站点无关、可取消且有硬超时的 DOM 稳定等待器：只观察指定根节点和白名单结构变化，在满足预期谓词后连续经历静默窗口才返回 stable；明确区分 stable、timeout、aborted、root-disconnected 和 predicate-failed，不把超时当成功。用延迟出现、连续突变、无关突变、根节点替换、开放 Shadow DOM、主动取消和硬超时夹具先写失败测试，再实现 MutationObserver 生命周期与清理。不得点击、填写、滚动、读取个人值或无限等待；完成后运行专项测试、npm run check 和浏览器 E2E，并更新 PROJECT_PLAN.md。
+```
+
+### 2026-09-27 · I-003
+
+- 新增站点无关的 `waitForDomStability`，使用 `stable / timeout / aborted / root-disconnected / predicate-failed` 判别联合，超时不会再与成功共用 `undefined`。
+- 条件首次满足后仍需经历完整静默窗口；相关结构变化会重读条件并重新计时，无关变化可由过滤器排除，正文变化默认不观察但可显式启用。
+- 硬超时使用单调时钟且上限为 60 秒；AbortSignal、谓词异常、过滤器异常、根断连和初始化拓扑异常都有独立终态，并由同一个清理出口释放观察器、监听器和计时器。
+- 同步谓词在类型层和运行时同时强制；误传 rejected Promise 时会先消费拒绝，再返回 `predicate-failed`，不会向网页泄漏 `unhandledrejection`。
+- 根节点替换、跨父容器移动及同一任务内移除再挂回均失败关闭；祖先链上限 256，嵌套 frame 上限 10，避免异常页面在计时器安装前制造无界同步工作。
+- 支持开放 Shadow DOM、同源 iframe 与嵌套 iframe；iframe 移除、预先断连、`src/srcdoc` 改变、Navigation API 导航、`pagehide` 和 `beforeunload` 均使旧根失效。
+- 动作后置条件必须先创建等待器，再触发动作；已经发起但尚未提交的导航没有可靠的通用追溯信号，后续 Transaction Executor 必须保持这个事务顺序。
+- 新增 27 项专项测试和独立真实 Chromium 回归，覆盖 9 类浏览器边界；真实浏览器中无未处理拒绝、页面错误或网络外泄。
+- 完整 `npm run check` 通过：18 个测试文件、398 项测试及生产构建。
+- 完整 `npm run test:e2e` 通过：9 项 DOM 浏览器检查、12 项扩展检查和 7 项连续流程检查；外部请求、页面错误、最终提交与删除均为 0，六项目仍各新增和保存一次。
+- 现有 `until` 暂不替换；它仍承担旧流程的暂停心跳。I-004B 接入前必须为每次运行建立 AbortController，并将 `aborted` 映射回 `Suspended`。
+
+下一步 I-004A 执行提示词：
+
+```text
+阅读 I-002C 的 Page Semantic Graph、I-003 的稳定等待契约、现有中国移动记录流程和安全测试。先定义完全纯函数的 Record Planner 契约：档案记录意图、网页记录候选、唯一身份证据、计划步骤、动作节点引用、前置条件、后置条件和 request-human 原因。只允许引用已经验证的语义节点 ID，不保存 DOM、选择器、页面原文或个人字段值；已有记录与档案记录必须做一对一分配，重复候选、身份不足、列表计数不完整、编辑器占用或缺少唯一 add/save 动作时失败关闭。用六条档案记录、部分已有、重复身份、顺序不同、空列表和歧义夹具先写失败测试，再实现计划生成；本阶段不得点击、填写、滚动或接入大模型。完成后运行专项测试与 npm run check，并更新 PROJECT_PLAN.md。
 ```
 
 ## 8. 每轮通用提示词
