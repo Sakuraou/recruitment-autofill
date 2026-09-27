@@ -99,6 +99,7 @@ export interface RecordListSemanticNode extends SemanticNodeBase {
 
 export interface RecordSemanticNode extends SemanticNodeBase {
   kind: 'record';
+  /** Summary order; editing reuses its source summary index, while creating/unknown use the summary count. */
   index: number;
   state: 'summary' | 'creating' | 'editing' | 'unknown';
 }

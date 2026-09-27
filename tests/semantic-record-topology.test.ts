@@ -280,7 +280,7 @@ describe('I-002B record topology safety', () => {
           <form action="/private-submit?candidate=private-url-token" aria-label="新增项目经历编辑器">
             <label>项目名称<input id="private-dynamic-id" name="private-dynamic-name" value="private-input-value"></label>
             <label>项目描述<textarea id="private-textarea-id" name="private-textarea-name">private-textarea-value</textarea></label>
-            <button type="button">保存</button><button type="button">取消</button>
+            <button>保存</button><button type="button">取消</button>
           </form>
           <a href="/private-details?candidate=private-link-token">查看详情</a>
         </div>
@@ -319,5 +319,489 @@ describe('I-002B record topology safety', () => {
       focus.mockRestore();
       dispatch.mockRestore();
     }
+  });
+});
+
+describe('I-002C contextual record topology', () => {
+  it('recognizes a bare add icon and native submit save only inside a proven list and editor', () => {
+    const { state, built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list" aria-label="项目经历列表">
+        <article role="listitem"><h3>脱敏项目甲</h3><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <article role="listitem"><h3>脱敏项目乙</h3><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button" aria-label="+"></button>
+        <form aria-label="新增项目经历编辑器">
+          <label>项目名称<input></label><label>项目描述<textarea></textarea></label>
+          <button>保存</button><button type="button">取消</button>
+        </form>
+      </div></section>
+    `);
+    const list = built.graph.nodes.find(node => node.kind === 'record-list');
+    const editor = built.graph.nodes.find(node => node.kind === 'record' && node.state === 'creating');
+    expect(list).toMatchObject({ existingRecordCount: 2, editorState: 'creating' });
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'add-record'))
+      .toMatchObject({ parentId: list?.id, targetId: list?.id, risk: 'reversible' });
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'save-record'))
+      .toMatchObject({ parentId: editor?.id, targetId: editor?.id, risk: 'restricted' });
+    expect(built.graph.nodes.filter(node => node.kind === 'action' && node.action === 'submit')).toHaveLength(0);
+    expect(semanticGraphProblems(built.graph, state.result.fields.map(field => field.id))).toHaveLength(0);
+  });
+
+  it('models two standard summary cards that expose edit but not delete', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list" aria-label="项目经历列表">
+        <article role="listitem"><h3>脱敏项目甲</h3><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><h3>脱敏项目乙</h3><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div></section>
+    `);
+    const list = built.graph.nodes.find(node => node.kind === 'record-list');
+    const records = built.graph.nodes.filter(node => node.kind === 'record' && node.state === 'summary');
+    expect(list).toMatchObject({ existingRecordCount: 2, editorState: 'closed' });
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      expect(built.graph.nodes.filter(node => node.kind === 'action' && node.parentId === record.id))
+        .toEqual([expect.objectContaining({ action: 'edit-record', targetId: record.id })]);
+    }
+  });
+
+  it('models an explicitly empty semantic list but not a bare add control by itself', () => {
+    const empty = buildFixture(`
+      <section><h2>项目经历</h2><div role="list" aria-label="项目经历列表">
+        <p role="status">暂无项目经历</p><button type="button">添加项目经历</button>
+      </div></section>
+    `).built;
+    expect(empty.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 0, editorState: 'closed' });
+    expect(empty.graph.nodes.filter(node => node.kind === 'record')).toHaveLength(0);
+    expect(empty.graph.nodes.find(node => node.kind === 'action' && node.action === 'add-record'))
+      .toMatchObject({ targetId: expect.stringMatching(/^record-list:/u) });
+    expect(JSON.stringify(empty.graph)).not.toContain('暂无项目经历');
+
+    const ambiguous = buildFixture(`
+      <section><h2>项目经历</h2><div role="list"><button type="button">添加项目经历</button></div></section>
+    `).built;
+    expect(ambiguous.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+
+    const bare = buildFixture(`
+      <section><h2>项目经历</h2><div role="list"><button type="button" aria-label="+"></button></div></section>
+    `).built;
+    expect(bare.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('ignores a hidden editor template while retaining the proven closed list', () => {
+    const { state, built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+        <form style="display: none" aria-label="新增项目经历编辑器">
+          <label>项目名称<input></label><label>项目描述<textarea></textarea></label>
+          <button type="submit">保存</button><button type="button">取消</button>
+        </form>
+      </div></section>
+    `);
+    const list = built.graph.nodes.find(node => node.kind === 'record-list');
+    expect(list).toMatchObject({ existingRecordCount: 1, editorState: 'closed' });
+    expect(built.graph.nodes.filter(node => node.kind === 'action'
+      && ['save-record', 'cancel-record'].includes(node.action))).toHaveLength(0);
+    expect(built.graph.nodes.filter(node => node.kind === 'field')).toHaveLength(state.result.fields.length);
+    expect(semanticGraphProblems(built.graph, state.result.fields.map(field => field.id))).toHaveLength(0);
+  });
+
+  it('does not reinterpret final submission wording as an editor save', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+        <form aria-label="新增项目经历编辑器">
+          <label>项目名称<input></label><label>项目描述<textarea></textarea></label>
+          <button>保存并提交</button><button type="button">取消</button>
+        </form>
+      </div></section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'action' && node.action === 'save-record')).toHaveLength(0);
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'submit'))
+      .toMatchObject({ risk: 'restricted' });
+  });
+
+  it('rejects add and empty-state evidence that names a different record type', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list" aria-label="项目经历列表">
+        <p role="status">暂无教育经历</p><button type="button">添加教育经历</button>
+      </div></section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('does not claim an exact list when pagination or a larger ARIA set is present', () => {
+    const fixtures = [
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button><nav><button type="button">下一页</button></nav>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem" aria-setsize="8" aria-posinset="1"><button type="button">编辑项目经历</button></article>
+        <article role="listitem" aria-setsize="8" aria-posinset="2"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list" aria-rowcount="8">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list" aria-busy="true">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem" aria-posinset="3"><button type="button">编辑项目经历</button></article>
+        <article role="listitem" aria-posinset="4"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+        <div role="group" aria-label="分页"><button type="button">1</button><button type="button">2</button></div>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+        <div role="group" aria-label="页码"><button type="button">上一页</button><button type="button">下一页</button></div>
+      </div></section>`,
+    ];
+    for (const fixture of fixtures) {
+      const { built } = buildFixture(fixture);
+      expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+    }
+
+    const complete = buildFixture(`
+      <section><h2>项目经历</h2><div role="list" aria-rowcount="2">
+        <article role="listitem" aria-setsize="2" aria-posinset="1"><button type="button">编辑项目经历</button></article>
+        <article role="listitem" aria-setsize="2" aria-posinset="2"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div></section>
+    `).built;
+    expect(complete.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 2 });
+  });
+
+  it('supports a heading-delimited range inside one shared form', () => {
+    const { built } = buildFixture(`
+      <form>
+        <h2>项目经历</h2>
+        <div role="list"><article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article><button type="button">添加项目经历</button></div>
+        <h2>教育经历</h2><label>学校<input></label>
+      </form>
+    `);
+    const project = built.graph.nodes.find(node => node.kind === 'section' && node.role === 'project');
+    const list = built.graph.nodes.find(node => node.kind === 'record-list');
+    expect(project).toBeDefined();
+    expect(list).toMatchObject({ parentId: project?.id, recordType: 'project', existingRecordCount: 1 });
+  });
+
+  it('supports repeated generic div cards and a unique external add action', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2>
+        <header><button type="button">添加项目经历</button></header>
+        <div>
+          <div><h3>脱敏项目甲</h3><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></div>
+          <div><h3>脱敏项目乙</h3><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></div>
+        </div>
+      </section>
+    `);
+    const list = built.graph.nodes.find(node => node.kind === 'record-list');
+    expect(list).toMatchObject({ existingRecordCount: 2, editorState: 'closed' });
+    expect(built.graph.nodes.filter(node => node.kind === 'record' && node.parentId === list?.id)).toHaveLength(2);
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'add-record'))
+      .toMatchObject({ parentId: list?.id, targetId: list?.id });
+  });
+
+  it('keeps a section-level native save as submit without discarding the proven list', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div><button>保存</button></section>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list')).toBeDefined();
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'submit'))
+      .toMatchObject({ risk: 'restricted' });
+  });
+
+  it('does not promote disclosure, picker, or stepper plus controls to record additions', () => {
+    const plusVariants = [
+      '<button type="button" aria-label="+" aria-expanded="false"></button>',
+      '<div role="combobox"><button type="button" aria-label="+"></button></div>',
+      '<div role="spinbutton"><button type="button" aria-label="+"></button></div>',
+    ];
+    for (const plus of plusVariants) {
+      const { built } = buildFixture(`
+        <section><h2>项目经历</h2><div role="list">
+          <article role="listitem"><button type="button">编辑项目经历</button></article>
+          <article role="listitem"><button type="button">编辑项目经历</button></article>
+          ${plus}
+        </div></section>
+      `);
+      expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+      expect(built.graph.nodes.filter(node => node.kind === 'action' && node.action === 'add-record')).toHaveLength(0);
+    }
+  });
+
+  it('ignores content-visibility hidden editor actions', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+        <form style="content-visibility: hidden" aria-label="新增项目经历编辑器">
+          <label>项目名称<input></label><label>项目描述<textarea></textarea></label>
+          <button type="submit">保存</button><button type="button">取消</button>
+        </form>
+      </div></section>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 1, editorState: 'closed' });
+    expect(built.graph.nodes.filter(node => node.kind === 'action'
+      && ['save-record', 'cancel-record'].includes(node.action))).toHaveLength(0);
+  });
+
+  it('does not turn an unrelated final confirmation form into a record editor', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+        <form aria-label="最终确认申请">
+          <label>同意声明<input type="checkbox"></label><label>确认真实<input type="checkbox"></label>
+          <button type="submit">保存</button><button type="button">取消</button>
+        </form>
+      </div></section>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 2, editorState: 'closed' });
+    expect(built.graph.nodes.filter(node => node.kind === 'record' && node.state !== 'summary')).toHaveLength(0);
+    expect(built.graph.nodes.filter(node => node.kind === 'action' && node.action === 'save-record')).toHaveLength(0);
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'submit'))
+      .toMatchObject({ risk: 'restricted' });
+  });
+
+  it('keeps ordinary save and cancel controls outside an editor from discarding a proven list', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button">添加项目经历</button>
+        <div role="toolbar"><button type="button">保存</button><button type="button">取消</button></div>
+      </div></section>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 2, editorState: 'closed' });
+  });
+
+  it('requires editor semantics to match the surrounding record type', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+        <form aria-label="新增教育经历编辑器">
+          <label>学校<input></label><label>专业<input></label>
+          <button type="button">保存</button><button type="button">取消</button>
+        </form>
+      </div></section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('uses a unique add-to-editor relationship as independent editor identity', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button" aria-controls="detached-editor">添加项目经历</button>
+      </div>
+      <form id="detached-editor"><label>项目名称<input></label><label>项目描述<textarea></textarea></label>
+        <button type="button">保存</button><button type="button">取消</button>
+      </form></section>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 1, editorState: 'creating' });
+    expect(built.graph.nodes.find(node => node.kind === 'record' && node.state === 'creating')).toBeDefined();
+  });
+
+  it('keeps two heading-delimited record sections isolated inside a shared form', () => {
+    const { built } = buildFixture(`
+      <form>
+        <h2>项目经历</h2><div role="list"><article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article><button type="button">添加项目经历</button></div>
+        <h2>教育经历</h2><div role="list"><article role="listitem"><button type="button">编辑教育经历</button><button type="button">删除这段经历</button></article><button type="button">添加教育经历</button></div>
+      </form>
+    `);
+    const sections = built.graph.nodes.filter(node => node.kind === 'section');
+    const lists = built.graph.nodes.filter(node => node.kind === 'record-list');
+    expect(sections.map(section => section.role)).toEqual(['project', 'education']);
+    expect(lists).toHaveLength(2);
+    expect(lists.map(list => list.parentId)).toEqual(sections.map(section => section.id));
+  });
+
+  it('accepts student-work wording without confusing it with internship experience', () => {
+    const { built } = buildFixture(`
+      <section><h2>校内职务</h2><div role="list">
+        <article role="listitem"><button type="button">编辑校内职务</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加学生工作经历</button>
+      </div></section>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ recordType: 'student-work', existingRecordCount: 1 });
+  });
+
+  it('omits navigating add and edit links from record topology', () => {
+    const fixtures = [
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <a href="/private-add">添加项目经历</a>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><a href="/private-edit-1">编辑项目经历</a></article>
+        <article role="listitem"><a href="/private-edit-2">编辑项目经历</a></article>
+        <button type="button">添加项目经历</button>
+      </div></section>`,
+    ];
+    for (const fixture of fixtures) {
+      const { built } = buildFixture(fixture);
+      expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+      expect(JSON.stringify(built.graph)).not.toContain('private-');
+    }
+  });
+
+  it('rejects a plus control that owns a picker instead of a record editor', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <article role="listitem"><button type="button">编辑项目经历</button></article>
+        <button type="button" aria-label="+" aria-controls="private-picker"></button>
+        <div id="private-picker" role="listbox"><div role="option">1</div></div>
+      </div></section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('rejects conflicting, unresolved, and cross-section add control relationships', () => {
+    const fixtures = [
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button" aria-controls="private-editor">添加项目经历</button>
+        <div role="dialog" id="private-editor" aria-label="教育经历"><label>学校<input></label><label>专业<input></label><button type="button">保存</button><button type="button">取消</button></div>
+      </div></section>`,
+      `<section><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button" aria-controls="private-editor missing-editor">添加项目经历</button>
+        <div role="dialog" id="private-editor"><label>名称<input></label><label>描述<input></label><button type="button">保存</button><button type="button">取消</button></div>
+      </div></section>`,
+      `<form><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button" aria-controls="private-education-editor">添加项目经历</button>
+      </div><h2>教育经历</h2><div role="dialog" id="private-education-editor"><label>学校<input></label><label>专业<input></label><button type="button">保存</button><button type="button">取消</button></div></form>`,
+    ];
+    for (const fixture of fixtures) {
+      const { built } = buildFixture(fixture);
+      expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+    }
+  });
+
+  it('does not steal an external add action from a different partial list', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2>
+        <div><div><button type="button">编辑项目经历</button></div><div><button type="button">编辑项目经历</button></div></div>
+        <div><button type="button">添加项目经历</button><div><button type="button">编辑项目经历</button></div></div>
+      </section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('fails closed when a generic repeated card is missing its edit action', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><header><button type="button">添加项目经历</button></header>
+        <div>
+          <div><h3>脱敏项目甲</h3><button type="button">编辑项目经历</button></div>
+          <div><h3>脱敏项目乙</h3><button type="button">编辑项目经历</button></div>
+          <div><h3>脱敏项目丙</h3></div>
+        </div>
+      </section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('ends semantic ownership at an unknown peer heading', () => {
+    const { built } = buildFixture(`
+      <form><h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div><h2>其他资料</h2><button type="button">继续</button></form>
+    `);
+    const byId = nodeMap(built.graph);
+    const project = built.graph.nodes.find(node => node.kind === 'section' && node.role === 'project');
+    const next = built.graph.nodes.find(node => node.kind === 'action' && node.action === 'next-step');
+    expect(project).toBeDefined();
+    expect(next).toBeDefined();
+    expect(nearestSectionId(next!, byId)).not.toBe(project?.id);
+  });
+
+  it('keeps lower-level headings inside generic cards under the governing section', () => {
+    const { built } = buildFixture(`
+      <form><h2>项目经历</h2><header><button type="button">添加项目经历</button></header>
+        <div>
+          <div><h3>项目经历</h3><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></div>
+          <div><h3>项目经历</h3><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></div>
+        </div>
+        <h2>教育经历</h2><label>学校<input></label>
+      </form>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ recordType: 'project', existingRecordCount: 2 });
+  });
+
+  it('keeps repeated same-level headings inside generic cards under the governing section', () => {
+    const { built } = buildFixture(`
+      <form><h2>项目经历</h2><header><button type="button">添加项目经历</button></header>
+        <div>
+          <div><h2>项目经历</h2><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></div>
+          <div><h2>项目经历</h2><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></div>
+        </div>
+        <h2>教育经历</h2><label>学校<input></label>
+      </form>
+    `);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ recordType: 'project', existingRecordCount: 2 });
+  });
+
+  it('fails closed for a visible inline editor inside a summary card', () => {
+    const { built } = buildFixture(`
+      <section><h2>项目经历</h2><div role="list"><article role="listitem">
+        <button type="button" aria-controls="private-inline-editor">编辑项目经历</button>
+        <button type="button">删除这段经历</button>
+        <form id="private-inline-editor" aria-label="编辑项目经历编辑器">
+          <label>名称<input></label><label>描述<textarea></textarea></label>
+          <button type="button">保存</button><button type="button">取消</button>
+        </form>
+      </article><button type="button">添加项目经历</button></div></section>
+    `);
+    expect(built.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
+  });
+
+  it('supports a heading-delimited record list directly inside an open shadow root', () => {
+    document.body.innerHTML = '<div id="shadow-host"></div>';
+    const host = document.querySelector<HTMLElement>('#shadow-host')!;
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `
+      <h2>项目经历</h2><div role="list">
+        <article role="listitem"><button type="button">编辑项目经历</button><button type="button">删除这段经历</button></article>
+        <button type="button">添加项目经历</button>
+      </div><h2>教育经历</h2><label>学校<input></label>
+    `;
+    const state = scanDocument(document);
+    const built = buildPageSemanticGraph(document, state.result.fields, state.controls);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ recordType: 'project', existingRecordCount: 1 });
   });
 });

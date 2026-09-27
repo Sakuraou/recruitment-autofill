@@ -20,6 +20,7 @@ import {
   detectRecordStructures,
   type RecordTopologyActionDraft,
   type RecordTopologyFieldDraft,
+  type RecordTopologyTargetedActionDraft,
 } from './recordStructureDetector';
 import { classifySection, type SectionLabelCandidate } from './sectionClassifier';
 import { structuralFingerprint, type StructuralFingerprintInput } from './structuralFingerprint';
@@ -43,6 +44,7 @@ interface CollectedAction {
   element: Element;
   framePath: number[];
   sectionMatch?: SectionMatch;
+  candidate: ActionCandidate;
   classified: ClassifiedAction;
 }
 
@@ -70,12 +72,12 @@ function isTargetedAction(action: SemanticActionKind): action is TargetedActionK
   return TARGETED_ACTIONS.has(action as TargetedActionKind);
 }
 
-function asRecordTopologyAction(draft: CollectedAction): RecordTopologyActionDraft | undefined {
-  if (!isTargetedAction(draft.classified.action)) return undefined;
+function asRecordTopologyAction(draft: CollectedAction): RecordTopologyActionDraft {
   return {
     element: draft.element,
     framePath: draft.framePath,
-    classified: { ...draft.classified, action: draft.classified.action },
+    candidate: draft.candidate,
+    classified: draft.classified,
   };
 }
 
@@ -190,8 +192,43 @@ interface HeadingLookupCache {
   roles: WeakMap<Element, SemanticSectionRole>;
 }
 
+interface SemanticHeadingMatch {
+  element: Element;
+  role: SemanticSectionRole;
+  scopeRoot: Element | ShadowRoot;
+  nextPeer?: Element;
+}
+
+function headingLevel(element: Element): number | undefined {
+  const native = /^H([1-6])$/u.exec(element.tagName)?.[1];
+  if (native) return Number.parseInt(native, 10);
+  const aria = element.getAttribute('aria-level');
+  return aria && /^[1-6]$/u.test(aria.trim()) ? Number.parseInt(aria, 10) : undefined;
+}
+
+function isSameOrHigherHeading(candidate: Element, reference: Element): boolean {
+  const candidateLevel = headingLevel(candidate);
+  const referenceLevel = headingLevel(reference);
+  if (candidateLevel !== undefined && referenceLevel !== undefined) return candidateLevel <= referenceLevel;
+  return candidate.tagName === reference.tagName;
+}
+
+function depthWithinScope(element: Element, scope: Node): number {
+  let depth = 0;
+  for (let current: Node | null = element; current && current !== scope; current = current.parentNode) depth++;
+  return depth;
+}
+
+function isHeadingInsideRecordContainer(heading: Element, boundary: Element | null): boolean {
+  const strongContainer = heading.closest('[role="listitem"], li, tr, [role="dialog"]');
+  if (strongContainer && (!boundary || boundary.contains(strongContainer))) return true;
+  const article = heading.closest('article');
+  const list = article?.parentElement?.closest('[role="list"], ul, ol, table, tbody');
+  return Boolean(article && list && (!boundary || boundary.contains(article)));
+}
+
 function precedingSemanticHeading(element: Element,
-  cache: HeadingLookupCache): { element: Element; role: SemanticSectionRole } | undefined {
+  cache: HeadingLookupCache): SemanticHeadingMatch | undefined {
   const root = element.getRootNode();
   if (root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return undefined;
   const scope = element.closest('fieldset, section, form, [role="region"], [role="group"], [role="form"]')
@@ -203,17 +240,53 @@ function precedingSemanticHeading(element: Element,
     cache.headings.set(scope, headings);
   }
   let result: { element: Element; role: SemanticSectionRole } | undefined;
+  let unknownBoundary: Element | undefined;
   for (const heading of headings) {
     if ((heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) === 0) continue;
     if (heading.closest('fieldset, section, form, [role="region"], [role="group"], [role="form"]') !== boundary) continue;
+    if (isHeadingInsideRecordContainer(heading, boundary)
+      || !visibleActionElement(heading)) continue;
+    if (result && !isSameOrHigherHeading(heading, result.element)) continue;
+    if (!result && unknownBoundary && !isSameOrHigherHeading(heading, unknownBoundary)) continue;
     let role = cache.roles.get(heading);
     if (!role) {
       role = classifySection([{ text: contextText(heading), evidence: heading.tagName === 'LEGEND' ? 'legend' : 'heading' }]).role;
       cache.roles.set(heading, role);
     }
-    if (role !== 'other') result = { element: heading, role };
+    if (result && role === result.role
+      && depthWithinScope(heading, scope) > depthWithinScope(result.element, scope)) continue;
+    if (role === 'other') {
+      if (result) {
+        unknownBoundary = heading;
+        result = undefined;
+      }
+      continue;
+    }
+    result = { element: heading, role };
+    unknownBoundary = undefined;
   }
-  return result;
+  if (!result) return undefined;
+  const startLevel = headingLevel(result.element);
+  const startIndex = headings.indexOf(result.element);
+  const nextPeer = headings.slice(startIndex + 1).find((heading) => {
+    if (heading.closest('fieldset, section, form, [role="region"], [role="group"], [role="form"]') !== boundary) return false;
+    if (isHeadingInsideRecordContainer(heading, boundary)) return false;
+    if (!visibleActionElement(heading)) return false;
+    let role = cache.roles.get(heading);
+    if (!role) {
+      role = classifySection([{ text: contextText(heading), evidence: heading.tagName === 'LEGEND' ? 'legend' : 'heading' }]).role;
+      cache.roles.set(heading, role);
+    }
+    if (role === result!.role
+      && depthWithinScope(heading, scope) > depthWithinScope(result!.element, scope)) return false;
+    const level = headingLevel(heading);
+    return startLevel === undefined ? heading.tagName === result!.element.tagName
+      : level !== undefined && level <= startLevel;
+  });
+  const scopeRoot = scope.nodeType === Node.DOCUMENT_NODE
+    ? result.element.ownerDocument.body ?? result.element.parentElement
+    : scope as Element | ShadowRoot;
+  return scopeRoot ? { ...result, scopeRoot, nextPeer } : undefined;
 }
 
 function candidatesFor(container: Element): SectionLabelCandidate[] {
@@ -233,6 +306,9 @@ function candidatesFor(container: Element): SectionLabelCandidate[] {
 interface SectionMatch {
   container?: Element;
   anchor?: Element;
+  scopeRoot?: Element | ShadowRoot;
+  scopeStart?: Element;
+  scopeEnd?: Element;
   role: SemanticSectionRole;
   confidence: number;
   evidence: SectionLabelCandidate['evidence'][];
@@ -270,7 +346,13 @@ function sectionFor(element: Element, headingCache: HeadingLookupCache,
     ?? element.closest('fieldset, section, [role="region"], [role="group"], [role="form"]')
     ?? element.parentElement
     ?? element;
-  return { anchor, ...nearby };
+  return {
+    anchor,
+    scopeRoot: nearbyHeading?.scopeRoot,
+    scopeStart: nearbyHeading?.element,
+    scopeEnd: nearbyHeading?.nextPeer,
+    ...nearby,
+  };
 }
 
 function actionName(element: Element): string {
@@ -306,12 +388,33 @@ function actionCandidate(element: Element, recordContext: boolean): ActionCandid
   };
 }
 
+function visibleActionElement(element: Element): boolean {
+  const view = element.ownerDocument.defaultView;
+  const visited = new Set<Element>();
+  for (let current: Element | null = element; current && !visited.has(current);) {
+    visited.add(current);
+    if (current.hasAttribute('hidden') || current.hasAttribute('inert')
+      || current.getAttribute('aria-hidden') === 'true') return false;
+    const style = view?.getComputedStyle(current);
+    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse'
+      || style?.contentVisibility === 'hidden') return false;
+    if (current.parentElement) current = current.parentElement;
+    else {
+      const root = current.getRootNode();
+      current = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root
+        ? (root as ShadowRoot).host : null;
+    }
+  }
+  const closedDetails = element.closest('details:not([open])');
+  return !closedDetails || closedDetails.querySelector(':scope > summary')?.contains(element) === true;
+}
+
 function actionableElements(roots: readonly RootEntry[]): Array<{ element: Element; framePath: number[] }> {
   const seen = new Set<Element>();
   const result: Array<{ element: Element; framePath: number[] }> = [];
   for (const entry of roots) {
     for (const element of Array.from(entry.root.querySelectorAll<Element>(ACTION_SELECTOR))) {
-      if (seen.has(element) || element.closest('[hidden], [inert], [aria-hidden="true"]')) continue;
+      if (seen.has(element) || !visibleActionElement(element)) continue;
       seen.add(element);
       result.push({ element, framePath: entry.framePath });
       if (result.length >= 500) return result;
@@ -419,15 +522,17 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
     targets.set(node.id, element);
   });
 
-  const collectedActions: CollectedAction[] = actionableElements(roots).map(({ element, framePath }) => ({
-    element,
-    framePath,
-    sectionMatch: sectionFor(element, headingCache),
-    classified: classifyAction(actionCandidate(element, false)),
-  }));
-  const targetedDrafts = collectedActions
-    .map(asRecordTopologyAction)
-    .filter((draft): draft is RecordTopologyActionDraft => Boolean(draft));
+  const collectedActions: CollectedAction[] = actionableElements(roots).map(({ element, framePath }) => {
+    const candidate = actionCandidate(element, false);
+    return {
+      element,
+      framePath,
+      sectionMatch: sectionFor(element, headingCache),
+      candidate,
+      classified: classifyAction(candidate),
+    };
+  });
+  const targetedDrafts = collectedActions.filter(draft => isTargetedAction(draft.classified.action));
 
   let actionIndex = 0;
   let listIndex = 0;
@@ -439,14 +544,17 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
     const match = draft.sectionMatch;
     const sectionRoot = match?.container ?? match?.anchor;
     if (!match || !sectionRoot) continue;
-    const existing = topologyGroups.get(sectionRoot);
-    const targeted = asRecordTopologyAction(draft);
-    if (!targeted) continue;
-    if (existing) existing.actions.push(targeted);
-    else topologyGroups.set(sectionRoot, { match, framePath: draft.framePath, actions: [targeted] });
+    if (!topologyGroups.has(sectionRoot)) {
+      topologyGroups.set(sectionRoot, { match, framePath: draft.framePath, actions: [] });
+    }
+  }
+  for (const draft of collectedActions) {
+    const sectionRoot = draft.sectionMatch?.container ?? draft.sectionMatch?.anchor;
+    const group = sectionRoot ? topologyGroups.get(sectionRoot) : undefined;
+    if (group) group.actions.push(asRecordTopologyAction(draft));
   }
 
-  const appendTargetedAction = (draft: RecordTopologyActionDraft,
+  const appendTargetedAction = (draft: RecordTopologyTargetedActionDraft,
     parent: RecordListSemanticNode | RecordSemanticNode): void => {
     const node: ActionSemanticNode = {
       id: `action:${actionIndex++}`,
@@ -472,13 +580,15 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
     emittedTargetedElements.add(draft.element);
   };
 
-  for (const [sectionRoot, group] of topologyGroups) {
+  for (const [sectionIdentity, group] of topologyGroups) {
     const currentSection = existingSection(group.match, group.framePath);
     const sectionFields = currentSection
       ? fieldDrafts.filter(field => fieldNodesById.get(field.fieldId)?.parentId === currentSection.id)
       : [];
     const detected = detectRecordStructures({
-      sectionRoot,
+      sectionRoot: group.match.scopeRoot ?? sectionIdentity,
+      sectionStart: group.match.scopeStart,
+      sectionEnd: group.match.scopeEnd,
       sectionRole: group.match.role,
       actions: group.actions,
       fields: sectionFields,
@@ -495,7 +605,7 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
     if (topology.summaryRecords.some(record => record.editActions.length + record.deleteActions.length > 500)
       || editorFieldCount + (topology.editor?.saveActions.length ?? 0) + (topology.editor?.cancelActions.length ?? 0) > 500) continue;
 
-    const section = ensureSection(group.match, sectionRoot, group.framePath);
+    const section = ensureSection(group.match, sectionIdentity, group.framePath);
     if (section.childIds.length >= 500) continue;
     nodeById.set(section.id, section);
     const list: RecordListSemanticNode = {
@@ -505,7 +615,9 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
       childIds: [],
       order: section.childIds.length,
       structuralFingerprint: fingerprintFor('record-list', topology.root, group.framePath, siblingIndexes),
-      evidence: ['repeated-structure', 'add-action'],
+      evidence: topology.summaryRecords.length
+        ? ['repeated-structure', 'add-action']
+        : topology.editor ? ['add-action', 'editor-actions'] : ['add-action'],
       framePath: [...group.framePath],
       bounds: boundsFor(topology.root, group.framePath),
       recordType: topology.recordType,
@@ -584,7 +696,7 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
   for (const { element, framePath, sectionMatch, classified } of collectedActions) {
     if (nodes.length >= 1498) break;
     const action = classified.action;
-    if (isTargetedAction(action)) continue;
+    if (emittedTargetedElements.has(element) || isTargetedAction(action)) continue;
     let parent: PageSemanticNode | SectionSemanticNode = page;
     if (sectionMatch) {
       const existing = existingSection(sectionMatch, framePath);

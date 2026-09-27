@@ -1,6 +1,6 @@
-import type { SemanticSectionRole } from '../../shared/semanticGraph';
+import { SEMANTIC_CANONICAL_ACTION_LABELS, type SemanticSectionRole } from '../../shared/semanticGraph';
 import { contextText } from '../domUtils';
-import type { ClassifiedAction } from './actionClassifier';
+import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 
 export type RepeatableSectionRole = Extract<SemanticSectionRole,
   | 'education'
@@ -21,6 +21,11 @@ export type TargetedClassifiedAction = ClassifiedAction & { action: TargetedActi
 export interface RecordTopologyActionDraft {
   element: Element;
   framePath: readonly number[];
+  candidate: ActionCandidate;
+  classified: ClassifiedAction;
+}
+
+export interface RecordTopologyTargetedActionDraft extends RecordTopologyActionDraft {
   classified: TargetedClassifiedAction;
 }
 
@@ -32,8 +37,8 @@ export interface RecordTopologyFieldDraft {
 export interface DetectedSummaryRecord {
   root: Element;
   index: number;
-  editActions: readonly RecordTopologyActionDraft[];
-  deleteActions: readonly RecordTopologyActionDraft[];
+  editActions: readonly RecordTopologyTargetedActionDraft[];
+  deleteActions: readonly RecordTopologyTargetedActionDraft[];
 }
 
 export interface DetectedEditorRecord {
@@ -42,8 +47,8 @@ export interface DetectedEditorRecord {
   /** Summary index proven by a unique aria-controls/aria-owns relation; otherwise null. */
   sourceIndex: number | null;
   fields: readonly RecordTopologyFieldDraft[];
-  saveActions: readonly RecordTopologyActionDraft[];
-  cancelActions: readonly RecordTopologyActionDraft[];
+  saveActions: readonly RecordTopologyTargetedActionDraft[];
+  cancelActions: readonly RecordTopologyTargetedActionDraft[];
 }
 
 export type DetectedActionOwner =
@@ -53,7 +58,7 @@ export type DetectedActionOwner =
 
 export interface DetectedActionOwnership {
   /** The exact object supplied to detectRecordStructures, for identity-based consumption tracking. */
-  action: RecordTopologyActionDraft;
+  action: RecordTopologyTargetedActionDraft;
   owner: DetectedActionOwner;
 }
 
@@ -62,12 +67,15 @@ export interface DetectedRecordList {
   recordType: RepeatableSectionRole;
   summaryRecords: readonly DetectedSummaryRecord[];
   editor?: DetectedEditorRecord;
-  addActions: readonly RecordTopologyActionDraft[];
+  addActions: readonly RecordTopologyTargetedActionDraft[];
   actionOwnerships: readonly DetectedActionOwnership[];
 }
 
 export interface RecordStructureDetectionInput {
-  sectionRoot: Element;
+  sectionRoot: Element | ShadowRoot;
+  /** Optional heading-delimited range inside a shared sectionRoot. */
+  sectionStart?: Element;
+  sectionEnd?: Element;
   sectionRole: SemanticSectionRole;
   actions: readonly RecordTopologyActionDraft[];
   fields: readonly RecordTopologyFieldDraft[];
@@ -101,6 +109,24 @@ const ROLE_TERMS: Readonly<Record<RepeatableSectionRole, RegExp>> = {
   family: /(?:家庭|家属|成员|family)/iu,
 };
 
+function mentionedRoles(text: string): RepeatableSectionRole[] {
+  const roles = (Object.entries(ROLE_TERMS) as Array<[RepeatableSectionRole, RegExp]>)
+    .filter(([, pattern]) => pattern.test(text))
+    .map(([role]) => role);
+  // “学生工作经历/校内工作经历” contains the generic internship phrase “工作经历”,
+  // but the more specific campus wording owns the meaning.
+  if (roles.includes('student-work') && !/(?:实习|社会实践|internship|work\s*experience)/iu.test(text)) {
+    return roles.filter(role => role !== 'internship');
+  }
+  return roles;
+}
+
+function roleMatchesOrIsGeneric(text: string, role: RepeatableSectionRole, generic: RegExp): boolean {
+  const mentioned = mentionedRoles(text);
+  if (mentioned.length) return mentioned.length === 1 && mentioned[0] === role;
+  return generic.test(text);
+}
+
 function isRepeatableRole(role: SemanticSectionRole): role is RepeatableSectionRole {
   return REPEATABLE_ROLES.has(role);
 }
@@ -117,7 +143,8 @@ function isVisible(element: Element): boolean {
     visited.add(current);
     if (current.hasAttribute('hidden') || current.hasAttribute('inert') || current.getAttribute('aria-hidden') === 'true') return false;
     const style = view?.getComputedStyle(current);
-    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
+    if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse'
+      || style?.contentVisibility === 'hidden') return false;
     if (current.parentElement) {
       current = current.parentElement;
     } else {
@@ -130,16 +157,28 @@ function isVisible(element: Element): boolean {
   return !closedDetails || element.matches('summary') || closedDetails.querySelector(':scope > summary')?.contains(element) === true;
 }
 
-function isInsideForbiddenContext(element: Element, sectionRoot: Element): boolean {
+function isInsideForbiddenContext(element: Element, sectionRoot: Element | ShadowRoot): boolean {
   const forbidden = element.closest(FORBIDDEN_CONTEXT_SELECTOR);
   return Boolean(forbidden && forbidden !== sectionRoot && sectionRoot.contains(forbidden));
 }
 
-function isScopedElement(element: Element, sectionRoot: Element): boolean {
-  return element.getRootNode() === sectionRoot.getRootNode()
-    && (element === sectionRoot || sectionRoot.contains(element))
+function isInsideHeadingRange(element: Element, input: Pick<RecordStructureDetectionInput,
+  'sectionRoot' | 'sectionStart' | 'sectionEnd'>): boolean {
+  if (input.sectionRoot instanceof Element && element === input.sectionRoot) return true;
+  if (input.sectionStart
+    && (input.sectionStart.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) === 0) return false;
+  if (input.sectionEnd && (element.contains(input.sectionEnd)
+    || (element.compareDocumentPosition(input.sectionEnd) & Node.DOCUMENT_POSITION_FOLLOWING) === 0)) return false;
+  return true;
+}
+
+function isScopedElement(element: Element, input: Pick<RecordStructureDetectionInput,
+  'sectionRoot' | 'sectionStart' | 'sectionEnd'>): boolean {
+  return element.getRootNode() === input.sectionRoot.getRootNode()
+    && ((input.sectionRoot instanceof Element && element === input.sectionRoot) || input.sectionRoot.contains(element))
+    && isInsideHeadingRange(element, input)
     && isVisible(element)
-    && !isInsideForbiddenContext(element, sectionRoot);
+    && !isInsideForbiddenContext(element, input.sectionRoot);
 }
 
 function referencedText(element: Element): string {
@@ -163,32 +202,107 @@ function transientActionName(element: Element): string {
   return contextText(element);
 }
 
+function transientReferenceTokens(element: Element, attributeNames: readonly string[]): string[] {
+  return attributeNames.flatMap(name => (element.getAttribute(name) ?? '').trim().split(/\s+/u).filter(Boolean));
+}
+
 function transientReferencedElements(element: Element, attributeNames: readonly string[]): Element[] {
-  const references = attributeNames.flatMap(name => (element.getAttribute(name) ?? '').trim().split(/\s+/u).filter(Boolean));
+  const references = transientReferenceTokens(element, attributeNames);
   if (!references.length) return [];
   const root = element.getRootNode();
   if (root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return [];
   const candidates = Array.from((root as Document | ShadowRoot).querySelectorAll<Element>('[id]'));
-  return uniqueElements(references
+  const resolved = references
     .map(reference => candidates.find(candidate => candidate.id === reference))
-    .filter((candidate): candidate is Element => Boolean(candidate)));
+    .filter((candidate): candidate is Element => Boolean(candidate));
+  if (resolved.length !== references.length) return [];
+  return uniqueElements(resolved);
 }
 
-function isExplicitAdd(action: RecordTopologyActionDraft, role: RepeatableSectionRole): boolean {
-  if (action.classified.action !== 'add-record') return false;
+function isTargetedAction(action: ClassifiedAction['action']): action is TargetedActionKind {
+  return action === 'add-record' || action === 'edit-record' || action === 'save-record'
+    || action === 'cancel-record' || action === 'delete-record';
+}
+
+function targetedDraft(action: RecordTopologyActionDraft): RecordTopologyTargetedActionDraft | undefined {
+  return !isNavigatingAction(action) && isTargetedAction(action.classified.action)
+    ? { ...action, classified: { ...action.classified, action: action.classified.action } }
+    : undefined;
+}
+
+function isNavigatingAction(action: RecordTopologyActionDraft): boolean {
+  return action.candidate.href === '__navigation__' || action.candidate.target === '__other__';
+}
+
+interface AddIntent {
+  action: RecordTopologyTargetedActionDraft;
+  explicit: boolean;
+}
+
+function addIntent(action: RecordTopologyActionDraft, role: RepeatableSectionRole): AddIntent | undefined {
+  if (isNavigatingAction(action)) return undefined;
   const name = transientActionName(action.element);
-  if (!name || /^(?:\+|新增|添加|新建|填写|add|new|create)$/iu.test(name)) return false;
+  if (!name) return undefined;
+  const bare = /^(?:\+|新增|添加|新建|填写|add|new|create)$/iu.test(name);
+  const competingWidget = action.element.closest([
+    'select',
+    '[role="combobox"]',
+    '[role="listbox"]',
+    '[role="menu"]',
+    '[role="menubar"]',
+    '[role="menuitem"]',
+    '[role="option"]',
+    '[role="tab"]',
+    '[role="tablist"]',
+    '[role="tree"]',
+    '[role="treeitem"]',
+    '[role="spinbutton"]',
+    '[role="grid"]',
+    '[role="treegrid"]',
+  ].join(','));
+  if (action.element.hasAttribute('aria-haspopup') || (bare && (competingWidget
+    || action.element.hasAttribute('aria-expanded')))) return undefined;
+  if (bare) {
+    const classified = classifyAction({ ...action.candidate, accessibleName: name, recordContext: true });
+    if (classified.action !== 'add-record') return undefined;
+    return { action: { ...action, classified: { ...classified, action: 'add-record' } }, explicit: false };
+  }
+  if (action.classified.action !== 'add-record') return undefined;
   const hasAddVerb = /(?:新增|添加|新建|填写|add|new|create)/iu.test(name);
-  const hasGenericRecord = /(?:经历|记录|record|experience)/iu.test(name);
-  return hasAddVerb && (ROLE_TERMS[role].test(name) || hasGenericRecord);
+  if (!hasAddVerb || !roleMatchesOrIsGeneric(name, role, /(?:经历|记录|record|experience)/iu)) return undefined;
+  const targeted = targetedDraft(action);
+  return targeted ? { action: targeted, explicit: true } : undefined;
 }
 
-function nearestCard(element: Element, listRoot: Element): Element | undefined {
-  const card = element.closest(CARD_SELECTOR);
-  return card && card !== listRoot && listRoot.contains(card) ? card : undefined;
+function editorSaveIntent(action: RecordTopologyActionDraft): RecordTopologyTargetedActionDraft | undefined {
+  const targeted = targetedDraft(action);
+  if (targeted?.classified.action === 'save-record') return targeted;
+  const name = transientActionName(action.element).replace(/\s+/gu, ' ').trim();
+  const type = action.element.matches('button, input')
+    ? (action.element as HTMLButtonElement | HTMLInputElement).type.toLowerCase() : '';
+  if (action.classified.action !== 'submit' || type !== 'submit' || !/^(?:保存|save)$/iu.test(name)) return undefined;
+  return {
+    ...action,
+    classified: {
+      ...action.classified,
+      action: 'save-record',
+      risk: 'restricted',
+      canonicalLabel: SEMANTIC_CANONICAL_ACTION_LABELS['save-record'],
+    },
+  };
 }
 
-function nearestEditor(element: Element, listRoot: Element): Element | undefined {
+function hasExplicitEmptyState(listRoot: Element, role: RepeatableSectionRole): boolean {
+  const statusElements = Array.from(listRoot.querySelectorAll<Element>('[role="status"], [aria-live]'));
+  return statusElements.some((element) => {
+    if (!isVisible(element)) return false;
+    const text = contextText(element);
+    const empty = /(?:暂无|尚无|还没有|没有|无可用|no\s+(?:records?|entries|experience|projects?))/iu.test(text);
+    return empty && roleMatchesOrIsGeneric(text, role, /(?:经历|记录|条目|records?|entries|experience)/iu);
+  });
+}
+
+function nearestEditor(element: Element, listRoot: Element | ShadowRoot): Element | undefined {
   const editor = element.closest(EDITOR_SELECTOR);
   return editor && editor !== listRoot && listRoot.contains(editor) ? editor : undefined;
 }
@@ -197,24 +311,9 @@ function uniqueElements(elements: readonly Element[]): Element[] {
   return [...new Set(elements)];
 }
 
-function potentialListRoots(sectionRoot: Element): Element[] {
-  const roots = new Set<Element>();
-  for (const explicit of Array.from(sectionRoot.querySelectorAll<Element>(EXPLICIT_LIST_SELECTOR))) {
-    if (isScopedElement(explicit, sectionRoot)) roots.add(explicit);
-  }
-  const cards = Array.from(sectionRoot.querySelectorAll<Element>(CARD_SELECTOR))
-    .filter(card => isScopedElement(card, sectionRoot));
-  for (const card of cards) {
-    if (card.parentElement && card.parentElement !== sectionRoot && isScopedElement(card.parentElement, sectionRoot)) {
-      roots.add(card.parentElement);
-    }
-  }
-  return [...roots];
-}
-
-function cardsForList(listRoot: Element, sectionRoot: Element): Element[] {
+function standardCardsForList(listRoot: Element, input: RecordStructureDetectionInput): Element[] {
   const cards = Array.from(listRoot.querySelectorAll<Element>(CARD_SELECTOR))
-    .filter(card => isScopedElement(card, sectionRoot))
+    .filter(card => isScopedElement(card, input))
     .filter((card) => {
       const nestedList = card.parentElement?.closest(EXPLICIT_LIST_SELECTOR);
       if (listRoot.matches(EXPLICIT_LIST_SELECTOR)) return nestedList === listRoot;
@@ -225,27 +324,183 @@ function cardsForList(listRoot: Element, sectionRoot: Element): Element[] {
   return uniqueElements(cards);
 }
 
-function editorHasCreatingHeading(editor: Element): boolean {
+function genericCardSignature(card: Element, localActions: readonly RecordTopologyActionDraft[]): string {
+  const childShape = Array.from(card.children).map(child => [
+    child.tagName.toLowerCase(),
+    child.getAttribute('role') ?? '',
+    child.children.length,
+  ].join(':')).join(',');
+  const actionShape = localActions.map(action => action.classified.action).sort().join(',');
+  return [card.tagName.toLowerCase(), card.getAttribute('role') ?? '', childShape, actionShape].join('|');
+}
+
+function genericCardsForList(listRoot: Element, input: RecordStructureDetectionInput,
+  scopedActions: readonly RecordTopologyActionDraft[]): Element[] {
+  const candidates = Array.from(listRoot.children).filter(child => isScopedElement(child, input));
+  const cards = candidates.filter((child) => {
+    const local = scopedActions.filter(action => child.contains(action.element));
+    const edits = local.filter(action => action.classified.action === 'edit-record');
+    const deletes = local.filter(action => action.classified.action === 'delete-record');
+    const competing = local.filter(action => action.classified.action === 'add-record'
+      || action.classified.action === 'save-record' || action.classified.action === 'cancel-record');
+    return edits.length === 1 && deletes.length <= 1 && competing.length === 0;
+  });
+  if (cards.length < 2) return [];
+  const cardKinds = new Set(cards.map(card => `${card.tagName}:${card.getAttribute('role') ?? ''}`));
+  if (candidates.some(child => !cards.includes(child)
+    && (cardKinds.has(`${child.tagName}:${child.getAttribute('role') ?? ''}`)
+      || Boolean(child.querySelector('h1, h2, h3, h4, h5, h6, [role="heading"]'))))) return [];
+  const signatures = new Set(cards.map(card => genericCardSignature(card,
+    scopedActions.filter(action => card.contains(action.element)))));
+  return signatures.size === 1 ? cards : [];
+}
+
+function potentialListRoots(input: RecordStructureDetectionInput,
+  scopedActions: readonly RecordTopologyActionDraft[]): Element[] {
+  const sectionRoot = input.sectionRoot;
+  const roots = new Set<Element>();
+  for (const explicit of Array.from(sectionRoot.querySelectorAll<Element>(EXPLICIT_LIST_SELECTOR))) {
+    if (isScopedElement(explicit, input)) roots.add(explicit);
+  }
+  const cards = Array.from(sectionRoot.querySelectorAll<Element>(CARD_SELECTOR))
+    .filter(card => isScopedElement(card, input));
+  for (const card of cards) {
+    if (card.parentElement && card.parentElement !== sectionRoot && isScopedElement(card.parentElement, input)) {
+      roots.add(card.parentElement);
+    }
+  }
+  const editActions = scopedActions.filter(action => action.classified.action === 'edit-record');
+  for (const action of editActions) {
+    for (let current = action.element.parentElement;
+      current && current !== sectionRoot; current = current.parentElement) {
+      if (!isScopedElement(current, input)) continue;
+      if (genericCardsForList(current, input, scopedActions).length >= 2) roots.add(current);
+    }
+  }
+  return [...roots];
+}
+
+function cardsForList(listRoot: Element, input: RecordStructureDetectionInput,
+  scopedActions: readonly RecordTopologyActionDraft[]): Element[] {
+  const standard = standardCardsForList(listRoot, input);
+  return standard.length ? standard : genericCardsForList(listRoot, input, scopedActions);
+}
+
+function containingCard(element: Element, cards: readonly Element[]): Element | undefined {
+  const matches = cards.filter(card => card.contains(element));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function numberAttribute(element: Element, name: string): number | undefined {
+  const raw = element.getAttribute(name);
+  if (raw === null || !/^-?\d+$/u.test(raw.trim())) return undefined;
+  return Number.parseInt(raw, 10);
+}
+
+function hasIncompleteCollectionEvidence(listRoot: Element, cards: readonly Element[],
+  input: RecordStructureDetectionInput, scopedActions: readonly RecordTopologyActionDraft[]): boolean {
+  const collectionAncestors: Element[] = [];
+  for (let current: Element | null = listRoot; current; current = current.parentElement) {
+    collectionAncestors.push(current);
+    if (current === input.sectionRoot) break;
+  }
+  const paginationContainers = Array.from(input.sectionRoot.querySelectorAll<Element>([
+      'nav',
+      '[role="navigation"]',
+      '[role="group"]',
+      '[aria-busy="true"]',
+      '[class*="pagination" i]',
+      '[class*="pager" i]',
+      '[aria-label*="pagination" i]',
+    ].join(','))).filter(element => element.getRootNode() === input.sectionRoot.getRootNode()
+      && input.sectionRoot.contains(element) && isInsideHeadingRange(element, input) && isVisible(element));
+  if (collectionAncestors.some(element => element.matches('[role="feed"], [aria-busy="true"]'))
+    || paginationContainers.some(element => element.matches('nav, [role="navigation"], [aria-busy="true"], '
+      + '[class*="pagination" i], [class*="pager" i], [aria-label*="pagination" i]')
+      || /(?:分页|页码|翻页|pagination|pager|page\s+nav(?:igation)?)/iu
+        .test(referencedText(element) || element.getAttribute('aria-label') || '')
+      || (element.matches('[role="group"]')
+        && Array.from(element.querySelectorAll<Element>('button, a, [role="button"]'))
+          .filter(control => isVisible(control) && /^\d+$/u.test(transientActionName(control))).length >= 2))
+    || scopedActions.some(action => /^(?:下一页|上一页|加载更多|显示更多|next(?:\s*page)?|prev(?:ious)?(?:\s*page)?|load\s*more|show\s*more)$/iu
+      .test(transientActionName(action.element)))) return true;
+  const rowCounts = collectionAncestors.map(element => numberAttribute(element, 'aria-rowcount'))
+    .filter((count): count is number => count !== undefined);
+  if (new Set(rowCounts).size > 1) return true;
+  const rowCount = rowCounts[0];
+  if (rowCount !== undefined && (rowCount < 0 || rowCount !== cards.length)) return true;
+  const setSizes = cards.map(card => numberAttribute(card, 'aria-setsize'));
+  if (setSizes.some(size => size !== undefined)) {
+    if (setSizes.some(size => size === undefined || size! < 0 || size !== cards.length)) return true;
+  }
+  const positions = cards.map(card => numberAttribute(card, 'aria-posinset'));
+  if (positions.some(position => position !== undefined)) {
+    if (positions.some(position => position === undefined || position! <= 0)) return true;
+    const sorted = [...positions] as number[];
+    sorted.sort((left, right) => left - right);
+    if (sorted.some((position, index) => position !== index + 1)) return true;
+  }
+  return false;
+}
+
+function editorSemanticText(editor: Element): string {
   const directHeading = Array.from(editor.children)
     .find(child => child.matches('legend, h1, h2, h3, h4, h5, h6, [role="heading"]'));
-  const evidence = [
+  return [
     editor.getAttribute('aria-label') ?? '',
     referencedText(editor),
     contextText(directHeading ?? null),
   ].join(' ').replace(/编辑器|editor/giu, ' ');
-  return /(?:新增|添加|新建|create|adding|new)/iu.test(evidence);
 }
 
-function editorIdentity(editor: Element, summaries: readonly DetectedSummaryRecord[]): Pick<DetectedEditorRecord, 'state' | 'sourceIndex'> {
+type EditorIdentity = Pick<DetectedEditorRecord, 'state' | 'sourceIndex'>;
+
+interface ControlRelation {
+  present: boolean;
+  valid: boolean;
+  target?: Element;
+}
+
+function controlRelation(action: RecordTopologyActionDraft): ControlRelation {
+  const attributes = ['aria-controls', 'aria-owns'] as const;
+  const tokens = transientReferenceTokens(action.element, attributes);
+  if (!tokens.length) return { present: false, valid: true };
+  const targets = transientReferencedElements(action.element, attributes);
+  return tokens.length === 1 && targets.length === 1
+    ? { present: true, valid: true, target: targets[0] }
+    : { present: true, valid: false };
+}
+
+function controlsEditor(action: RecordTopologyTargetedActionDraft, editor: Element): boolean {
+  const relation = controlRelation(action);
+  return relation.valid && relation.target === editor;
+}
+
+function editorIdentity(editor: Element, summaries: readonly DetectedSummaryRecord[],
+  addActions: readonly RecordTopologyTargetedActionDraft[], role: RepeatableSectionRole): EditorIdentity | 'conflict' | undefined {
   const controllingSummaries = summaries.filter(summary => summary.editActions.some((action) => {
-    const controlled = transientReferencedElements(action.element, ['aria-controls', 'aria-owns']);
-    return controlled.length === 1 && controlled[0] === editor;
+    return controlsEditor(action, editor);
   }));
-  const creating = editorHasCreatingHeading(editor);
-  if (!creating && controllingSummaries.length === 1) {
+  const controllingAdds = addActions.filter(action => controlsEditor(action, editor));
+  const evidence = editorSemanticText(editor);
+  const creating = /(?:新增|添加|新建|create|adding|new)/iu.test(evidence);
+  const editing = /(?:编辑|修改|edit|modify)/iu.test(evidence);
+  const semanticVerb = creating || editing;
+  const compatible = semanticVerb
+    && roleMatchesOrIsGeneric(evidence, role, /(?:经历|记录|record|experience)/iu);
+  const mentionsOtherRole = mentionedRoles(evidence).some(mentioned => mentioned !== role);
+  if (mentionsOtherRole || controllingSummaries.length > 1 || controllingAdds.length > 1
+    || (controllingSummaries.length && controllingAdds.length) || (creating && editing)) return 'conflict';
+  if (controllingSummaries.length === 1) {
+    if (creating) return 'conflict';
     return { state: 'editing', sourceIndex: controllingSummaries[0]!.index };
   }
-  if (creating && controllingSummaries.length === 0) return { state: 'creating', sourceIndex: null };
+  if (controllingAdds.length === 1) {
+    if (editing) return 'conflict';
+    return { state: 'creating', sourceIndex: null };
+  }
+  if (!compatible) return undefined;
+  if (creating) return { state: 'creating', sourceIndex: null };
   return { state: 'unknown', sourceIndex: null };
 }
 
@@ -257,46 +512,95 @@ interface CandidateList {
 function detectCandidate(input: RecordStructureDetectionInput, recordType: RepeatableSectionRole,
   listRoot: Element, scopedActions: readonly RecordTopologyActionDraft[],
   scopedFields: readonly RecordTopologyFieldDraft[]): CandidateList | undefined {
-  if (!isScopedElement(listRoot, input.sectionRoot) || listRoot.matches(FORBIDDEN_CONTEXT_SELECTOR)) return undefined;
-  const cards = cardsForList(listRoot, input.sectionRoot);
-  if (!cards.length) return undefined;
-
-  const addActions = scopedActions.filter(action => isExplicitAdd(action, recordType))
-    .filter(action => listRoot.contains(action.element))
-    .filter(action => !nearestCard(action.element, listRoot) && !nearestEditor(action.element, listRoot));
-  if (addActions.length !== 1) return undefined;
-  const framePath = addActions[0]!.framePath;
+  if (!isScopedElement(listRoot, input) || listRoot.matches(FORBIDDEN_CONTEXT_SELECTOR)) return undefined;
+  const cards = cardsForList(listRoot, input, scopedActions);
+  if (hasIncompleteCollectionEvidence(listRoot, cards, input, scopedActions)) return undefined;
+  const addIntents = scopedActions.map(action => addIntent(action, recordType))
+    .filter((intent): intent is AddIntent => Boolean(intent))
+    .filter((intent) => {
+      const inside = listRoot.contains(intent.action.element);
+      if (!inside && !intent.explicit) return false;
+      if (inside) {
+        return !containingCard(intent.action.element, cards)
+          && !nearestEditor(intent.action.element, listRoot);
+      }
+      const otherExplicitList = intent.action.element.closest(EXPLICIT_LIST_SELECTOR);
+      return !nearestEditor(intent.action.element, input.sectionRoot)
+        && (!otherExplicitList || otherExplicitList === listRoot || !input.sectionRoot.contains(otherExplicitList));
+    });
+  if (addIntents.length !== 1) return undefined;
+  const addIntentResult = addIntents[0]!;
+  const addActions = [addIntentResult.action];
+  const framePath = addIntentResult.action.framePath;
+  const addRelation = controlRelation(addIntentResult.action);
+  if (!addRelation.valid) return undefined;
+  if (addRelation.present && addRelation.target !== listRoot
+    && (!addRelation.target || !isScopedElement(addRelation.target, input)
+      || !addRelation.target.matches(EDITOR_SELECTOR))) return undefined;
+  if (!listRoot.contains(addIntentResult.action.element)) {
+    const explicitlyControlsList = addRelation.target === listRoot;
+    const competingRecordAction = scopedActions.some((action) => {
+      if (action.element === addIntentResult.action.element || listRoot.contains(action.element)) return false;
+      const targeted = targetedDraft(action);
+      return targeted?.classified.action === 'add-record' || targeted?.classified.action === 'edit-record'
+        || targeted?.classified.action === 'delete-record';
+    });
+    if (competingRecordAction && !explicitlyControlsList) return undefined;
+  }
 
   const summaries: DetectedSummaryRecord[] = [];
   for (const [index, card] of cards.entries()) {
     const local = scopedActions.filter(action => card.contains(action.element)
-      && nearestCard(action.element, listRoot) === card
+      && containingCard(action.element, cards) === card
       && sameFramePath(action.framePath, framePath));
-    const editActions = local.filter(action => action.classified.action === 'edit-record');
-    const deleteActions = local.filter(action => action.classified.action === 'delete-record');
-    if (editActions.length !== 1 || deleteActions.length !== 1) return undefined;
+    const editActions = local.map(targetedDraft)
+      .filter((action): action is RecordTopologyTargetedActionDraft => action?.classified.action === 'edit-record');
+    const deleteActions = local.map(targetedDraft)
+      .filter((action): action is RecordTopologyTargetedActionDraft => action?.classified.action === 'delete-record');
+    if (editActions.length !== 1 || deleteActions.length > 1) return undefined;
+    const editRelation = controlRelation(editActions[0]!);
+    if (!editRelation.valid || (editRelation.present
+      && (!editRelation.target || !isScopedElement(editRelation.target, input)
+        || !editRelation.target.matches(EDITOR_SELECTOR)))) return undefined;
     summaries.push({ root: card, index, editActions, deleteActions });
   }
-  if (summaries.length < 2 && summaries.length !== 1) return undefined;
+  if (summaries.length === 1 && (summaries[0]!.deleteActions.length !== 1 || !addIntentResult.explicit)) return undefined;
+  if (summaries.length >= 2 && !addIntentResult.explicit && !listRoot.matches(EXPLICIT_LIST_SELECTOR)) return undefined;
 
   const validEditors: DetectedEditorRecord[] = [];
-  for (const editor of Array.from(listRoot.querySelectorAll<Element>(EDITOR_SELECTOR))) {
-    if (!isScopedElement(editor, input.sectionRoot) || nearestCard(editor, listRoot)) continue;
+  let unverifiedEditorShellCount = 0;
+  for (const editor of Array.from(input.sectionRoot.querySelectorAll<Element>(EDITOR_SELECTOR))) {
+    if (!isScopedElement(editor, input)) continue;
+    if (containingCard(editor, cards)) return undefined;
+    const identity = editorIdentity(editor, summaries, addActions, recordType);
+    if (identity === 'conflict') return undefined;
     const fields = scopedFields.filter(field => editor.contains(field.element)
-      && nearestEditor(field.element, listRoot) === editor
+      && nearestEditor(field.element, input.sectionRoot) === editor
       && !field.element.matches('input[type="hidden"]'));
-    if (fields.length < 2) continue;
     const localActions = scopedActions.filter(action => editor.contains(action.element)
-      && nearestEditor(action.element, listRoot) === editor
+      && nearestEditor(action.element, input.sectionRoot) === editor
       && sameFramePath(action.framePath, framePath));
-    const saveActions = localActions.filter(action => action.classified.action === 'save-record');
-    const cancelActions = localActions.filter(action => action.classified.action === 'cancel-record');
-    if (saveActions.length !== 1 || cancelActions.length !== 1) continue;
-    const identity = editorIdentity(editor, summaries);
+    const saveActions = localActions.map(editorSaveIntent)
+      .filter((action): action is RecordTopologyTargetedActionDraft => Boolean(action));
+    const cancelActions = localActions.map(targetedDraft)
+      .filter((action): action is RecordTopologyTargetedActionDraft => action?.classified.action === 'cancel-record');
+    if (!identity) {
+      if (fields.length >= 2 && saveActions.length === 1 && cancelActions.length === 1) {
+        unverifiedEditorShellCount++;
+      }
+      continue;
+    }
+    if (fields.length < 2) return undefined;
+    if (saveActions.length !== 1 || cancelActions.length !== 1) return undefined;
     validEditors.push({ root: editor, ...identity, fields, saveActions, cancelActions });
   }
-  if (validEditors.length > 1) return undefined;
+  if (validEditors.length > 1 || unverifiedEditorShellCount > 1) return undefined;
   const editor = validEditors[0];
+  if (!summaries.length) {
+    const explicitlyEmpty = listRoot.matches(EXPLICIT_LIST_SELECTOR) && addIntentResult.explicit
+      && (hasExplicitEmptyState(listRoot, recordType) || editor?.state === 'creating');
+    if (!explicitlyEmpty) return undefined;
+  }
 
   const actionOwnerships: DetectedActionOwnership[] = [
     ...addActions.map(action => ({ action, owner: { kind: 'record-list' as const, root: listRoot } })),
@@ -332,21 +636,36 @@ function detectCandidate(input: RecordStructureDetectionInput, recordType: Repea
  */
 export function detectRecordStructures(input: RecordStructureDetectionInput): DetectedRecordList[] {
   const role = input.sectionRole;
-  if (!isRepeatableRole(role) || input.sectionRoot.matches(FORBIDDEN_CONTEXT_SELECTOR)
-    || !isScopedElement(input.sectionRoot, input.sectionRoot)) return [];
-  const scopedActions = input.actions.filter(action => isScopedElement(action.element, input.sectionRoot))
+  if (!isRepeatableRole(role)
+    || (input.sectionRoot instanceof Element
+      && (input.sectionRoot.matches(FORBIDDEN_CONTEXT_SELECTOR) || !isVisible(input.sectionRoot)))) return [];
+  if ((input.sectionStart && (!input.sectionRoot.contains(input.sectionStart)
+      || input.sectionStart.getRootNode() !== input.sectionRoot.getRootNode()))
+    || (input.sectionEnd && (!input.sectionRoot.contains(input.sectionEnd)
+      || input.sectionEnd.getRootNode() !== input.sectionRoot.getRootNode()))
+    || (input.sectionStart && input.sectionEnd
+      && (input.sectionStart.compareDocumentPosition(input.sectionEnd) & Node.DOCUMENT_POSITION_FOLLOWING) === 0)) return [];
+  const scopedActions = input.actions.filter(action => isScopedElement(action.element, input))
     .filter(action => !action.element.matches('[role="tab"], [role="menuitem"], [role="option"]'));
-  const scopedFields = input.fields.filter(field => isScopedElement(field.element, input.sectionRoot));
-  const candidates = potentialListRoots(input.sectionRoot)
+  const scopedFields = input.fields.filter(field => isScopedElement(field.element, input));
+  const candidates = potentialListRoots(input, scopedActions)
     .map(root => detectCandidate(input, role, root, scopedActions, scopedFields))
     .filter((candidate): candidate is CandidateList => Boolean(candidate));
 
   // Nested/overlapping candidates or multiple separate lists are ambiguous in this first slice.
   if (candidates.length !== 1) return [];
   const candidate = candidates[0]!;
-  const consumedActions = new Set(candidate.detected.actionOwnerships.map(item => item.action));
-  const conflictingTargetedAction = scopedActions.some(action => sameFramePath(action.framePath, candidate.framePath)
-    && candidate.detected.root.contains(action.element)
-    && !consumedActions.has(action));
+  const consumedElements = new Set(candidate.detected.actionOwnerships.map(item => item.action.element));
+  const conflictingTargetedAction = scopedActions.some((action) => {
+    // Save/cancel are meaningful only inside a verified editor. Global conflicts are
+    // limited to actions that would create, edit, or delete a record.
+    const targeted = targetedDraft(action);
+    const recordIntent = targeted && (targeted.classified.action === 'add-record'
+      || targeted.classified.action === 'edit-record' || targeted.classified.action === 'delete-record')
+      ? targeted : addIntent(action, role)?.action;
+    return Boolean(recordIntent && sameFramePath(action.framePath, candidate.framePath)
+      && candidate.detected.root.contains(action.element)
+      && !consumedElements.has(action.element));
+  });
   return conflictingTargetedAction ? [] : [candidate.detected];
 }
