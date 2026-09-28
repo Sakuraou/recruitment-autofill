@@ -42,6 +42,22 @@ export interface RecordRunCaptureSource {
   readonly recordListNodeId: string;
 }
 
+const issuedCaptures = new WeakSet<object>();
+const captureTargets = new WeakMap<object, ReadonlyMap<string, Element>>();
+
+/** Only captures issued by a live RecordRunContext can cross the executor boundary. */
+export function isIssuedRecordRunCapture(value: unknown): value is RecordRunCapture {
+  return Boolean(value && typeof value === 'object' && issuedCaptures.has(value)
+    && Object.isFrozen(value) && (value as RecordRunCapture).status === 'ready');
+}
+
+/** Compares a current scan target with the exact DOM object observed when the capture was issued. */
+export function matchesIssuedRecordRunTarget(capture: RecordRunCapture, nodeId: string,
+  target: unknown): target is Element {
+  if (!isIssuedRecordRunCapture(capture) || typeof nodeId !== 'string' || !element(target)) return false;
+  return captureTargets.get(capture)?.get(nodeId) === target;
+}
+
 interface CandidateBinding {
   readonly handle: number;
   readonly listElement: Element;
@@ -253,7 +269,7 @@ export class RecordRunContext {
       this.#detachEditor(true);
     }
 
-    return Object.freeze({
+    const capture = Object.freeze({
       status: 'ready',
       runToken: this.#runToken,
       snapshotToken,
@@ -262,7 +278,23 @@ export class RecordRunContext {
       snapshot: snapshotResult.snapshot,
       candidates: Object.freeze(candidates),
       ...(editorCandidate ? { editorCandidate, editorRevision } : {}),
-    });
+    } satisfies RecordRunCapture);
+    const relevantNodeIds = new Set([
+      snapshotResult.snapshot.recordListNodeId,
+      ...snapshotResult.snapshot.summaries.map(summary => summary.recordNodeId),
+      ...(snapshotResult.snapshot.editor
+        ? [snapshotResult.snapshot.editor.recordNodeId, ...snapshotResult.snapshot.editor.fieldNodeIds]
+        : []),
+      ...snapshotResult.snapshot.actions.flatMap(action => [action.actionNodeId, action.targetNodeId]),
+    ]);
+    const targets = new Map<string, Element>();
+    for (const nodeId of relevantNodeIds) {
+      const target = targetFor(source.semanticTargets, nodeId);
+      if (element(target)) targets.set(nodeId, target);
+    }
+    issuedCaptures.add(capture);
+    captureTargets.set(capture, targets);
+    return capture;
   }
 
   #observeEditor(elementNode: Element, listElement: Element, recordType: RepeatableRecordType): EditorObservation | undefined {

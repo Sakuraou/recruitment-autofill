@@ -444,6 +444,40 @@ function isIssuedReadyPlan(plan: unknown): plan is ReadyRecordPlan {
     && Object.isFrozen((plan as ReadyRecordPlan).nextStep));
 }
 
+/** Internal executor guard: an issued plan is valid only for the exact snapshot object that produced it. */
+export function isRecordPlanCurrentForSnapshot(plan: unknown, snapshot: unknown): plan is ReadyRecordPlan {
+  return isIssuedReadyPlan(plan) && !consumedPlans.has(plan) && Boolean(snapshot)
+    && validatedSnapshots.has(snapshot as object) && Object.isFrozen(snapshot)
+    && planSnapshots.get(plan) === snapshot;
+}
+
+/**
+ * Permanently closes an add/save capability after a click has an uncertain result. The executor must
+ * never retry such a capability because the website may have accepted the first click asynchronously.
+ */
+export function recordActionResultUncertain(plan: ReadyRecordPlan, active?: ActiveRecordTransaction):
+RequestHumanRecordPlan {
+  const originSnapshot = plan && typeof plan === 'object' ? planSnapshots.get(plan) : undefined;
+  if (!isIssuedReadyPlan(plan) || consumedPlans.has(plan) || !originSnapshot) {
+    return rawRequestHuman(0, 'invalid-planner-input');
+  }
+  if (plan.nextStep.kind === 'open-create') {
+    consumedPlans.add(plan);
+    snapshotsWithConsumedAdd.add(originSnapshot);
+    return requestHuman(originSnapshot, 'add-result-uncertain', [plan.nextStep.intentIndex],
+      [plan.nextStep.actionNodeId]);
+  }
+  if (plan.nextStep.kind === 'save-created' && active?.phase === 'fields-verified'
+    && transactionMatchesPlan(active, plan, 'save-created')
+    && active.editorHandle === plan.nextStep.editorHandle) {
+    consumedPlans.add(plan);
+    consumedTransactions.add(active);
+    return requestHuman(originSnapshot, 'save-result-uncertain', [plan.nextStep.intentIndex],
+      [plan.nextStep.actionNodeId]);
+  }
+  return rawRequestHuman(plan.snapshotVersion, 'active-transaction-mismatch');
+}
+
 function freezeTransaction(transaction: Omit<ActiveRecordTransactionBase, typeof TRANSACTION_BRAND>
   & ({ phase: 'add-invoked'; editorHandle?: never }
     | { phase: 'fields-verified' | 'save-invoked'; editorHandle: number;
@@ -503,6 +537,19 @@ function transactionMatchesPlan(active: ActiveRecordTransaction, plan: ReadyReco
   return active.runToken === plan.runToken && active.recordType === plan.recordType
     && active.recordListNodeId === plan.recordListNodeId && active.intentIndex === step.intentIndex
     && active.transactionToken === step.transactionToken && active.sourceSnapshotVersion < plan.snapshotVersion;
+}
+
+/** Internal executor guard used before any save click is allowed to escape. */
+export function isRecordTransactionCurrentForPlan(active: unknown, plan: unknown,
+  expectedStep: 'populate-editor' | 'save-created'): active is ActiveRecordTransaction {
+  if (!isIssuedReadyPlan(plan) || !active || typeof active !== 'object'
+    || !transactionMatchesPlan(active as ActiveRecordTransaction, plan, expectedStep)) return false;
+  if (expectedStep === 'save-created') {
+    return plan.nextStep.kind === 'save-created'
+      && (active as ActiveRecordTransaction).phase === 'fields-verified'
+      && (active as ActiveRecordTransaction).editorHandle === plan.nextStep.editorHandle;
+  }
+  return plan.nextStep.kind === 'populate-editor';
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -1169,6 +1216,10 @@ export function planRepeatableRecords(input: RepeatableRecordPlannerInput): Repe
   const base = planSummary(input, assignments);
   if (assignments.pendingIntentIndexes.length === 0) {
     return freezePlan({ ...base, status: 'complete' }, snapshot);
+  }
+  if (snapshotsWithConsumedAdd.has(snapshot)) {
+    return requestHuman(snapshot, 'add-result-uncertain', assignments.pendingIntentIndexes,
+      [snapshot.recordListNodeId]);
   }
   const add = uniqueAction(snapshot, 'add-record', snapshot.recordListNodeId);
   if ('status' in add) return add;
