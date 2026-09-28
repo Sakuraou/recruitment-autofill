@@ -1,9 +1,9 @@
 # 校招智能网申助手：可迭代项目计划
 
-> 最后更新：2026-09-28
+> 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-C 记录事务编排器
-> 最近完整验证：2026-09-28，466 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
+> 当前迭代：I-004B-C2 多记录完整循环
+> 最近完整验证：2026-09-29，470 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -319,7 +319,9 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-B1 | 字段核验收据与修订绑定 | verified | Planner/RunContext 共 58 项专项、456 项全量测试 | 由 I-004B-B2 在执行器中原子签发和消费 |
 | I-004B-B2 | 单步 Transaction Executor | verified | 新增/保存、重复消息、超时、暂停、目标替换共 6 项专项；462 项全量测试 | 由 I-004B-B3 原子填充并签发字段收据 |
 | I-004B-B3 | 脱敏 Editor Binder | verified | 原生控件/单选写入、原值保护、回滚及目标替换共 4 项专项；466 项全量测试 | 由 I-004B-C 编排三个独立步骤 |
-| I-004B-C | 记录事务编排器 | in_progress | 六项目、部分已有、暂停恢复、错误新卡端到端夹具 | 每次重扫重规划，只调度一个能力步骤 |
+| I-004B-C | 记录事务编排器 | in_progress | 六项目、部分已有、暂停恢复、错误新卡端到端夹具 | 继续 I-004B-C2 多记录完整循环 |
+| I-004B-C1 | 单步编排状态机 | verified | 单步推进、并发去重、暂停重扫、迟到结果共 4 项专项；470 项全量测试 | 由 I-004B-C2 验证多记录闭环 |
+| I-004B-C2 | 多记录完整循环 | in_progress | 六个虚构项目、两个已有、错误新卡和卡片重排 | 唯一身份复核后才完成 intent |
 
 ## 7. 本轮记录
 
@@ -498,6 +500,21 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 阅读 RecordPlanner、RecordRunContext、TransactionExecutor、RecordEditorBinder 和现有内容脚本消息生命周期。先实现不接 UI 的内存 RecordTransactionOrchestrator：输入为一次新扫描、去敏的记录意图/身份比较和值提供器；每轮只捕获、规划并调度一个 open-create、populate-editor 或 save-created 步骤，步骤成功后必须使用返回的新 capture 重新规划，禁止在一个旧快照上连续操作。为每个列表维持唯一活动事务和明确 paused/stopped/request-human/completed 状态；pause/stop 传播到 RunContext，恢复必须重新扫描而不是复用旧能力。用六个虚构项目、两个页面已有、卡片重排、保存生成错误卡、编辑器替换、已有草稿、重复消息、延迟新增/保存和中途暂停构建端到端夹具；只有身份唯一的新卡才能完成对应 intent，错误新卡和计数异常必须 request-human。所有 delete、upload、next-step、submit 点击计数保持为零。先完成纯模块测试与 npm run check，再以独立显式消息接入内容脚本并运行完整浏览器 E2E；在真实站点试用前保留功能开关。
+```
+
+### 2026-09-29 · I-004B-C1
+
+- 新增内存 `RecordTransactionOrchestrator`，每次 `advance()` 只允许规划并调度一个 open、populate 或 save 步骤；成功结果必须携带同一运行的严格相邻捕获和正确事务阶段。
+- 编排器不会在旧快照上连续操作；下一步骤始终重新调用 Planner。完成或 request-human 后停止自动推进，不把中间状态误报为完成。
+- 同一编排器只允许一个 in-flight 步骤；并发重复 `advance()` 返回 busy，不触发第二次动作。
+- pause 会取消 RunContext 当前步骤并丢弃快照；resume 必须重新捕获。暂停/停止期间到达的异步成功结果由 generation 屏障丢弃，不能恢复为 ready。
+- 暂停跨越 add 事务后，重新扫描因快照不再相邻而返回 `active-transaction-mismatch`；保留这一失败关闭规则，要求人工确认实际页面状态。
+- 4 项编排专项及执行链相关 65 项专项通过；完整 `npm run check` 通过 23 个测试文件、470 项测试及生产构建。尚未接内容脚本入口。
+
+下一步 I-004B-C2 执行提示词：
+
+```text
+在纯模块夹具中把 RecordTransactionOrchestrator 接到真实 TransactionExecutor 与 RecordEditorBinder，构造六个虚构项目、两个页面已有记录的完整循环。每次新增、填写、保存后重扫并重新生成候选身份比较；保存产生的新卡只有与当前 intent 唯一 same 且其他 intent 为 different 时才消费 save-invoked 事务。覆盖卡片重排、错误新卡、重复摘要、保存未关闭编辑器、计数跳变、已有草稿和中途暂停；错误或不足身份一律 request-human，绝不继续新增。断言 add/save 次数等于实际缺失记录数，delete/upload/next-step/submit 始终为零。完成专项和 npm run check 后，再设计有功能开关的内容脚本入口与完整浏览器 E2E。
 ```
 
 ## 8. 每轮通用提示词
