@@ -3,7 +3,7 @@
 > 最后更新：2026-09-28
 > 当前版本：v0.5.0（已验证基线）  
 > 当前迭代：I-004B Record Planner 执行状态机
-> 最近完整验证：2026-09-28，447 项测试、生产构建、9 项 DOM 浏览器检查及完整扩展 E2E 通过
+> 最近完整验证：2026-09-28，454 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -314,6 +314,8 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-003 | DOM 稳定等待器 | verified | 27 项专项测试、9 项真实 Chromium 检查、398 项全量测试与完整 E2E | 保持先装等待器再触发动作的事务顺序 |
 | I-004A | Record Planner 契约与一对一匹配 | verified | 49 项专项、447 项全量测试及完整 E2E；能力链与重复消费复审通过 | 由 I-004B 接入执行器与字段核验收据 |
 | I-004B | Record Planner 执行状态机 | in_progress | 六项目、延迟保存、暂停恢复端到端测试 | 建立 RunContext、连续句柄、字段修订号与单步执行器 |
+| I-004B-A | 内存 RunContext 与 DOM 连续句柄 | verified | 7 项专项、454 项全量测试及生产构建 | 由 I-004B-B 签发字段核验收据 |
+| I-004B-B | 字段核验收据与单步执行器 | in_progress | 修改后失效、重复消息、暂停恢复夹具 | 绑定编辑器/档案修订并接入稳定等待器 |
 
 ## 7. 本轮记录
 
@@ -429,6 +431,22 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 阅读 I-004A 的去敏 Record Planner 契约、I-003 的 DOM 稳定等待器、现有 scanner semanticTargets 与中国移动旧流程。先实现只存在于内容脚本内存中的 RunContext 和 CandidateContinuityTracker：由内部生成 run/snapshot/transaction token，跨重扫仅在结构证据足够时延续 candidateHandle 和 editorHandle；令牌、句柄、字段值及其哈希不得写入 storage、消息日志或问题报告。实现绑定 transactionToken、snapshotToken、editorHandle、editorRevision 和 profileRevision 的 FieldsVerifiedReceipt，只有逐字段回读全部成功后才能签发；任一 input/change/reset、编辑器替换或档案修订都使旧收据失效。随后实现最小 Transaction Executor，只消费当前快照的一步授权：执行前重新核对计划能力、快照、动作节点、风险、目标和前置条件，先安装 waitForDomStability 再点击 add/save；稳定后重扫、重建去敏快照并重新规划。每个 `(run, snapshot, step)` 只能消费一次，pause/stop 必须由 AbortController 取消；uncertain add/save、用户草稿、句柄连续性丢失或后置条件失败时 request-human，永不重试提交动作。先用六项目、部分已有、卡片重排、延迟保存、保存生成错误卡、编辑器替换、字段核验后被修改、重复消息和暂停恢复夹具写失败测试；本轮 populate-editor 使用脱敏虚构 binder 或测试桩，不接入陌生站真实个人值。最终提交、删除、上传和 next-step 始终为零。完成后运行专项、npm run check 和浏览器 E2E，并更新本计划。
+```
+
+### 2026-09-28 · I-004B-A
+
+- 新增内容脚本内存专用 `RecordRunContext`；运行令牌与每次快照令牌由内部生成，快照版本、候选句柄、编辑器句柄、档案修订号和编辑器修订号均为有界计数。
+- 候选连续性只依据同一运行中连续两次快照的 DOM 对象身份、列表对象身份和记录类型；卡片重排可延续句柄，卡片离开一轮后重现、DOM 替换、跨列表移动或列表替换都会获得新句柄。
+- 记录列表、摘要卡片和编辑器目标必须存在、仍连接、位于同一文档且具有可证明的包含关系；多个语义记录指向同一 DOM 元素、目标表抛错或来源畸形时失败关闭。
+- 编辑器句柄只跟随同一个编辑器 DOM 实例及所属表单；`input`、`change`、编辑器内 `reset` 和所属表单 `reset` 只递增修订号，不保存字段值、页面文字、值哈希或 DOM 到返回结果。
+- `beginStep` 为每一步建立新的 AbortSignal，并自动取消尚未结束的旧步骤；`cancelStep` 与 `stop` 会立即中止等待，停止后的运行不能恢复捕获。
+- 捕获结果、候选及编辑器候选均冻结；候选默认 `identityReady: false`，必须经过后续身份比较才能交给 Planner 自动执行。
+- 7 项专项测试和完整 `npm run check` 通过：20 个测试文件、454 项测试及生产构建全部成功。本阶段未接入消息入口或真实点击，因此沿用 I-004A 已通过的完整浏览器 E2E 作为用户行为基线。
+
+下一步 I-004B-B 执行提示词：
+
+```text
+阅读 RecordRunContext、Record Planner 能力链和 waitForDomStability。先定义不可伪造、不可序列化复用的 FieldsVerifiedReceipt：收据必须由当前 issued populate-editor 计划、活动事务、RecordRunCapture、editorHandle、editorRevision、profileRevision 和完整 fieldNodeId 集共同签发；签发前由脱敏测试 binder 逐字段写入并即时回读，任一字段失败则不签发。把 recordFieldsVerified 改为必须消费该收据，并把 editorRevision/profileRevision 写入后续事务；保存规划前重新捕获，字段 input/change/reset、编辑器或表单替换、档案修订、快照跳代及收据重放均失败关闭。随后建立只执行一个计划步骤的 TransactionExecutor：执行前核对当前快照和 semanticTargets，先安装 DOM 稳定等待器再点击 add/save，动作计划与 `(run,snapshot,step)` 只消费一次；timeout、aborted、root-disconnected 或后置条件不唯一时请求人工处理且不重试。先用虚构 DOM 与 binder 覆盖正常链、字段被改、重复消息、延迟编辑器、延迟保存、错误新卡、暂停和停止；不接入真实档案，不触发 delete、upload、next-step 或最终 submit。完成后运行专项与 npm run check；只有接入内容脚本消息入口后再运行完整浏览器 E2E。
 ```
 
 ## 8. 每轮通用提示词
