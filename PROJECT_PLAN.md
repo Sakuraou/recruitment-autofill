@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-28
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-B3 脱敏 Editor Binder
-> 最近完整验证：2026-09-28，462 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
+> 当前迭代：I-004B-C 记录事务编排器
+> 最近完整验证：2026-09-28，466 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -318,7 +318,8 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-B | 字段核验收据与单步执行器 | in_progress | 修改后失效、重复消息、暂停恢复夹具 | 绑定编辑器/档案修订并接入稳定等待器 |
 | I-004B-B1 | 字段核验收据与修订绑定 | verified | Planner/RunContext 共 58 项专项、456 项全量测试 | 由 I-004B-B2 在执行器中原子签发和消费 |
 | I-004B-B2 | 单步 Transaction Executor | verified | 新增/保存、重复消息、超时、暂停、目标替换共 6 项专项；462 项全量测试 | 由 I-004B-B3 原子填充并签发字段收据 |
-| I-004B-B3 | 脱敏 Editor Binder | in_progress | 字段写入回读、原值保护、修订失效夹具 | 仅对虚构字段绑定器接入 populate-editor |
+| I-004B-B3 | 脱敏 Editor Binder | verified | 原生控件/单选写入、原值保护、回滚及目标替换共 4 项专项；466 项全量测试 | 由 I-004B-C 编排三个独立步骤 |
+| I-004B-C | 记录事务编排器 | in_progress | 六项目、部分已有、暂停恢复、错误新卡端到端夹具 | 每次重扫重规划，只调度一个能力步骤 |
 
 ## 7. 本轮记录
 
@@ -481,6 +482,22 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 阅读 TransactionExecutor、FieldsVerifiedReceipt、RecordRunContext 和 scanner semanticTargets。实现仅存在于内容脚本内存中的 Editor Binder 契约：它只消费当前 issued populate-editor 计划、相邻 RecordRunCapture、精确 editorHandle/editorRevision/profileRevision 和完整 fieldNodeId 集；字段目标必须仍是捕获时的同一 DOM 对象、位于同一编辑器且可编辑。先用虚构 ProfileFieldProvider 提供值，不读取真实档案，不把值、哈希、DOM、令牌写入日志或 storage。默认保留非空原值；逐字段使用原生 setter 与 input/change 事件写入，并立即用控件语义回读；任一字段失败时撤销本轮可逆写入或 request-human，绝不点击保存。成功后必须重新捕获相邻快照，再原子签发并消费 FieldsVerifiedReceipt，字段事件造成的 editorRevision 变化要与填后捕获精确绑定。覆盖 input、textarea、原生 select、radio/checkbox、不可编辑、自定义控件拒绝、字段目标替换、已有值保护、部分写入失败、档案修订变化、重复消息、暂停和停止；不接入真实个人值，不点击 add/save/delete/upload/next-step/submit。完成专项和 npm run check 后再决定是否接入内容脚本消息入口。
+```
+
+### 2026-09-28 · I-004B-B3
+
+- 新增只消费当前 issued `populate-editor` 计划的脱敏 `RecordEditorBinder`；绑定器要求精确的 capture、add 事务、RunContext、语义图和 DOM 目标身份。
+- 值提供器只接收字段节点 ID 与扫描字段 ID；值只在当前调用内存中流转，不进入返回结果、哈希、日志或 storage。本阶段测试全部使用虚构值。
+- 支持普通 input、textarea、原生 select 与普通 radio；checkbox、移动站自定义选择器、blocked 字段及陌生自定义控件失败关闭，不尝试点击。
+- 已有值与预期相同则保留并回读；已有值冲突时整批零写入。字段 DOM 被替换、移出编辑器或扫描映射不一致时同样零写入。
+- 复用已有安全填写器的原生 setter、事件、格式/长度/选项验证与整批延迟复核；任一后续字段失败时，之前的可逆写入按扫描时原始状态倒序恢复，不覆盖网站联动产生的新结果。
+- 写入成功后只重扫一次，要求严格相邻快照与未变化的档案修订；随后逐字段即时回读并原子签发、消费 `FieldsVerifiedReceipt`。绑定器本身从不点击保存。
+- 4 项绑定器专项与执行链相关 61 项专项通过；完整 `npm run check` 通过 22 个测试文件、466 项测试及生产构建。真实档案与内容脚本入口仍未接入。
+
+下一步 I-004B-C 执行提示词：
+
+```text
+阅读 RecordPlanner、RecordRunContext、TransactionExecutor、RecordEditorBinder 和现有内容脚本消息生命周期。先实现不接 UI 的内存 RecordTransactionOrchestrator：输入为一次新扫描、去敏的记录意图/身份比较和值提供器；每轮只捕获、规划并调度一个 open-create、populate-editor 或 save-created 步骤，步骤成功后必须使用返回的新 capture 重新规划，禁止在一个旧快照上连续操作。为每个列表维持唯一活动事务和明确 paused/stopped/request-human/completed 状态；pause/stop 传播到 RunContext，恢复必须重新扫描而不是复用旧能力。用六个虚构项目、两个页面已有、卡片重排、保存生成错误卡、编辑器替换、已有草稿、重复消息、延迟新增/保存和中途暂停构建端到端夹具；只有身份唯一的新卡才能完成对应 intent，错误新卡和计数异常必须 request-human。所有 delete、upload、next-step、submit 点击计数保持为零。先完成纯模块测试与 npm run check，再以独立显式消息接入内容脚本并运行完整浏览器 E2E；在真实站点试用前保留功能开关。
 ```
 
 ## 8. 每轮通用提示词
