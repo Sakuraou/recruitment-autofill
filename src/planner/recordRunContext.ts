@@ -246,6 +246,7 @@ export class RecordRunContext {
         snapshotToken,
         recordNodeId: editor.id,
         editorHandle: observation.handle,
+        editorRevision: observation.revision,
       });
       editorRevision = observation.revision;
     } else {

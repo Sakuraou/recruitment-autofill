@@ -36,6 +36,8 @@ export interface PageRecordEditorCandidate {
   readonly recordNodeId: string;
   /** Changes when the editor DOM instance is replaced, cancelled, or reopened. */
   readonly editorHandle: number;
+  /** Increments after input/change/reset without retaining field values. */
+  readonly editorRevision: number;
 }
 
 export type RecordIdentitySignal = 'primary' | 'secondary' | 'start-date' | 'end-date' | 'site-record-id';
@@ -80,6 +82,8 @@ export type ActiveRecordTransaction =
   | (ActiveRecordTransactionBase & {
     phase: Exclude<ActiveRecordTransactionPhase, 'add-invoked'>;
     editorHandle: number;
+    editorRevision: number;
+    profileRevision: number;
   });
 
 export interface RecordAssignment {
@@ -228,6 +232,8 @@ const issuedPlans = new WeakSet<object>();
 const issuedTransactions = new WeakSet<object>();
 const consumedPlans = new WeakSet<object>();
 const consumedTransactions = new WeakSet<object>();
+const issuedFieldReceipts = new WeakSet<object>();
+const consumedFieldReceipts = new WeakSet<object>();
 const planSnapshots = new WeakMap<object, RecordPlannerSnapshot>();
 const snapshotsWithConsumedAdd = new WeakSet<object>();
 
@@ -262,12 +268,46 @@ export type RecordPlannerSnapshotResult =
 
 export interface RepeatableRecordPlannerInput {
   snapshot: RecordPlannerSnapshot;
+  /** Run-local profile revision. It changes whenever source profile facts change. */
+  profileRevision: number;
   intents: readonly ProfileRecordIntent[];
   candidates: readonly PageRecordCandidate[];
   editorCandidate?: PageRecordEditorCandidate;
   identityComparisons: readonly RecordIdentityComparison[];
   activeTransaction?: ActiveRecordTransaction;
 }
+
+const FIELDS_RECEIPT_BRAND: unique symbol = Symbol('issued-fields-verified-receipt');
+
+export interface FieldsVerifiedReceipt {
+  readonly [FIELDS_RECEIPT_BRAND]: true;
+  readonly runToken: string;
+  readonly transactionToken: string;
+  readonly sourcePlanSnapshotToken: string;
+  readonly verifiedSnapshotToken: string;
+  readonly verifiedSnapshotVersion: number;
+  readonly intentIndex: number;
+  readonly recordListNodeId: string;
+  readonly editorRecordNodeId: string;
+  readonly editorHandle: number;
+  readonly editorRevision: number;
+  readonly profileRevision: number;
+  readonly fieldNodeIds: readonly string[];
+}
+
+export interface FieldsVerificationCapture {
+  readonly runToken: string;
+  readonly snapshotToken: string;
+  readonly snapshotVersion: number;
+  readonly profileRevision: number;
+  readonly snapshot: RecordPlannerSnapshot;
+  readonly editorCandidate?: PageRecordEditorCandidate;
+  readonly editorRevision?: number;
+}
+
+export type FieldsVerifiedReceiptResult =
+  | { readonly status: 'ready'; readonly receipt: FieldsVerifiedReceipt }
+  | RequestHumanRecordPlan;
 
 const repeatableRecordTypes: ReadonlySet<RepeatableRecordType> = new Set([
   'education', 'student-work', 'internship', 'project', 'award', 'publication', 'language', 'skill', 'family',
@@ -297,6 +337,7 @@ const SEMANTIC_NODE_ID_PATTERN = /^(?:page|section|record-list|record|field|acti
 const MAX_INTENTS = 100;
 const MAX_COMPARISONS = 50_000;
 const MAX_RUN_LOCAL_HANDLE = 1_000_000;
+const MAX_RUN_LOCAL_REVISION = 1_000_000;
 const MAX_SNAPSHOT_VERSION = 1_000_000;
 const MAX_SEMANTIC_NODE_ORDINAL = 9_999;
 
@@ -310,6 +351,10 @@ function isToken(value: unknown): value is string {
 
 function isRunLocalHandle(value: unknown): value is number {
   return isSafeInteger(value) && value <= MAX_RUN_LOCAL_HANDLE;
+}
+
+function isRunLocalRevision(value: unknown): value is number {
+  return isSafeInteger(value) && value <= MAX_RUN_LOCAL_REVISION;
 }
 
 function isSnapshotVersion(value: unknown): value is number {
@@ -401,7 +446,8 @@ function isIssuedReadyPlan(plan: unknown): plan is ReadyRecordPlan {
 
 function freezeTransaction(transaction: Omit<ActiveRecordTransactionBase, typeof TRANSACTION_BRAND>
   & ({ phase: 'add-invoked'; editorHandle?: never }
-    | { phase: 'fields-verified' | 'save-invoked'; editorHandle: number })): ActiveRecordTransaction {
+    | { phase: 'fields-verified' | 'save-invoked'; editorHandle: number;
+      editorRevision: number; profileRevision: number })): ActiveRecordTransaction {
   const result = {
     ...transaction,
     baselineCandidateHandles: Object.freeze([...transaction.baselineCandidateHandles]),
@@ -459,11 +505,88 @@ function transactionMatchesPlan(active: ActiveRecordTransaction, plan: ReadyReco
     && active.transactionToken === step.transactionToken && active.sourceSnapshotVersion < plan.snapshotVersion;
 }
 
-/** Called only after the executor has filled and read back every required editor field. */
-export function recordFieldsVerified(plan: ReadyRecordPlan, active: ActiveRecordTransaction):
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && new Set(left).size === left.length
+    && left.every(item => right.includes(item));
+}
+
+function thenable(value: unknown): value is PromiseLike<unknown> {
+  return value !== null && (typeof value === 'object' || typeof value === 'function')
+    && typeof (value as { then?: unknown }).then === 'function';
+}
+
+/**
+ * Issues a value-free receipt only after a trusted executor synchronously reads back every field.
+ * The callback result is consumed immediately and never retained.
+ */
+export function issueFieldsVerifiedReceipt(plan: ReadyRecordPlan, active: ActiveRecordTransaction,
+  capture: FieldsVerificationCapture, verifyField: (fieldNodeId: string) => boolean): FieldsVerifiedReceiptResult {
+  const snapshot = capture?.snapshot;
+  const candidate = capture?.editorCandidate;
+  if (!isIssuedReadyPlan(plan) || plan.nextStep.kind !== 'populate-editor'
+    || active?.phase !== 'add-invoked' || !transactionMatchesPlan(active, plan, 'populate-editor')
+    || !snapshot || !validatedSnapshots.has(snapshot) || !Object.isFrozen(snapshot)
+    || capture.runToken !== plan.runToken || capture.snapshotToken !== snapshot.snapshotToken
+    || capture.snapshotVersion !== snapshot.snapshotVersion || snapshot.runToken !== plan.runToken
+    || capture.snapshotToken === plan.snapshotToken || capture.snapshotVersion !== plan.snapshotVersion + 1
+    || snapshot.recordType !== plan.recordType || snapshot.recordListNodeId !== plan.recordListNodeId
+    || snapshot.editorState !== 'creating' || !snapshot.editor || !candidate
+    || candidate.runToken !== capture.runToken || candidate.snapshotToken !== capture.snapshotToken
+    || candidate.recordNodeId !== snapshot.editor.recordNodeId
+    || snapshot.editor.recordNodeId !== plan.nextStep.editorRecordNodeId
+    || candidate.editorHandle !== plan.nextStep.editorHandle
+    || candidate.editorRevision !== capture.editorRevision
+    || !isRunLocalRevision(candidate.editorRevision) || !isRunLocalRevision(capture.profileRevision)
+    || !sameStringSet(snapshot.editor.fieldNodeIds, plan.nextStep.fieldNodeIds)
+    || typeof verifyField !== 'function') {
+    return rawRequestHuman(isSnapshotVersion(capture?.snapshotVersion) ? capture.snapshotVersion : 0,
+      'active-transaction-mismatch');
+  }
+  for (const fieldNodeId of plan.nextStep.fieldNodeIds) {
+    let verified: unknown;
+    try {
+      verified = verifyField(fieldNodeId);
+      if (thenable(verified)) void Promise.resolve(verified).catch(() => undefined);
+    } catch {
+      return requestHuman(snapshot, 'editor-unverified', [active.intentIndex], [fieldNodeId]);
+    }
+    if (verified !== true) {
+      return requestHuman(snapshot, 'editor-unverified', [active.intentIndex], [fieldNodeId]);
+    }
+  }
+  const receipt = {
+    runToken: plan.runToken,
+    transactionToken: active.transactionToken,
+    sourcePlanSnapshotToken: plan.snapshotToken,
+    verifiedSnapshotToken: capture.snapshotToken,
+    verifiedSnapshotVersion: capture.snapshotVersion,
+    intentIndex: active.intentIndex,
+    recordListNodeId: plan.recordListNodeId,
+    editorRecordNodeId: plan.nextStep.editorRecordNodeId,
+    editorHandle: candidate.editorHandle,
+    editorRevision: candidate.editorRevision,
+    profileRevision: capture.profileRevision,
+    fieldNodeIds: Object.freeze([...plan.nextStep.fieldNodeIds]),
+  } as FieldsVerifiedReceipt;
+  Object.defineProperty(receipt, FIELDS_RECEIPT_BRAND, { value: true, enumerable: false, writable: false });
+  Object.freeze(receipt);
+  issuedFieldReceipts.add(receipt);
+  return Object.freeze({ status: 'ready', receipt });
+}
+
+export function recordFieldsVerified(plan: ReadyRecordPlan, active: ActiveRecordTransaction,
+  receipt: FieldsVerifiedReceipt):
   ActiveRecordTransaction | RequestHumanRecordPlan {
   if (!isIssuedReadyPlan(plan) || plan.nextStep.kind !== 'populate-editor'
-    || active?.phase !== 'add-invoked' || !transactionMatchesPlan(active, plan, 'populate-editor')) {
+    || active?.phase !== 'add-invoked' || !transactionMatchesPlan(active, plan, 'populate-editor')
+    || !receipt || !issuedFieldReceipts.has(receipt) || consumedFieldReceipts.has(receipt)
+    || !Object.isFrozen(receipt) || receipt[FIELDS_RECEIPT_BRAND] !== true
+    || receipt.runToken !== plan.runToken || receipt.transactionToken !== active.transactionToken
+    || receipt.sourcePlanSnapshotToken !== plan.snapshotToken || receipt.intentIndex !== active.intentIndex
+    || receipt.recordListNodeId !== plan.recordListNodeId
+    || receipt.editorRecordNodeId !== plan.nextStep.editorRecordNodeId
+    || receipt.editorHandle !== plan.nextStep.editorHandle
+    || !sameStringSet(receipt.fieldNodeIds, plan.nextStep.fieldNodeIds)) {
     return rawRequestHuman(isIssuedReadyPlan(plan) ? plan.snapshotVersion : 0, 'active-transaction-mismatch');
   }
   const transaction = freezeTransaction({
@@ -474,13 +597,16 @@ export function recordFieldsVerified(plan: ReadyRecordPlan, active: ActiveRecord
     intentIndex: active.intentIndex,
     baselineExistingRecordCount: active.baselineExistingRecordCount,
     baselineCandidateHandles: active.baselineCandidateHandles,
-    sourceSnapshotToken: plan.snapshotToken,
-    sourceSnapshotVersion: plan.snapshotVersion,
+    sourceSnapshotToken: receipt.verifiedSnapshotToken,
+    sourceSnapshotVersion: receipt.verifiedSnapshotVersion,
     phase: 'fields-verified',
-    editorHandle: plan.nextStep.editorHandle,
+    editorHandle: receipt.editorHandle,
+    editorRevision: receipt.editorRevision,
+    profileRevision: receipt.profileRevision,
   });
   consumedPlans.add(plan);
   consumedTransactions.add(active);
+  consumedFieldReceipts.add(receipt);
   return transaction;
 }
 
@@ -504,6 +630,8 @@ export function recordSaveInvoked(plan: ReadyRecordPlan, active: ActiveRecordTra
     sourceSnapshotVersion: plan.snapshotVersion,
     phase: 'save-invoked',
     editorHandle: active.editorHandle,
+    editorRevision: active.editorRevision,
+    profileRevision: active.profileRevision,
   });
   consumedPlans.add(plan);
   consumedTransactions.add(active);
@@ -702,7 +830,7 @@ function validateEditorCandidate(input: RepeatableRecordPlannerInput):
   const candidate = input.editorCandidate;
   if (!snapshot.editor || !candidate || typeof candidate !== 'object' || candidate.runToken !== snapshot.runToken
     || candidate.snapshotToken !== snapshot.snapshotToken || candidate.recordNodeId !== snapshot.editor.recordNodeId
-    || !isRunLocalHandle(candidate.editorHandle)) {
+    || !isRunLocalHandle(candidate.editorHandle) || !isRunLocalRevision(candidate.editorRevision)) {
     return requestHuman(snapshot, 'editor-unverified', [], snapshot.editor ? [snapshot.editor.recordNodeId] : []);
   }
   return candidate;
@@ -810,7 +938,12 @@ function validateActiveTransaction(input: RepeatableRecordPlannerInput,
   const handles = active.baselineCandidateHandles;
   const editorHandleValid = active.phase === 'add-invoked'
     ? active.editorHandle === undefined
-    : isRunLocalHandle(active.editorHandle);
+    : isRunLocalHandle(active.editorHandle) && isRunLocalRevision(active.editorRevision)
+      && isRunLocalRevision(active.profileRevision);
+  const revisionsMatch = active.phase === 'add-invoked' || (
+    active.profileRevision === input.profileRevision
+    && (snapshot.editorState !== 'creating' || active.editorRevision === input.editorCandidate?.editorRevision)
+  );
   if (!issuedTransactions.has(active) || consumedTransactions.has(active)
     || active[TRANSACTION_BRAND] !== true || !Object.isFrozen(active)
     || !Object.isFrozen(handles) || !intent || active.runToken !== snapshot.runToken || !isToken(active.transactionToken)
@@ -824,7 +957,7 @@ function validateActiveTransaction(input: RepeatableRecordPlannerInput,
     || active.transactionToken === snapshot.snapshotToken || active.transactionToken === active.sourceSnapshotToken
     || !isSnapshotVersion(active.sourceSnapshotVersion)
     || active.sourceSnapshotVersion + 1 !== snapshot.snapshotVersion
-    || !editorHandleValid) {
+    || !editorHandleValid || !revisionsMatch) {
     return requestHuman(snapshot, 'active-transaction-mismatch', [active.intentIndex]);
   }
   return undefined;
@@ -979,6 +1112,7 @@ export function planRepeatableRecords(input: RepeatableRecordPlannerInput): Repe
     || !validatedSnapshots.has(snapshot)) {
     return rawRequestHuman(0, 'invalid-planner-input');
   }
+  if (!isRunLocalRevision(input.profileRevision)) return requestHuman(snapshot, 'invalid-planner-input');
   const invalidIntents = validateIntents(input);
   if (invalidIntents) return invalidIntents;
   const invalidCandidates = validateCandidates(input);

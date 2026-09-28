@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   createRecordPlannerSnapshot,
+  issueFieldsVerifiedReceipt,
   planRepeatableRecords,
   recordAddInvoked,
   recordFieldsVerified,
   recordSaveInvoked,
   type ActiveRecordTransaction,
+  type FieldsVerifiedReceipt,
   type PageRecordCandidate,
   type ProfileRecordIntent,
   type RecordIdentityComparison,
@@ -213,6 +215,8 @@ function plannerInput(options: GraphFixtureOptions & {
   snapshotVersion?: number;
   currentSnapshotToken?: string;
   candidateHandles?: readonly number[];
+  profileRevision?: number;
+  editorRevision?: number;
 } = {}): RepeatableRecordPlannerInput {
   const fixture = graphFixture(options);
   const intentCount = options.intentCount ?? 1;
@@ -230,10 +234,12 @@ function plannerInput(options: GraphFixtureOptions & {
   if (snapshotResult.status !== 'ready') throw new Error(`测试快照无效：${snapshotResult.reason}`);
   return {
     snapshot: snapshotResult.snapshot,
+    profileRevision: options.profileRevision ?? 0,
     intents: intents(intentCount, options.shuffled),
     candidates: candidates(fixture.candidateNodeIds, options.shuffled, currentSnapshotToken, options.candidateHandles),
     editorCandidate: fixture.editorNodeId ? {
-      runToken, snapshotToken: currentSnapshotToken, recordNodeId: fixture.editorNodeId, editorHandle: 700,
+      runToken, snapshotToken: currentSnapshotToken, recordNodeId: fixture.editorNodeId,
+      editorHandle: 700, editorRevision: options.editorRevision ?? 0,
     } : undefined,
     identityComparisons: comparisonMatrix(intentCount, fixture.candidateNodeIds, options.samePairs ?? [],
       options.shuffled, currentSnapshotToken),
@@ -273,7 +279,7 @@ function activeTransaction(phase: ActiveRecordTransaction['phase'], baselineExis
   ActiveRecordTransaction {
   const targetVersion = 7;
   const openVersion = phase === 'add-invoked' ? targetVersion - 1
-    : phase === 'fields-verified' ? targetVersion - 2 : targetVersion - 3;
+    : phase === 'fields-verified' ? targetVersion - 3 : targetVersion - 4;
   const openPlan = requireReadyPlan(
     lifecycleInput(openVersion, 'closed', baselineExistingRecordCount, baselineCandidateHandles),
     'open-create',
@@ -286,17 +292,57 @@ function activeTransaction(phase: ActiveRecordTransaction['phase'], baselineExis
     lifecycleInput(openVersion + 1, 'creating', baselineExistingRecordCount, baselineCandidateHandles, add),
     'populate-editor',
   );
-  const verified = recordFieldsVerified(populatePlan, add);
+  const postFill = lifecycleInput(openVersion + 2, 'creating', baselineExistingRecordCount,
+    baselineCandidateHandles, add);
+  const receiptResult = issueFieldsVerifiedReceipt(populatePlan, add, {
+    runToken,
+    snapshotToken: postFill.snapshot.snapshotToken,
+    snapshotVersion: postFill.snapshot.snapshotVersion,
+    profileRevision: postFill.profileRevision,
+    snapshot: postFill.snapshot,
+    editorCandidate: postFill.editorCandidate,
+    editorRevision: postFill.editorCandidate?.editorRevision,
+  }, () => true);
+  if (receiptResult.status !== 'ready') throw new Error(`无法签发字段收据：${receiptResult.reason}`);
+  const verified = recordFieldsVerified(populatePlan, add, receiptResult.receipt);
   if ('status' in verified) throw new Error(`无法签发 fields 事务：${verified.reason}`);
   if (phase === 'fields-verified') return verified;
 
   const savePlan = requireReadyPlan(
-    lifecycleInput(openVersion + 2, 'creating', baselineExistingRecordCount, baselineCandidateHandles, verified),
+    lifecycleInput(openVersion + 3, 'creating', baselineExistingRecordCount, baselineCandidateHandles, verified),
     'save-created',
   );
   const saved = recordSaveInvoked(savePlan, verified);
   if ('status' in saved) throw new Error(`无法签发 save 事务：${saved.reason}`);
   return saved;
+}
+
+function receiptLifecycle(openVersion: number, editorRevision = 0, profileRevision = 0,
+  verifyField: (fieldNodeId: string) => boolean = () => true) {
+  const openPlan = requireReadyPlan(plannerInput({
+    intentCount: 1, snapshotVersion: openVersion, currentSnapshotToken: versionToken(openVersion),
+  }), 'open-create');
+  const add = recordAddInvoked(openPlan);
+  if ('status' in add) throw new Error(add.reason);
+  const populatePlan = requireReadyPlan(plannerInput({
+    intentCount: 1, editorState: 'creating', saveActions: 1, active: add,
+    snapshotVersion: openVersion + 1, currentSnapshotToken: versionToken(openVersion + 1),
+  }), 'populate-editor');
+  const postFill = plannerInput({
+    intentCount: 1, editorState: 'creating', saveActions: 1, active: add,
+    snapshotVersion: openVersion + 2, currentSnapshotToken: versionToken(openVersion + 2),
+    editorRevision, profileRevision,
+  });
+  const receiptResult = issueFieldsVerifiedReceipt(populatePlan, add, {
+    runToken,
+    snapshotToken: postFill.snapshot.snapshotToken,
+    snapshotVersion: postFill.snapshot.snapshotVersion,
+    profileRevision: postFill.profileRevision,
+    snapshot: postFill.snapshot,
+    editorCandidate: postFill.editorCandidate,
+    editorRevision: postFill.editorCandidate?.editorRevision,
+  }, verifyField);
+  return { add, populatePlan, postFill, receiptResult };
 }
 
 describe('通用重复记录规划器', () => {
@@ -984,20 +1030,101 @@ describe('通用重复记录规划器', () => {
     expect(populatePlan.nextStep.kind).toBe('populate-editor');
     if (populatePlan.nextStep.kind !== 'populate-editor') return;
     expect(Object.isFrozen(populatePlan.nextStep.fieldNodeIds)).toBe(true);
-    const verified = recordFieldsVerified(populatePlan, add);
+    const postFill = plannerInput({
+      intentCount: 2, editorState: 'creating', saveActions: 1, active: add,
+      snapshotVersion: 9, currentSnapshotToken: versionToken(9),
+    });
+    const receiptResult = issueFieldsVerifiedReceipt(populatePlan, add, {
+      runToken,
+      snapshotToken: postFill.snapshot.snapshotToken,
+      snapshotVersion: postFill.snapshot.snapshotVersion,
+      profileRevision: postFill.profileRevision,
+      snapshot: postFill.snapshot,
+      editorCandidate: postFill.editorCandidate,
+      editorRevision: postFill.editorCandidate?.editorRevision,
+    }, () => true);
+    expect(receiptResult.status).toBe('ready');
+    if (receiptResult.status !== 'ready') return;
+    const verified = recordFieldsVerified(populatePlan, add, receiptResult.receipt);
     expect('status' in verified).toBe(false);
     if ('status' in verified) return;
-    expect(recordFieldsVerified(populatePlan, add)).toMatchObject({
+    expect(recordFieldsVerified(populatePlan, add, receiptResult.receipt)).toMatchObject({
       status: 'request-human', reason: 'active-transaction-mismatch',
     });
 
     const savePlan = requireReadyPlan(plannerInput({
       intentCount: 2, editorState: 'creating', saveActions: 1, active: verified,
-      snapshotVersion: 9, currentSnapshotToken: versionToken(9),
+      snapshotVersion: 10, currentSnapshotToken: versionToken(10),
     }), 'save-created');
     const invoked = recordSaveInvoked(savePlan, verified);
     expect('status' in invoked).toBe(false);
     expect(recordSaveInvoked(savePlan, verified)).toMatchObject({
+      status: 'request-human', reason: 'active-transaction-mismatch',
+    });
+  });
+
+  it('字段收据必须逐项同步回读，普通对象、异步结果和序列化副本均不能推进事务', async () => {
+    const checked: string[] = [];
+    const failed = receiptLifecycle(30, 2, 4, (fieldNodeId) => {
+      checked.push(fieldNodeId);
+      return false;
+    });
+    expect(failed.receiptResult).toMatchObject({ status: 'request-human', reason: 'editor-unverified' });
+    expect(checked).toEqual(['field:99']);
+
+    const asynchronous = receiptLifecycle(40, 2, 4,
+      (() => Promise.reject(new Error('async readback rejected'))) as unknown as (fieldNodeId: string) => boolean);
+    expect(asynchronous.receiptResult).toMatchObject({ status: 'request-human', reason: 'editor-unverified' });
+    await Promise.resolve();
+
+    const valid = receiptLifecycle(50, 2, 4);
+    expect(valid.receiptResult.status).toBe('ready');
+    if (valid.receiptResult.status !== 'ready') return;
+    expect(Object.isFrozen(valid.receiptResult.receipt)).toBe(true);
+    expect(Object.isFrozen(valid.receiptResult.receipt.fieldNodeIds)).toBe(true);
+
+    const copied = structuredClone(valid.receiptResult.receipt) as FieldsVerifiedReceipt;
+    expect(recordFieldsVerified(valid.populatePlan, valid.add, copied)).toMatchObject({
+      status: 'request-human', reason: 'active-transaction-mismatch',
+    });
+    const forged = {
+      ...valid.receiptResult.receipt,
+      verifiedSnapshotToken: versionToken(999),
+    } as FieldsVerifiedReceipt;
+    expect(recordFieldsVerified(valid.populatePlan, valid.add, forged)).toMatchObject({
+      status: 'request-human', reason: 'active-transaction-mismatch',
+    });
+  });
+
+  it('字段收据绑定填后快照、编辑器修订和档案修订，任一变化都会撤销保存规划', () => {
+    const lifecycle = receiptLifecycle(60, 3, 5);
+    if (lifecycle.receiptResult.status !== 'ready') throw new Error(lifecycle.receiptResult.reason);
+    const active = recordFieldsVerified(lifecycle.populatePlan, lifecycle.add, lifecycle.receiptResult.receipt);
+    if ('status' in active) throw new Error(active.reason);
+    expect(active).toMatchObject({
+      phase: 'fields-verified', editorHandle: 700, editorRevision: 3, profileRevision: 5,
+      sourceSnapshotVersion: 62,
+    });
+
+    const current = plannerInput({
+      intentCount: 1, editorState: 'creating', saveActions: 1, active,
+      snapshotVersion: 63, currentSnapshotToken: versionToken(63), editorRevision: 3, profileRevision: 5,
+    });
+    expect(planRepeatableRecords(current)).toMatchObject({ status: 'ready', nextStep: { kind: 'save-created' } });
+
+    const edited = plannerInput({
+      intentCount: 1, editorState: 'creating', saveActions: 1, active,
+      snapshotVersion: 63, currentSnapshotToken: versionToken(63), editorRevision: 4, profileRevision: 5,
+    });
+    expect(planRepeatableRecords(edited)).toMatchObject({
+      status: 'request-human', reason: 'active-transaction-mismatch',
+    });
+
+    const profileChanged = plannerInput({
+      intentCount: 1, editorState: 'creating', saveActions: 1, active,
+      snapshotVersion: 63, currentSnapshotToken: versionToken(63), editorRevision: 3, profileRevision: 6,
+    });
+    expect(planRepeatableRecords(profileChanged)).toMatchObject({
       status: 'request-human', reason: 'active-transaction-mismatch',
     });
   });

@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-28
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B Record Planner 执行状态机
-> 最近完整验证：2026-09-28，454 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
+> 当前迭代：I-004B-B2 单步 Transaction Executor
+> 最近完整验证：2026-09-28，456 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -316,6 +316,8 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B | Record Planner 执行状态机 | in_progress | 六项目、延迟保存、暂停恢复端到端测试 | 建立 RunContext、连续句柄、字段修订号与单步执行器 |
 | I-004B-A | 内存 RunContext 与 DOM 连续句柄 | verified | 7 项专项、454 项全量测试及生产构建 | 由 I-004B-B 签发字段核验收据 |
 | I-004B-B | 字段核验收据与单步执行器 | in_progress | 修改后失效、重复消息、暂停恢复夹具 | 绑定编辑器/档案修订并接入稳定等待器 |
+| I-004B-B1 | 字段核验收据与修订绑定 | verified | Planner/RunContext 共 58 项专项、456 项全量测试 | 由 I-004B-B2 在执行器中原子签发和消费 |
+| I-004B-B2 | 单步 Transaction Executor | in_progress | 延迟 DOM、重复消息、暂停恢复夹具 | 核对目标后先等待再执行一个动作 |
 
 ## 7. 本轮记录
 
@@ -447,6 +449,21 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 阅读 RecordRunContext、Record Planner 能力链和 waitForDomStability。先定义不可伪造、不可序列化复用的 FieldsVerifiedReceipt：收据必须由当前 issued populate-editor 计划、活动事务、RecordRunCapture、editorHandle、editorRevision、profileRevision 和完整 fieldNodeId 集共同签发；签发前由脱敏测试 binder 逐字段写入并即时回读，任一字段失败则不签发。把 recordFieldsVerified 改为必须消费该收据，并把 editorRevision/profileRevision 写入后续事务；保存规划前重新捕获，字段 input/change/reset、编辑器或表单替换、档案修订、快照跳代及收据重放均失败关闭。随后建立只执行一个计划步骤的 TransactionExecutor：执行前核对当前快照和 semanticTargets，先安装 DOM 稳定等待器再点击 add/save，动作计划与 `(run,snapshot,step)` 只消费一次；timeout、aborted、root-disconnected 或后置条件不唯一时请求人工处理且不重试。先用虚构 DOM 与 binder 覆盖正常链、字段被改、重复消息、延迟编辑器、延迟保存、错误新卡、暂停和停止；不接入真实档案，不触发 delete、upload、next-step 或最终 submit。完成后运行专项与 npm run check；只有接入内容脚本消息入口后再运行完整浏览器 E2E。
+```
+
+### 2026-09-28 · I-004B-B1
+
+- 新增不可伪造、不可序列化复用的 `FieldsVerifiedReceipt`；收据只由已签发的 `populate-editor` 计划、活动 add 事务和填后新快照共同产生。
+- 签发时逐一同步回读计划中的全部字段节点；回调抛错、返回 false、返回 Promise、字段集合变化、编辑器不一致、快照非紧邻或档案修订非法均不签发。
+- 收据绑定 run、transaction、源计划快照、填后快照、记录列表、档案序号、编辑器节点、editorHandle、editorRevision、profileRevision 和字段节点集合；只保存语义 ID 与有界计数，不保存字段值或哈希。
+- `recordFieldsVerified` 现在必须消费真实收据；普通对象、浅拷贝、structuredClone、篡改副本、重复收据或已经推进的事务均不能进入 `fields-verified`。
+- fields/save 事务携带 editorRevision 与 profileRevision；下一次保存规划必须看到同一编辑器修订和档案修订，字段 input/change/reset、编辑器替换或档案变更都会返回 `active-transaction-mismatch`，不产生保存动作。
+- Planner 与 RunContext 共 58 项专项测试通过；完整 `npm run check` 通过 20 个测试文件、456 项测试及生产构建。本阶段仍未接入真实页面动作。
+
+下一步 I-004B-B2 执行提示词：
+
+```text
+实现只消费一个已签发 RecordPlanStep 的 TransactionExecutor。输入必须包含当前 RecordRunCapture、当前 ScanState.semanticTargets、活动事务和 RunContext；执行前重新核对计划来源、run/snapshot/version、动作节点、目标节点、风险、disabled 状态、editorHandle/editorRevision/profileRevision 与全部 preconditions。open-create/save-created 先对目标根安装 waitForDomStability，再用 semanticTargets 中当前且连接的 Element 触发一次 click；waiter 只有在重扫后的语义后置条件唯一成立并经历静默窗口后才成功。populate-editor 先用纯虚构 binder 逐字段写入并即时回读，然后重扫并原子签发/消费 FieldsVerifiedReceipt。每个 snapshot+step 只能消费一次；重复消息、timeout、aborted、root-disconnected、predicate-failed、动作目标替换、字段再次变化或结果不唯一时返回 request-human，绝不重试 add/save。用延迟编辑器、延迟保存、错误新卡、重复消息、暂停、停止和目标替换夹具验收；delete、upload、next-step、submit 的点击计数必须始终为零。完成专项与 npm run check 后再决定是否接入内容脚本消息入口。
 ```
 
 ## 8. 每轮通用提示词
