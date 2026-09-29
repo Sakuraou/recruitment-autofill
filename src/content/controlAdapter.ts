@@ -67,7 +67,8 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     value: node.value,
     hasValue: hasValue(node),
     options: node.tagName === 'SELECT' ? selectOptions(node as HTMLSelectElement) : [],
-    ...(node.disabled ? { blockedReason: '控件已禁用，需要人工处理' } : {}),
+    ...(!node.isConnected ? { blockedReason: '控件已被页面替换或移除，请重新扫描' }
+      : node.disabled ? { blockedReason: '控件已禁用，需要人工处理' } : {}),
   });
   return {
     node,
@@ -130,7 +131,8 @@ function comboOptions(node: Element): ControlAdapterOption[] {
 function comboAdapter(node: Element): ControlAdapter {
   const inspect = (): ControlInspection => ({
     kind: 'aria-combobox', value: comboValue(node), hasValue: Boolean(comboValue(node)), options: comboOptions(node),
-    ...(node.getAttribute('aria-disabled') === 'true' ? { blockedReason: '组合框已禁用，需要人工处理' } : {}),
+    ...(!node.isConnected ? { blockedReason: '控件已被页面替换或移除，请重新扫描' }
+      : node.getAttribute('aria-disabled') === 'true' ? { blockedReason: '组合框已禁用，需要人工处理' } : {}),
   });
   return {
     node,

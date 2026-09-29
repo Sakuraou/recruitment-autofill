@@ -56,4 +56,13 @@ describe('control adapters', () => {
     await expect(await createControlAdapter(combo).write('相同')).toMatchObject({ status: 'request-human' });
     expect(click).not.toHaveBeenCalled();
   });
+
+  it('stops when an async page replaces the original native node', async () => {
+    document.body.innerHTML = '<input id="dynamic">';
+    const original = document.querySelector<HTMLInputElement>('#dynamic')!;
+    const adapter = createControlAdapter(original);
+    original.replaceWith(document.createElement('input'));
+    await expect(await adapter.write('不应写入旧节点')).toMatchObject({ status: 'request-human' });
+    expect(original.value).toBe('');
+  });
 });
