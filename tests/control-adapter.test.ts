@@ -11,7 +11,7 @@ describe('control adapters', () => {
     document.body.innerHTML = '<label>姓名<input id="name"></label>';
     const input = document.querySelector<HTMLInputElement>('#name')!;
     const adapter = createControlAdapter(input);
-    await expect(adapter.write('林同学')).resolves.toMatchObject({ status: 'written' });
+    await expect(await adapter.write('林同学')).toMatchObject({ status: 'written' });
     expect(input.value).toBe('林同学');
     expect(adapter.verify('林同学')).toBe(true);
   });
@@ -20,8 +20,8 @@ describe('control adapters', () => {
     document.body.innerHTML = '<input id="name" value="网页已有"><select id="level"><option value="">请选择</option><option value="x">重复</option><option value="x">重复</option></select>';
     const input = document.querySelector<HTMLInputElement>('#name')!;
     const select = document.querySelector<HTMLSelectElement>('#level')!;
-    await expect(createControlAdapter(input).write('档案值')).resolves.toMatchObject({ status: 'request-human' });
-    await expect(createControlAdapter(select).write('x')).resolves.toMatchObject({ status: 'request-human' });
+    await expect(await createControlAdapter(input).write('档案值')).toMatchObject({ status: 'request-human' });
+    await expect(await createControlAdapter(select).write('x')).toMatchObject({ status: 'request-human' });
     expect(input.value).toBe('网页已有');
     expect(select.value).toBe('');
   });
@@ -42,7 +42,7 @@ describe('control adapters', () => {
       option.setAttribute('aria-selected', 'true');
     });
     const adapter = createControlAdapter(combo);
-    await expect(adapter.write('云南')).resolves.toMatchObject({ status: 'written' });
+    await expect(await adapter.write('云南')).toMatchObject({ status: 'written' });
     expect(combo.value).toBe('云南');
     expect(adapter.readOptions()).toHaveLength(2);
   });
@@ -52,8 +52,8 @@ describe('control adapters', () => {
     const unknown = document.querySelector<HTMLElement>('#unknown')!;
     const combo = document.querySelector<HTMLInputElement>('#combo')!;
     const click = vi.spyOn(unknown, 'dispatchEvent');
-    await expect(createControlAdapter(unknown).write('任意')).resolves.toMatchObject({ status: 'request-human' });
-    await expect(createControlAdapter(combo).write('相同')).resolves.toMatchObject({ status: 'request-human' });
+    await expect(await createControlAdapter(unknown).write('任意')).toMatchObject({ status: 'request-human' });
+    await expect(await createControlAdapter(combo).write('相同')).toMatchObject({ status: 'request-human' });
     expect(click).not.toHaveBeenCalled();
   });
 });

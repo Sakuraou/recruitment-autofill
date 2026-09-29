@@ -3,6 +3,7 @@ import { effectiveMaxLength } from '../matching/profileResolver';
 import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
 import { controlFingerprint, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
+import { createControlAdapter } from './controlAdapter';
 
 function nativeSet(node: FormControl, value: string): void {
   const view = node.ownerDocument.defaultView;
@@ -12,6 +13,11 @@ function nativeSet(node: FormControl, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
   if (!setter) throw new Error('浏览器不支持安全填写此控件');
   setter.call(node, value);
+}
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return value !== null && (typeof value === 'object' || typeof value === 'function')
+    && typeof (value as { then?: unknown }).then === 'function';
 }
 
 function candidateProblem(node: FormControl, value: string, field: FieldDescriptor): string | undefined {
@@ -98,19 +104,13 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
     try {
       const problem = candidateProblem(node, item.value, current);
       if (problem) { skip(problem); continue; }
-      nativeSet(node, item.value);
-      const EventConstructor = node.ownerDocument.defaultView?.Event;
-      if (!EventConstructor) throw new Error('页面已不可用');
-      node.dispatchEvent(new EventConstructor('input', { bubbles: true, composed: true }));
-      if (node.isConnected && node.value === item.value) node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
-      // Let React/Vue and dependent native controls finish their queued updates.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      if (!belongsToDocument(node, state.document) || node.value !== item.value) {
-        outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '网页更新后未保留预期答案，请检查并重新扫描' });
-      } else if (!node.validity.valid) {
-        outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '已写入，但网页验证未通过，请人工检查' });
-      } else {
+      const adapter = createControlAdapter(node);
+      const pending = adapter.write(item.value);
+      const result = isPromiseLike(pending) ? await pending : pending;
+      if (result.status === 'written' && belongsToDocument(node, state.document) && adapter.verify(item.value)) {
         outcomes.push({ fieldId: item.fieldId, status: 'filled', reason: '已填写并检查当前值；请在提交前复核' });
+      } else {
+        outcomes.push({ fieldId: item.fieldId, status: 'error', reason: result.reason || '网页更新后未保留预期答案，请检查并重新扫描' });
       }
     } catch {
       outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '网页控件未能安全完成填写，请人工检查' });

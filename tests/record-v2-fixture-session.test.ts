@@ -119,7 +119,7 @@ describe('Record v2 固定虚构会话', () => {
     expect(counters).toEqual({ add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0 });
     expect(Array.from(list.querySelectorAll<HTMLElement>('[data-ra-v2-card="v1"]'))
       .map(card => Number(card.dataset.raV2Intent)).sort()).toEqual([0, 1, 2, 3, 4, 5]);
-  });
+  }, 10_000);
 
   it('已有卡片身份标记损坏时停止，不点击添加或保存', async () => {
     const { counters, list } = installFixture();

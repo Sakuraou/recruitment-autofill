@@ -27,7 +27,7 @@ export interface ControlAdapter {
   inspect(): ControlInspection;
   open(): Promise<boolean>;
   readOptions(): readonly ControlAdapterOption[];
-  write(value: string): Promise<ControlAdapterResult>;
+  write(value: string): ControlAdapterResult | Promise<ControlAdapterResult>;
   verify(value: string): boolean;
 }
 
@@ -67,7 +67,7 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     value: node.value,
     hasValue: hasValue(node),
     options: node.tagName === 'SELECT' ? selectOptions(node as HTMLSelectElement) : [],
-    ...(node.disabled || ('readOnly' in node && node.readOnly) ? { blockedReason: '控件已禁用或只读，需要人工处理' } : {}),
+    ...(node.disabled ? { blockedReason: '控件已禁用，需要人工处理' } : {}),
   });
   return {
     node,
@@ -75,7 +75,7 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     inspect,
     open: async () => true,
     readOptions: () => inspect().options,
-    write: async (value: string): Promise<ControlAdapterResult> => {
+    write: (value: string): ControlAdapterResult => {
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       if (current.hasValue) return current.value === value
@@ -91,7 +91,6 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
       try {
         nativeSetter(node)(value);
         dispatchInput(node);
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
       } catch {
         return { status: 'request-human', reason: '控件未能安全写入' };
       }
