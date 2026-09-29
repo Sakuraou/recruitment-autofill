@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-D4 项目投影接入编排器
-> 最近完整验证：2026-09-30，492 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
+> 当前迭代：I-004B-D5 控件适配器基础
+> 最近完整验证：2026-09-30，493 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -326,6 +326,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-D1 | 默认关闭的内容脚本网关 | verified | 6 项网关、5 项内容消息测试；484 项全量测试及完整 E2E | 由 D2 仅在虚构测试页安装会话工厂 |
 | I-004B-D2 | 固定虚构测试页会话工厂 | verified | 两条已有、四条新增、12 个单步；487 项全量测试及 5 项专项 MV3 检查 | 由 D3 建立后台可信档案投影，不启用真实页面 |
 | I-004B-D3 | 项目类型可信档案投影 | verified | 5 项投影/后台测试；生产 MV3 确认内容脚本只获项目字段 | 由 D4 把投影适配为内部值提供器，生产开关仍关闭 |
+| I-004B-D4 | 投影驱动的测试会话 | verified | 档案投影驱动六项目闭环；修订变化在保存前停止；493 项全量测试 | 由 D5 建立原生控件与稳定 ARIA 控件适配器 |
 
 ## 7. 本轮记录
 
@@ -592,12 +593,25 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 - 后台从 `TRUSTED_CONTEXTS` 的本地档案读取并通过现有 schema 校验，只投影 `projects` 及 `profileRevision`；basic、internships、education、family、skills 和常用回答不进入响应。
 - 投影记录仅包含项目引擎需要的 id、名称、角色、组织、日期、描述、职责、成果和技术列表；响应和错误不携带异常详情。
 - 新增投影序列化、冻结、严格请求、sender 身份、读取失败和无关数据排除测试；生产 MV3 回归已从真实内容脚本请求投影并确认通过。
-- 完整 `npm run check` 目标为 27 个测试文件、492 项测试；现有普通字段、旧中国移动流程和 Record v2 测试页保持不变，生产 Record v2 仍关闭。
+- 完整 `npm run check` 通过 27 个测试文件、493 项测试；现有普通字段、旧中国移动流程和 Record v2 测试页保持不变，生产 Record v2 仍关闭。
 
 下一步 I-004B-D4 执行提示词：
 
 ```text
 把固定虚构 SessionFactory 的 value provider 改为内部 ProjectProjectionProvider，但仅在测试构建且固定 localhost 页面指纹通过时启用；生产构建继续 false。内容脚本启动会话前发送严格空载荷 RA_PROFILE_PROJECT，校验返回 recordType、profileRevision、项目 id 和字段类型，随后把项目记录投影转换为值提供器。会话每次 capture/advance 前检查投影修订号未变化；档案更新、响应结构异常、项目 id 重复、未知字段、页面导航或消息超时立即 request-human，不重试 add/save。增加“投影中途修订”“投影值缺失”“重复 id”“后台响应注入额外属性”“真实页面非测试指纹永远不创建会话”的单元和 MV3 测试。不要把任何投影值写入日志、storage、错误报告或消息回传；生产开关保持关闭。
+```
+
+### 2026-09-30 · I-004B-D4
+
+- 测试构建启动会话前通过严格空载荷 `RA_PROFILE_PROJECT` 获取真实 options 页保存的项目投影；fixture 不再内置项目事实。
+- 六项目页面仍严格完成两条已有记录和四条新增记录，新增值来自投影，内容脚本只保留冻结后的最小投影副本。
+- 每次单步推进前刷新并比较 `profileRevision`；档案在中途变化时进入 request-human，且不会继续执行 save 或新增动作。
+- 增加投影客户端结构校验、重复项目 id、修订变化停止等测试；完整 `npm run check` 通过 28 个测试文件、493 项测试与生产构建，Record v2 专项浏览器测试通过。
+
+下一步 I-004B-D5 执行提示词：
+
+```text
+先建立 ControlAdapter 抽象和失败夹具，不改变生产 repeatable-record-v2 默认关闭。覆盖原生 input、textarea、select、radio/checkbox，以及带稳定 aria combobox/listbox 的常见控件：读取当前值、打开控件、列出唯一选项、选择、写入、等待 React/Vue/异步回填并核验最终值；已有非空值必须保护，日期、证件类型、学校代码等无法唯一映射时 request-human，禁止按第一个选项猜测。把现有 EditorBinder 的原生路径迁移到适配器，保留脱敏收据和目标替换检查。新增 React 受控 input、Vue 异步 select、portal listbox、动态替换节点和未知自定义控件夹具；未知控件必须停下，不执行点击风暴。专项、npm run check、完整 npm run test:e2e 全部通过后，再决定是否将适配器接入真实页面白名单。
 ```
 
 ## 8. 每轮通用提示词

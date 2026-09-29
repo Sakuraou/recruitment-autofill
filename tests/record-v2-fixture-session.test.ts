@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createRecordV2FixtureSession, isRecordV2FixtureEligible } from '../src/content/recordV2FixtureSession';
+import type { ProjectProjectionResponse } from '../src/profile/projection';
 
 const marker = 'record-v2-six-projects-v1';
+const projection: ProjectProjectionResponse = {
+  recordType: 'project', profileRevision: 'fixture-revision-v1',
+  projects: Array.from({ length: 6 }, (_, index) => ({ id: `project-${index + 1}`,
+    name: `虚构测试项目 ${index + 1}`, description: `仅用于测试的项目描述 ${index + 1}`, technologies: [] })),
+};
 
 interface FixtureCounters {
   add: number;
@@ -94,12 +100,12 @@ describe('Record v2 固定虚构会话', () => {
     expect(isRecordV2FixtureEligible(document)).toBe(true);
     document.querySelector('meta')?.remove();
     expect(isRecordV2FixtureEligible(document)).toBe(false);
-    expect(() => createRecordV2FixtureSession(document)).toThrow('当前页面不是通用多记录填写测试页');
+    expect(() => createRecordV2FixtureSession(document, projection)).toThrow('当前页面不是通用多记录填写测试页');
   });
 
   it('识别两个已有项目，只逐步新增四个不同项目', async () => {
     const { counters, list } = installFixture();
-    const session = createRecordV2FixtureSession(document);
+    const session = createRecordV2FixtureSession(document, projection);
     const steps: string[] = [];
     for (let attempt = 0; attempt < 20; attempt++) {
       const result = await session.advance();
@@ -118,10 +124,21 @@ describe('Record v2 固定虚构会话', () => {
   it('已有卡片身份标记损坏时停止，不点击添加或保存', async () => {
     const { counters, list } = installFixture();
     list.querySelector<HTMLElement>('[data-ra-v2-card="v1"]')!.dataset.raV2Intent = 'unknown';
-    const session = createRecordV2FixtureSession(document);
+    const session = createRecordV2FixtureSession(document, projection);
 
     await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'identity-insufficient' });
     expect(counters.add).toBe(0);
+    expect(counters.save).toBe(0);
+  });
+
+  it('投影修订变化时在后续动作前停止，不保存旧档案记录', async () => {
+    const { counters } = installFixture();
+    let latest = projection;
+    const session = createRecordV2FixtureSession(document, projection, async () => latest);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    latest = { ...projection, profileRevision: 'fixture-revision-v2' };
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'profile-changed' });
+    expect(counters.add).toBe(1);
     expect(counters.save).toBe(0);
   });
 });

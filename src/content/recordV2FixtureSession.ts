@@ -6,21 +6,15 @@ import { executeRecordAction } from '../planner/recordTransactionExecutor';
 import { RecordTransactionOrchestrator, type RecordOrchestratorDriver } from '../planner/recordTransactionOrchestrator';
 import type { RecordV2Session } from './recordV2Gateway';
 import { scanDocument, type ScanState } from './scanner';
+import { projectProjectionResponseSchema, type ProjectProjectionResponse } from '../profile/projection';
 
 const FIXTURE_ORIGIN = 'http://localhost:3000';
 const FIXTURE_PATH = '/repeatable-records';
 const FIXTURE_MARKER = 'record-v2-six-projects-v1';
-const RECORD_COUNT = 6;
-
 interface FixtureObservation {
   readonly scan: ScanState;
   readonly source: RecordRunCaptureSource;
 }
-
-const fixtureRecords = Array.from({ length: RECORD_COUNT }, (_, index) => Object.freeze({
-  name: `虚构测试项目 ${index + 1}`,
-  description: `仅用于本地浏览器扩展验证的虚构项目 ${index + 1}。`,
-}));
 
 function urlEligible(raw: string): boolean {
   try {
@@ -59,21 +53,23 @@ function observe(doc: Document): FixtureObservation | undefined {
   };
 }
 
-function fixtureIntentIndex(element: Element | undefined): number | undefined {
+function fixtureIntentIndex(element: Element | undefined, recordCount: number): number | undefined {
   const raw = element?.getAttribute('data-ra-v2-intent');
   if (raw === null || raw === undefined || !/^\d$/u.test(raw)) return undefined;
   const index = Number(raw);
-  return index >= 0 && index < RECORD_COUNT ? index : undefined;
+  return index >= 0 && index < recordCount ? index : undefined;
 }
 
 class FixtureDriver implements RecordOrchestratorDriver {
   readonly #doc: Document;
   readonly #context: RecordRunContext;
+  readonly #records: readonly ProjectProjectionResponse['projects'][number][];
   readonly #observations = new WeakMap<RecordRunCapture, FixtureObservation>();
 
-  constructor(doc: Document, context: RecordRunContext) {
+  constructor(doc: Document, context: RecordRunContext, projection: ProjectProjectionResponse) {
     this.#doc = doc;
     this.#context = context;
+    this.#records = projection.projects;
   }
 
   capture(): RecordRunCapture | RecordRunCaptureFailure {
@@ -89,18 +85,18 @@ class FixtureDriver implements RecordOrchestratorDriver {
     if (!observation) throw new Error('fixture observation missing');
     const candidates = capture.candidates.map((candidate) => {
       const target = observation.scan.semanticTargets.get(candidate.recordNodeId);
-      return { ...candidate, identityReady: fixtureIntentIndex(target) !== undefined };
+      return { ...candidate, identityReady: fixtureIntentIndex(target, this.#records.length) !== undefined };
     });
     return {
       snapshot: capture.snapshot,
       profileRevision: capture.profileRevision,
-      intents: fixtureRecords.map((_, intentIndex) => ({ intentIndex, recordType: 'project', identityReady: true })),
+      intents: this.#records.map((_, intentIndex) => ({ intentIndex, recordType: 'project', identityReady: true })),
       candidates,
       editorCandidate: capture.editorCandidate,
       identityComparisons: candidates.flatMap((candidate) => {
         const target = observation.scan.semanticTargets.get(candidate.recordNodeId);
-        const actual = fixtureIntentIndex(target);
-        return fixtureRecords.map((_, intentIndex) => ({
+        const actual = fixtureIntentIndex(target, this.#records.length);
+        return this.#records.map((_, intentIndex) => ({
           runToken: capture.runToken,
           snapshotToken: capture.snapshotToken,
           intentIndex,
@@ -151,7 +147,7 @@ class FixtureDriver implements RecordOrchestratorDriver {
       scanState: observation.scan,
       provideValue: ({ scanFieldId }) => {
         const field = observation.scan.result.fields.find(candidate => candidate.id === scanFieldId);
-        const record = fixtureRecords[active.intentIndex];
+        const record = this.#records[active.intentIndex];
         if (!field || !record) return undefined;
         const identity = `${field.label} ${field.ariaLabel} ${field.name} ${field.placeholder}`;
         if (/项目名称/u.test(identity)) return record.name;
@@ -163,15 +159,37 @@ class FixtureDriver implements RecordOrchestratorDriver {
   }
 }
 
-/** Creates the only v2 session currently available: a fixed, fictional, local E2E recipe. */
-export function createRecordV2FixtureSession(doc: Document): RecordV2Session {
+/** Creates the only v2 session currently available: a fixed local E2E recipe fed by a trusted projection. */
+export function createRecordV2FixtureSession(doc: Document, projection: ProjectProjectionResponse,
+  refreshProjection?: () => Promise<ProjectProjectionResponse>): RecordV2Session {
   if (!isRecordV2FixtureEligible(doc)) throw new Error('当前页面不是通用多记录填写测试页');
+  const parsed = projectProjectionResponseSchema.safeParse(projection);
+  if (!parsed.success || parsed.data.projects.length === 0
+    || new Set(parsed.data.projects.map(project => project.id)).size !== parsed.data.projects.length) {
+    throw new Error('项目档案投影格式无效');
+  }
   const context = new RecordRunContext();
-  const orchestrator = new RecordTransactionOrchestrator(context, new FixtureDriver(doc, context));
+  const orchestrator = new RecordTransactionOrchestrator(context, new FixtureDriver(doc, context, parsed.data));
+  let stoppedForProfileChange = false;
   return {
     get state() { return orchestrator.state; },
     get snapshotVersion() { return orchestrator.snapshotVersion; },
-    advance: () => orchestrator.advance(),
+    advance: async () => {
+      if (stoppedForProfileChange) return { status: 'request-human', snapshotVersion: orchestrator.snapshotVersion,
+        reason: 'profile-changed' };
+      if (refreshProjection) {
+        let latest: ProjectProjectionResponse;
+        try { latest = await refreshProjection(); }
+        catch { stoppedForProfileChange = true; orchestrator.stop(); return { status: 'request-human',
+          snapshotVersion: orchestrator.snapshotVersion, reason: 'profile-projection-unavailable' }; }
+        if (latest.profileRevision !== parsed.data.profileRevision) {
+          stoppedForProfileChange = true;
+          orchestrator.stop();
+          return { status: 'request-human', snapshotVersion: orchestrator.snapshotVersion, reason: 'profile-changed' };
+        }
+      }
+      return orchestrator.advance();
+    },
     pause: () => orchestrator.pause(),
     resume: () => orchestrator.resume(),
     stop: () => orchestrator.stop(),

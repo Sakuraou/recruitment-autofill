@@ -12,6 +12,14 @@ const url = 'http://localhost:3000/repeatable-records?case=happy';
 const report = { startedAt: new Date().toISOString(), checks: [], externalRequests: [], errors: [] };
 await mkdir(artifacts, { recursive: true });
 const html = await readFile(resolve(root, 'tests/fixtures/record-v2.html'), 'utf8');
+const profile = JSON.parse(await readFile(resolve(root, 'examples/sample-profile.json'), 'utf8'));
+profile.projects = Array.from({ length: 6 }, (_, index) => ({
+  id: `record-v2-project-${index + 1}`,
+  name: `虚构测试项目 ${index + 1}`,
+  description: `仅用于本地浏览器扩展验证的虚构项目 ${index + 1}。`,
+  responsibilities: `完成虚构项目 ${index + 1} 的测试职责。`,
+  technologies: ['TypeScript'],
+}));
 let context;
 
 function build(testBuild) {
@@ -47,6 +55,16 @@ try {
   const browserSession = context.browser() ? await context.browser().newBrowserCDPSession()
     : await context.newCDPSession(initial);
   report.browser = (await browserSession.send('Browser.getVersion')).product;
+
+  const options = await context.newPage();
+  await options.goto(`chrome-extension://${extensionId}/options.html`);
+  await options.getByRole('button', { name: /11 导入与备份/ }).click();
+  await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(profile));
+  await options.getByRole('button', { name: '校验并载入预览' }).click();
+  await options.getByRole('button', { name: '保存档案' }).click();
+  await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
+  await options.close();
+  report.checks.push('Test-only fixture uses a six-project profile projection loaded through the real options page');
 
   async function grant(page) {
     const targets = (await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;

@@ -8,6 +8,7 @@ import { EXTENSION_VERSION } from '../shared/version';
 import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
+import { requestProjectProjection } from './profileProjectionClient';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -40,9 +41,14 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
+  let projectProjection: Awaited<ReturnType<typeof requestProjectProjection>> | undefined;
+  let projectProjectionRequest: Promise<Awaited<ReturnType<typeof requestProjectProjection>>> | undefined;
   const recordV2 = new RecordV2Gateway({
     enabled: REPEATABLE_RECORD_V2_ENABLED,
-    ...(REPEATABLE_RECORD_V2_ENABLED ? { createSession: () => createRecordV2FixtureSession(document) } : {}),
+    ...(REPEATABLE_RECORD_V2_ENABLED ? { createSession: () => {
+      if (!projectProjection) throw new Error('项目档案投影尚未准备好');
+      return createRecordV2FixtureSession(document, projectProjection, requestProjectProjection);
+    } } : {}),
   });
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: ContentResponse<unknown>) => void) => {
     const senderUrl = sender.url?.split(/[?#]/u)[0];
@@ -63,7 +69,13 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
         if (request.type === 'RA_RECORD_V2_START') {
-          sendResponse({ ok: true, data: recordV2.start() }); return false;
+          if (!REPEATABLE_RECORD_V2_ENABLED) { sendResponse({ ok: true, data: recordV2.start() }); return false; }
+          projectProjectionRequest ??= requestProjectProjection();
+          void projectProjectionRequest
+            .then(projection => { projectProjection = projection; sendResponse({ ok: true, data: recordV2.start() }); })
+            .catch(error => sendResponse({ ok: false, error: error instanceof Error ? error.message : '无法读取项目档案投影' }))
+            .finally(() => { projectProjectionRequest = undefined; });
+          return true;
         }
         if (request.type === 'RA_RECORD_V2_PAUSE') {
           sendResponse({ ok: true, data: recordV2.pause() }); return false;
