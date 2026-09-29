@@ -37,6 +37,13 @@ interface PageState {
   readonly cardsByNodeId: ReadonlyMap<string, Card>;
 }
 
+interface PageOptions {
+  readonly savedIntentOverride?: number;
+  readonly extraSavedIntent?: number;
+  readonly keepEditorAfterSave?: boolean;
+  readonly editorDraft?: string;
+}
+
 function action(id: string, parentId: string, kind: 'add-record' | 'save-record', targetId: string): ActionSemanticNode {
   return {
     kind: 'action', id, parentId, childIds: [], order: 100, structuralFingerprint: fingerprint,
@@ -52,13 +59,13 @@ class MultiRecordPage {
   saveClicks = 0;
   state!: PageState;
   #cards: Card[];
-  readonly #savedIntentOverride?: number;
+  readonly #options: PageOptions;
 
-  constructor(existingIntentIndexes: readonly number[], savedIntentOverride?: number) {
+  constructor(existingIntentIndexes: readonly number[], options: PageOptions = {}) {
     document.body.innerHTML = '';
     document.body.append(this.list);
     this.#cards = existingIntentIndexes.map(intentIndex => this.#newCard(intentIndex));
-    this.#savedIntentOverride = savedIntentOverride;
+    this.#options = options;
     const unsafe = [
       ['delete', '删除'], ['upload', '上传'], ['next', '下一步'], ['submit', '提交'],
     ] as const;
@@ -87,17 +94,22 @@ class MultiRecordPage {
     editor.dataset.editor = 'true';
     const input = document.createElement('input');
     input.name = 'projectName';
+    input.value = this.#options.editorDraft ?? '';
     const saveButton = document.createElement('button');
     saveButton.textContent = '保存项目';
     saveButton.addEventListener('click', () => {
       this.saveClicks++;
+      if (this.#options.keepEditorAfterSave) return;
       const match = /^project-(\d+)$/u.exec(input.value);
       if (!match) return;
-      const card = this.#newCard(this.#savedIntentOverride ?? Number(match[1]));
+      const card = this.#newCard(this.#options.savedIntentOverride ?? Number(match[1]));
       const previous = this.#cards;
       this.#cards = previous.length > 1
         ? [...previous.slice(1), card, previous[0]!]
         : [card, ...previous];
+      if (this.#options.extraSavedIntent !== undefined) {
+        this.#cards.push(this.#newCard(this.#options.extraSavedIntent));
+      }
       this.renderClosed();
     });
     editor.append(input, saveButton);
@@ -206,7 +218,7 @@ function plannerInput(page: MultiRecordPage, capture: RecordRunCapture,
   };
 }
 
-function driverFor(page: MultiRecordPage, context: RecordRunContext): RecordOrchestratorDriver {
+function driverFor(page: MultiRecordPage, context: RecordRunContext, timeoutMs = 2_000): RecordOrchestratorDriver {
   return {
     capture: () => context.capture(page.state.source),
     plannerInput: (capture, active) => plannerInput(page, capture, active),
@@ -218,7 +230,7 @@ function driverFor(page: MultiRecordPage, context: RecordRunContext): RecordOrch
           ? Boolean(page.list.querySelector('[data-editor]'))
           : !page.list.querySelector('[data-editor]'),
         rescan: () => context.capture(page.state.source),
-        quietWindowMs: 10, timeoutMs: 2_000,
+        quietWindowMs: 10, timeoutMs,
       })
     ),
     bindEditor: (plan, capture, active) => bindRecordEditor({
@@ -253,7 +265,7 @@ describe('六项目多记录完整循环', () => {
   });
 
   it('保存生成了错误身份的新卡时停止，不继续新增下一项', async () => {
-    const page = new MultiRecordPage([0, 1], 5);
+    const page = new MultiRecordPage([0, 1], { savedIntentOverride: 5 });
     const context = new RecordRunContext();
     const orchestrator = new RecordTransactionOrchestrator(context, driverFor(page, context));
     expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'open-create' });
@@ -263,5 +275,61 @@ describe('六项目多记录完整循环', () => {
     expect(page.addClicks).toBe(1);
     expect(page.saveClicks).toBe(1);
     expect(page.unsafeClicks).toEqual({ delete: 0, upload: 0, next: 0, submit: 0 });
+  });
+
+  it('保存后一次多出两张卡时在保存步骤立即停止', async () => {
+    const page = new MultiRecordPage([0, 1], { extraSavedIntent: 5 });
+    const context = new RecordRunContext();
+    const orchestrator = new RecordTransactionOrchestrator(context, driverFor(page, context));
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'open-create' });
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'populate-editor' });
+    expect(await orchestrator.advance()).toMatchObject({ status: 'request-human', reason: 'postcondition-mismatch' });
+    expect(page.addClicks).toBe(1);
+    expect(page.saveClicks).toBe(1);
+    expect(page.unsafeClicks).toEqual({ delete: 0, upload: 0, next: 0, submit: 0 });
+  });
+
+  it('保存点击后编辑器不关闭时超时停止且不重试保存', async () => {
+    const page = new MultiRecordPage([0, 1], { keepEditorAfterSave: true });
+    const context = new RecordRunContext();
+    const orchestrator = new RecordTransactionOrchestrator(context, driverFor(page, context, 80));
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'open-create' });
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'populate-editor' });
+    expect(await orchestrator.advance()).toMatchObject({ status: 'request-human', reason: 'postcondition-timeout' });
+    expect(page.saveClicks).toBe(1);
+    expect(await orchestrator.advance()).toMatchObject({ status: 'request-human', reason: 'manual-review-required' });
+    expect(page.saveClicks).toBe(1);
+  });
+
+  it('两个已有摘要同时匹配同一项目时不点击新增', async () => {
+    const page = new MultiRecordPage([0, 0]);
+    const context = new RecordRunContext();
+    const orchestrator = new RecordTransactionOrchestrator(context, driverFor(page, context));
+    expect(await orchestrator.advance()).toMatchObject({ status: 'request-human', reason: 'duplicate-page-record' });
+    expect(page.addClicks).toBe(0);
+    expect(page.saveClicks).toBe(0);
+  });
+
+  it('编辑器已有冲突草稿时保留草稿且不点击保存', async () => {
+    const page = new MultiRecordPage([0, 1], { editorDraft: '用户保留的草稿' });
+    const context = new RecordRunContext();
+    const orchestrator = new RecordTransactionOrchestrator(context, driverFor(page, context));
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'open-create' });
+    expect(await orchestrator.advance()).toMatchObject({ status: 'request-human', reason: 'existing-value-conflict' });
+    expect(page.list.querySelector<HTMLInputElement>('input')?.value).toBe('用户保留的草稿');
+    expect(page.saveClicks).toBe(0);
+  });
+
+  it('字段核验后被网站再次修改时不进入保存步骤', async () => {
+    const page = new MultiRecordPage([0, 1]);
+    const context = new RecordRunContext();
+    const orchestrator = new RecordTransactionOrchestrator(context, driverFor(page, context));
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'open-create' });
+    expect(await orchestrator.advance()).toMatchObject({ status: 'advanced', step: 'populate-editor' });
+    const input = page.list.querySelector<HTMLInputElement>('input')!;
+    input.value = '网站二次改写';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(await orchestrator.advance()).toMatchObject({ status: 'request-human', reason: 'active-transaction-mismatch' });
+    expect(page.saveClicks).toBe(0);
   });
 });
