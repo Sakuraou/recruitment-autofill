@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-C2 多记录完整循环
-> 最近完整验证：2026-09-29，470 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
+> 当前迭代：I-004B-C2B 多记录对抗场景
+> 最近完整验证：2026-09-29，472 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -321,7 +321,8 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-B3 | 脱敏 Editor Binder | verified | 原生控件/单选写入、原值保护、回滚及目标替换共 4 项专项；466 项全量测试 | 由 I-004B-C 编排三个独立步骤 |
 | I-004B-C | 记录事务编排器 | in_progress | 六项目、部分已有、暂停恢复、错误新卡端到端夹具 | 继续 I-004B-C2 多记录完整循环 |
 | I-004B-C1 | 单步编排状态机 | verified | 单步推进、并发去重、暂停重扫、迟到结果共 4 项专项；470 项全量测试 | 由 I-004B-C2 验证多记录闭环 |
-| I-004B-C2 | 多记录完整循环 | in_progress | 六个虚构项目、两个已有、错误新卡和卡片重排 | 唯一身份复核后才完成 intent |
+| I-004B-C2 | 多记录完整循环 | in_progress | 六个虚构项目、两个已有、错误新卡和卡片重排 | 继续 C2B 计数跳变与保存异常 |
+| I-004B-C2A | 六项目正常闭环与错误身份 | verified | 仅新增 4 条、12 个步骤；错误新卡停止；472 项全量测试 | 由 C2B 补齐其余对抗场景 |
 
 ## 7. 本轮记录
 
@@ -515,6 +516,22 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 在纯模块夹具中把 RecordTransactionOrchestrator 接到真实 TransactionExecutor 与 RecordEditorBinder，构造六个虚构项目、两个页面已有记录的完整循环。每次新增、填写、保存后重扫并重新生成候选身份比较；保存产生的新卡只有与当前 intent 唯一 same 且其他 intent 为 different 时才消费 save-invoked 事务。覆盖卡片重排、错误新卡、重复摘要、保存未关闭编辑器、计数跳变、已有草稿和中途暂停；错误或不足身份一律 request-human，绝不继续新增。断言 add/save 次数等于实际缺失记录数，delete/upload/next-step/submit 始终为零。完成专项和 npm run check 后，再设计有功能开关的内容脚本入口与完整浏览器 E2E。
+```
+
+### 2026-09-29 · I-004B-C2A
+
+- 将真实 Planner、TransactionExecutor、EditorBinder 与 Orchestrator 接入同一个纯模块 DOM 夹具，建立六个虚构项目、页面已有两个项目的完整闭环。
+- 页面每次保存后都会重排全部摘要卡片；RunContext 仍能依 DOM 对象连续句柄重建一对一身份矩阵，最终只新增缺失的 4 条。
+- 正常闭环严格执行 4 次 open、4 次 populate、4 次 save；删除、上传、下一步和最终提交按钮点击数始终为零。
+- populate 成功后发现必须额外捕获一次相邻快照再规划保存；编排器现在主动丢弃收据快照，防止网站在填后异步改写字段却沿用旧收据。
+- 保存若生成属于另一 intent 的错误新卡，下一次身份复核返回 `save-result-uncertain`，编排器立即停止且不会新增后续项目。
+- 将集成测试等待上限从易受并行负载影响的 300ms 调整为生产默认级 2s；同一用例连续 3 次及完整并行套件均稳定通过。
+- 完整 `npm run check` 通过 24 个测试文件、472 项测试及生产构建。内容脚本入口仍未接入。
+
+下一步 I-004B-C2B 执行提示词：
+
+```text
+扩展多记录 DOM 夹具，覆盖保存后一次增加两张卡、保存后编辑器未关闭、已有摘要重复匹配同一 intent、字段存在冲突草稿以及 populate/save 之间网站二次修改字段。逐项断言 request-human 原因、add/save 次数停止在异常发生处，且 delete/upload/next-step/submit 始终为零。修正任何暴露的跨步骤状态漏洞，重复运行专项与完整 npm run check。全部对抗场景通过后才把编排器标记 verified，并进入带功能开关的内容脚本入口设计。
 ```
 
 ## 8. 每轮通用提示词

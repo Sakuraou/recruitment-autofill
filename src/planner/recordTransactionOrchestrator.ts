@@ -161,7 +161,9 @@ export class RecordTransactionOrchestrator {
       if (!validAdvance(current, result.capture, plan, result.activeTransaction)) {
         return this.#requestHuman(current.snapshotVersion, 'step-result-mismatch');
       }
-      this.#capture = result.capture;
+      // A fields-verified receipt is anchored to the fill readback capture. Saving deliberately
+      // requires one more adjacent observation so website-side rewrites cannot share that receipt.
+      this.#capture = plan.nextStep.kind === 'populate-editor' ? undefined : result.capture;
       this.#active = result.activeTransaction;
       this.#state = 'ready';
       return frozen({ status: 'advanced', step: plan.nextStep.kind,
