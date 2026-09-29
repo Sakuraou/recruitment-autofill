@@ -65,4 +65,13 @@ describe('control adapters', () => {
     await expect(await adapter.write('不应写入旧节点')).toMatchObject({ status: 'request-human' });
     expect(original.value).toBe('');
   });
+
+  it('waits for a delayed native select option without defaulting to the first item', async () => {
+    document.body.innerHTML = '<select id="level"><option value="">请选择</option></select>';
+    const select = document.querySelector<HTMLSelectElement>('#level')!;
+    const pending = createControlAdapter(select).write('master');
+    setTimeout(() => select.append(new Option('硕士研究生', 'master')), 20);
+    await expect(await pending).toMatchObject({ status: 'written' });
+    expect(select.value).toBe('master');
+  });
 });

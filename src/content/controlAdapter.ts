@@ -59,6 +59,33 @@ function dispatchInput(node: Element): void {
   node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
 }
 
+function selectableOptions(select: HTMLSelectElement, value: string): HTMLOptionElement[] {
+  return Array.from(select.options).filter(option => option.value === value
+    && !option.disabled && !option.parentElement?.hasAttribute('disabled') && !isPlaceholderOption(option));
+}
+
+function waitForSelectableOption(select: HTMLSelectElement, value: string): Promise<boolean> {
+  if (selectableOptions(select, value).length === 1) return Promise.resolve(true);
+  const Observer = select.ownerDocument.defaultView?.MutationObserver;
+  if (!Observer) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const observer = new Observer(() => {
+      if (selectableOptions(select, value).length === 1) finish(true);
+      else if (!select.isConnected) finish(false);
+    });
+    const timer = setTimeout(() => finish(false), 500);
+    const finish = (result: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      observer.disconnect();
+      resolve(result);
+    };
+    observer.observe(select, { childList: true, subtree: true, attributes: true });
+  });
+}
+
 function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): ControlAdapter {
   const kind: ControlAdapterKind = node.tagName === 'SELECT' ? 'native-select'
     : node.tagName === 'TEXTAREA' ? 'native-textarea' : 'native-input';
@@ -76,7 +103,7 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     inspect,
     open: async () => true,
     readOptions: () => inspect().options,
-    write: (value: string): ControlAdapterResult => {
+    write: (value: string): ControlAdapterResult | Promise<ControlAdapterResult> => {
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       if (current.hasValue) return current.value === value
@@ -85,9 +112,22 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
       if (!value.trim()) return { status: 'request-human', reason: '答案为空，不能猜测' };
       if (node.tagName === 'SELECT') {
         const select = node as HTMLSelectElement;
-        const candidates = Array.from(select.options).filter(option => option.value === value
-          && !option.disabled && !option.parentElement?.hasAttribute('disabled') && !isPlaceholderOption(option));
-        if (candidates.length !== 1) return { status: 'request-human', reason: '下拉选项不存在或不唯一' };
+        const applySelect = (): ControlAdapterResult => {
+          if (selectableOptions(select, value).length !== 1) return { status: 'request-human', reason: '下拉选项不存在或不唯一' };
+          try {
+            nativeSetter(select)(value);
+            dispatchInput(select);
+          } catch {
+            return { status: 'request-human', reason: '控件未能安全写入' };
+          }
+          return select.value === value && select.validity.valid
+            ? { status: 'written', reason: '写入后已回读核验' }
+            : { status: 'request-human', reason: '网页更新后未保留预期值' };
+        };
+        const candidates = selectableOptions(select, value);
+        if (candidates.length !== 1) return waitForSelectableOption(select, value).then((ready): ControlAdapterResult => ready
+          ? applySelect() : { status: 'request-human', reason: '下拉选项未在限定时间内形成唯一匹配' });
+        return applySelect();
       }
       try {
         nativeSetter(node)(value);
