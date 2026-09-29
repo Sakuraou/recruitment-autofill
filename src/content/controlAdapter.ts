@@ -71,8 +71,8 @@ function waitForSelectableOption(select: HTMLSelectElement, value: string): Prom
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const observer = new Observer(() => {
-      if (selectableOptions(select, value).length === 1) finish(true);
-      else if (!select.isConnected) finish(false);
+      if (!select.isConnected) finish(false);
+      else if (selectableOptions(select, value).length === 1) finish(true);
     });
     const timer = setTimeout(() => finish(false), 500);
     const finish = (result: boolean): void => {
@@ -113,6 +113,7 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
       if (node.tagName === 'SELECT') {
         const select = node as HTMLSelectElement;
         const applySelect = (): ControlAdapterResult => {
+          if (!select.isConnected) return { status: 'request-human', reason: '控件已被页面替换或移除，请重新扫描' };
           if (selectableOptions(select, value).length !== 1) return { status: 'request-human', reason: '下拉选项不存在或不唯一' };
           try {
             nativeSetter(select)(value);

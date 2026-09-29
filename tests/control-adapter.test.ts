@@ -91,4 +91,17 @@ describe('control adapters', () => {
     await expect(await createControlAdapter(combo).write('甲')).toMatchObject({ status: 'request-human' });
     expect(combo.value).toBe('');
   });
+
+  it('does not write a detached select after its delayed options arrive', async () => {
+    document.body.innerHTML = '<select id="replace-select"><option value="">请选择</option></select>';
+    const original = document.querySelector<HTMLSelectElement>('#replace-select')!;
+    const dispatch = vi.spyOn(original, 'dispatchEvent');
+    const pending = createControlAdapter(original).write('master');
+    setTimeout(() => {
+      original.replaceWith(document.createElement('select'));
+      original.append(new Option('硕士研究生', 'master'));
+    }, 20);
+    await expect(await pending).toMatchObject({ status: 'request-human' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
 });
