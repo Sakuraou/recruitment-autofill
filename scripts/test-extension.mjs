@@ -94,8 +94,14 @@ try {
   assert.equal(initialStats[0], '42');
   assert.ok(Number(initialStats[1]) >= 25, `Too few high-confidence matches: ${initialStats}`);
   assert.equal(await form.locator('#major-category').inputValue(), '');
+  const recordV2Production = await popup.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return chrome.tabs.sendMessage(tab.id, { type: 'RA_RECORD_V2_STATUS' }, { frameId: 0 });
+  });
+  assert.deepEqual(recordV2Production?.data?.state,
+    { enabled: false, state: 'disabled', snapshotVersion: 0 });
   await popup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'popup.png') });
-  report.checks.push('Real toolbar action grants activeTab; production popup document scans native fixture (headless extension tab)');
+  report.checks.push('Real toolbar action grants activeTab; production popup scans native fixture and keeps record-v2 disabled');
 
   await popup.getByRole('button', { name: '一键填写高置信度字段' }).click();
   await popup.getByRole('status').filter({ hasText: /已填写/ }).waitFor();

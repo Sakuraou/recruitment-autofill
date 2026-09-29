@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN" data-ra-record-v2-fixture="v1">
+<head>
+  <meta charset="utf-8">
+  <meta name="ra-record-v2-fixture" content="record-v2-six-projects-v1">
+  <title>Record v2 fictional fixture</title>
+</head>
+<body>
+  <main id="ra-record-v2-fixture" data-schema="record-v2-six-projects-v1">
+    <section aria-label="项目经历">
+      <h2>项目经历</h2>
+      <div id="record-list" role="list" aria-label="项目经历列表"></div>
+    </section>
+  </main>
+  <button type="button" id="fixture-upload">上传</button>
+  <button type="button" id="fixture-next">下一步</button>
+  <button type="button" id="fixture-submit">最终提交</button>
+  <script>
+    (() => {
+      const list = document.querySelector('#record-list');
+      const state = window.fixture = { add: 0, save: 0, delete: 0, upload: 0, next: 0, submit: 0, cards: [0, 1] };
+      const elements = new Map();
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.textContent = '添加项目经历';
+
+      function card(index) {
+        if (elements.has(index)) return elements.get(index);
+        const article = document.createElement('article');
+        article.setAttribute('role', 'listitem');
+        article.dataset.raV2Card = 'v1';
+        article.dataset.raV2Intent = String(index);
+        const heading = document.createElement('h3');
+        heading.textContent = `虚构测试项目 ${index + 1}`;
+        const edit = document.createElement('button');
+        edit.type = 'button'; edit.textContent = '编辑项目经历';
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.textContent = '删除这段经历';
+        remove.addEventListener('click', () => { state.delete++; });
+        article.append(heading, edit, remove);
+        elements.set(index, article);
+        return article;
+      }
+
+      function renderClosed() { list.replaceChildren(...state.cards.map(card), add); }
+      function renderCreating() {
+        const form = document.createElement('form');
+        form.setAttribute('aria-label', '新增项目经历编辑器');
+        form.dataset.raV2Editor = 'v1';
+        form.innerHTML = '<label>项目名称<input name="fixture-project-name"></label>'
+          + '<label>项目描述<textarea name="fixture-project-description"></textarea></label>'
+          + '<button type="button" data-save>保存</button><button type="button">取消</button>';
+        form.querySelector('[data-save]').addEventListener('click', () => {
+          state.save++;
+          const match = /^虚构测试项目 (\d)$/.exec(form.querySelector('input').value);
+          if (!match) return;
+          const index = Number(match[1]) - 1;
+          state.cards.splice(1, 0, index);
+          renderClosed();
+        });
+        list.replaceChildren(...state.cards.map(card), add, form);
+      }
+      add.addEventListener('click', () => { state.add++; renderCreating(); });
+      document.querySelector('#fixture-upload').addEventListener('click', () => { state.upload++; });
+      document.querySelector('#fixture-next').addEventListener('click', () => { state.next++; });
+      document.querySelector('#fixture-submit').addEventListener('click', () => { state.submit++; });
+      renderClosed();
+    })();
+  </script>
+</body>
+</html>

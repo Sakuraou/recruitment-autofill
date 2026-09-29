@@ -7,6 +7,7 @@ import { workflowRequestSchema } from '../workflow/model';
 import { EXTENSION_VERSION } from '../shared/version';
 import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
+import { createRecordV2FixtureSession } from './recordV2FixtureSession';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -39,7 +40,10 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
-  const recordV2 = new RecordV2Gateway({ enabled: REPEATABLE_RECORD_V2_ENABLED });
+  const recordV2 = new RecordV2Gateway({
+    enabled: REPEATABLE_RECORD_V2_ENABLED,
+    ...(REPEATABLE_RECORD_V2_ENABLED ? { createSession: () => createRecordV2FixtureSession(document) } : {}),
+  });
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: ContentResponse<unknown>) => void) => {
     const senderUrl = sender.url?.split(/[?#]/u)[0];
     if (sender.id !== chrome.runtime.id || !senderUrl || ![

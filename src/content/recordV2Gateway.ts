@@ -31,6 +31,21 @@ export interface RecordV2GatewayOptions {
 
 function pageKey(): string { return `${location.origin}${location.pathname}${location.search}`; }
 
+const resultStatuses = new Set<RecordV2SessionResult['status']>([
+  'advanced', 'complete', 'paused', 'stopped', 'busy', 'request-human',
+]);
+
+/** Rebuilds the public result so internal planner properties cannot cross the message boundary. */
+function publicResult(result: RecordV2SessionResult): RecordV2SessionResult {
+  const status = resultStatuses.has(result?.status) ? result.status : 'request-human';
+  const snapshotVersion = Number.isSafeInteger(result?.snapshotVersion) && result.snapshotVersion >= 0
+    ? result.snapshotVersion : 0;
+  const suppliedReason = typeof result?.reason === 'string' && /^[a-z0-9-]{1,80}$/u.test(result.reason)
+    ? result.reason : undefined;
+  const reason = status === 'request-human' ? suppliedReason ?? 'invalid-session-result' : suppliedReason;
+  return Object.freeze({ status, snapshotVersion, ...(reason ? { reason } : {}) });
+}
+
 /** Trusted content-script lifecycle boundary. No external request data reaches the session factory. */
 export class RecordV2Gateway {
   readonly #enabled: boolean;
@@ -73,7 +88,7 @@ export class RecordV2Gateway {
   async advance(): Promise<RecordV2SessionResult> {
     this.#requireSession();
     const session = this.#session!;
-    const result = await session.advance();
+    const internalResult = await session.advance();
     if (session !== this.#session || this.#sessionPageKey !== this.#pageKey()) {
       if (session === this.#session) {
         session.stop();
@@ -83,6 +98,7 @@ export class RecordV2Gateway {
       this.#reason = 'page-changed';
       return Object.freeze({ status: 'request-human', snapshotVersion: 0, reason: 'page-changed' });
     }
+    const result = publicResult(internalResult);
     if (result.status === 'request-human') this.#reason = result.reason ?? 'manual-review-required';
     return Object.freeze({ ...result });
   }

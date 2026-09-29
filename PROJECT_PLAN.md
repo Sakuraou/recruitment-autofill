@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-D2 测试页面会话工厂
-> 最近完整验证：2026-09-29，484 项测试、生产构建；9 项 DOM、12 项扩展与 7 项工作流浏览器检查通过
+> 当前迭代：I-004B-D3 可信档案投影
+> 最近完整验证：2026-09-29，487 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -324,6 +324,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-C2 | 多记录完整循环 | verified | 7 项完整循环与对抗测试；477 项全量测试 | 进入功能开关和浏览器 E2E |
 | I-004B-C2A | 六项目正常闭环与错误身份 | verified | 仅新增 4 条、12 个步骤；错误新卡停止；472 项全量测试 | 由 C2B 补齐其余对抗场景 |
 | I-004B-D1 | 默认关闭的内容脚本网关 | verified | 6 项网关、5 项内容消息测试；484 项全量测试及完整 E2E | 由 D2 仅在虚构测试页安装会话工厂 |
+| I-004B-D2 | 固定虚构测试页会话工厂 | verified | 两条已有、四条新增、12 个单步；487 项全量测试及 5 项专项 MV3 检查 | 由 D3 建立后台可信档案投影，不启用真实页面 |
 
 ## 7. 本轮记录
 
@@ -564,6 +565,23 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 保持 repeatable-record-v2 的发布默认值为 false。建立一个只在本地虚构 E2E 页面、明确测试构建标记和固定页面指纹同时满足时才可创建的内部 SessionFactory；消息不得携带档案、字段值、选择器、DOM 或计划。工厂从内容脚本内固定虚构记录意图、scanDocument、RecordRunContext、RecordPlanner、TransactionExecutor、RecordEditorBinder 和 RecordTransactionOrchestrator 组成会话，每次 RA_RECORD_V2_ADVANCE 只推进一步。浏览器 E2E 覆盖禁用构建、非法消息载荷、重复 start、并发 advance、暂停/恢复、页面导航、request-human、扩展页面重开，以及六条虚构项目中两条已有、四条新增的完整循环；断言 add/save 各 4 次，delete/upload/next-step/submit 永远为 0。测试页面之外必须始终返回未启用或驱动未安装。完成后运行专项、npm run check 和完整 npm run test:e2e，再评估是否为真实档案建立只读适配层。
+```
+
+### 2026-09-29 · I-004B-D2
+
+- 构建脚本新增独立 `RA_RECORD_V2_TEST_BUILD=1` 测试开关；普通 `npm run build` 明确定义为关闭，真实生产 MV3 回归也断言 `state: disabled`。
+- 测试会话只有在 localhost 固定路由、HTML 根标记、meta 指纹和容器 schema 四项同时匹配时才可创建；测试构建中的其他页面不能安装驱动。
+- 会话工厂使用真实 `scanDocument`、`RecordRunContext`、Planner、TransactionExecutor、EditorBinder 与 Orchestrator，没有绕过执行链或直接填写 DOM。
+- 固定虚构档案包含六个项目；页面已有两条，剩余四条严格按 open、populate、save 共 12 个单步完成。卡片每次保存后重排，仍保持一对一身份匹配。
+- 专项 MV3 覆盖严格空载荷、重复 start、并发 advance、暂停恢复、扩展页重开、SPA 路由变化、身份证据损坏和完整闭环；add/save 各 4 次，delete/upload/next-step/submit 均为 0。
+- 浏览器测试暴露了内部编排结果的额外属性可能经对象展开泄漏令牌和节点 ID；网关已改为白名单重建公开结果，并加入内部令牌不得出现在序列化响应中的回归测试。
+- 修正旧工作流 E2E 的启动竞态：先确认第一条任务已开始，再关闭 popup 验证剩余任务继续执行，避免异步档案尚未读取完就销毁 popup 导致的假超时。
+- 完整 `npm run check` 通过 26 个测试文件、487 项测试与生产构建；完整 `npm run test:e2e` 通过 9 项 DOM、12 项生产扩展、7 项中国移动工作流和 5 项 Record v2 测试构建检查。全部外部请求、页面错误、删除和最终提交计数为 0；测试结束后自动恢复生产构建。
+
+下一步 I-004B-D3 执行提示词：
+
+```text
+保持生产 repeatable-record-v2 开关关闭，也不要把真实档案放入测试夹具或消息参数。设计后台可信档案投影协议：只有本扩展注入的顶层内容脚本、当前 activeTab 且由用户操作获得权限时，才能向 service worker 请求一个固定记录类型的最小只读投影；后台从受限 chrome.storage.local 读取并用现有 UserProfile schema 校验，只返回该记录类型允许的字段、档案修订号和不含原值的身份槽位描述，不返回 basic 身份证、手机号、邮箱或完整档案。请求不能携带字段路径、选择器、代码或任意回调。先仅支持虚构测试构建的 project 投影，并证明页面脚本无法读取、popup 不能伪装 content sender、失效 tab/导航/修订会停止会话；所有响应和错误日志不得含个人值。完成单元与真实 MV3 测试后，再把固定 fixture intent/value provider 替换为投影适配器，生产开关仍保持关闭。
 ```
 
 ## 8. 每轮通用提示词

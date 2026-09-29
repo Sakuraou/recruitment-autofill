@@ -95,12 +95,15 @@ describe('RecordV2Gateway', () => {
 
   it('驱动请求人工处理时保留原因', async () => {
     const session = createSession({ advance: async () => ({ status: 'request-human', snapshotVersion: 3,
-      reason: 'ambiguous-card' }) });
+      reason: 'ambiguous-card', internalToken: 'must-not-leak', nodeIds: ['record:1']
+    } as RecordV2SessionResult) });
     const gateway = new RecordV2Gateway({ enabled: true, createSession: () => session,
       currentPageKey: () => '/fixture' });
     gateway.start();
 
-    await expect(gateway.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'ambiguous-card' });
+    const result = await gateway.advance();
+    expect(result).toEqual({ status: 'request-human', snapshotVersion: 3, reason: 'ambiguous-card' });
+    expect(JSON.stringify(result)).not.toMatch(/must-not-leak|record:1/u);
     expect(gateway.status()).toMatchObject({ state: 'request-human', reason: 'ambiguous-card' });
     await expect(gateway.advance()).rejects.toThrow('当前会话需要人工处理，请停止后重新启动');
     expect(session.advance).toHaveBeenCalledOnce();

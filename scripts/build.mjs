@@ -3,7 +3,9 @@ import { build } from 'esbuild';
 import { copyFile, cp, mkdir, readFile, access } from 'node:fs/promises';
 
 await viteBuild();
-await build({ entryPoints: ['src/content/index.ts'], outfile: 'dist/content.js', bundle: true, format: 'iife', target: 'chrome114' });
+const recordV2TestBuild = process.env.RA_RECORD_V2_TEST_BUILD === '1';
+await build({ entryPoints: ['src/content/index.ts'], outfile: 'dist/content.js', bundle: true, format: 'iife', target: 'chrome114',
+  define: { __RA_RECORD_V2_TEST_BUILD__: JSON.stringify(recordV2TestBuild) } });
 await build({ entryPoints: ['src/background/index.ts'], outfile: 'dist/background.js', bundle: true, format: 'esm', target: 'chrome114' });
 await copyFile('manifest.json', 'dist/manifest.json');
 await copyFile('INSTALL.md', 'dist/README.md');

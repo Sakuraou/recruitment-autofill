@@ -60,8 +60,9 @@ try {
   const dateLabelFits = await view.locator('.workflow-date-option').evaluate(node => node.scrollWidth <= node.clientWidth + 1 && node.getBoundingClientRect().height < 80);
   assert.ok(dateLabelFits, 'Month convention option must remain readable inside the popup');
   await view.getByRole('button', { name: '连续填写教育与项目', exact: true }).click();
+  await page.waitForFunction(() => window.fixture.sequence.length > 0, undefined, { timeout: 30_000 });
   await view.close();
-  await page.waitForFunction(() => window.fixture.sequence.length === 4);
+  await page.waitForFunction(() => window.fixture.sequence.length === 4, undefined, { timeout: 30_000 });
   view = await popup();
   await view.getByText(/教育与项目本轮结束：保存 4 条/).waitFor();
   const result = await page.evaluate(() => ({ sequence: window.fixture.sequence, adds: window.fixture.adds, saves: window.fixture.saves,
