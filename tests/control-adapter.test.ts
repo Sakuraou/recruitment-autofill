@@ -74,4 +74,21 @@ describe('control adapters', () => {
     await expect(await pending).toMatchObject({ status: 'written' });
     expect(select.value).toBe('master');
   });
+
+  it('supports one uniquely visible portal listbox outside the combobox container', async () => {
+    document.body.innerHTML = '<section><input id="portal-combo" role="combobox" aria-expanded="false"></section><div id="portal" role="listbox" hidden><div role="option">计算机类</div></div>';
+    const combo = document.querySelector<HTMLInputElement>('#portal-combo')!;
+    const portal = document.querySelector<HTMLElement>('#portal')!;
+    combo.addEventListener('click', () => { combo.setAttribute('aria-expanded', 'true'); portal.hidden = false; });
+    portal.addEventListener('click', event => { combo.value = (event.target as HTMLElement).textContent?.trim() ?? ''; });
+    await expect(await createControlAdapter(combo).write('计算机类')).toMatchObject({ status: 'written' });
+    expect(combo.value).toBe('计算机类');
+  });
+
+  it('refuses an unowned portal when more than one visible listbox exists', async () => {
+    document.body.innerHTML = '<input id="ambiguous-combo" role="combobox" aria-expanded="true"><div role="listbox"><div role="option">甲</div></div><div role="listbox"><div role="option">甲</div></div>';
+    const combo = document.querySelector<HTMLInputElement>('#ambiguous-combo')!;
+    await expect(await createControlAdapter(combo).write('甲')).toMatchObject({ status: 'request-human' });
+    expect(combo.value).toBe('');
+  });
 });

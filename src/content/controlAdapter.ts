@@ -150,7 +150,8 @@ function comboListbox(node: Element): HTMLElement | null {
     const target = node.ownerDocument.getElementById(id);
     if (target?.getAttribute('role') === 'listbox') return target as HTMLElement;
   }
-  return node.ownerDocument.querySelector<HTMLElement>('[role="listbox"]');
+  const candidates = Array.from(node.ownerDocument.querySelectorAll<HTMLElement>('[role="listbox"]')).filter(visible);
+  return candidates.length === 1 ? candidates[0]! : null;
 }
 
 function comboValue(node: Element): string {
