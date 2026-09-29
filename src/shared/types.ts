@@ -53,5 +53,7 @@ export interface FillRequest { scanId: string; items: FillItem[] }
 export interface FillOutcome { fieldId: string; status: 'filled' | 'skipped' | 'error'; reason: string }
 export type ContentRequest = { type: 'RA_SCAN' } | { type: 'RA_FILL'; payload: FillRequest } | { type: 'RA_SELECTION' }
   | { type: 'RA_WORKFLOW_START'; payload: import('../workflow/model').WorkflowRequest }
-  | { type: 'RA_WORKFLOW_STATUS' | 'RA_WORKFLOW_PAUSE' | 'RA_WORKFLOW_RESUME' | 'RA_WORKFLOW_STOP' };
+  | { type: 'RA_WORKFLOW_STATUS' | 'RA_WORKFLOW_PAUSE' | 'RA_WORKFLOW_RESUME' | 'RA_WORKFLOW_STOP' }
+  | { type: 'RA_RECORD_V2_START' | 'RA_RECORD_V2_ADVANCE' | 'RA_RECORD_V2_STATUS'
+    | 'RA_RECORD_V2_PAUSE' | 'RA_RECORD_V2_RESUME' | 'RA_RECORD_V2_STOP' };
 export type ContentResponse<T> = { ok: true; data: T } | { ok: false; error: string };

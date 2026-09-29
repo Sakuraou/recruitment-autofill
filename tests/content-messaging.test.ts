@@ -44,6 +44,22 @@ describe('Content Script 消息入口', () => {
     expect(response).toHaveBeenLastCalledWith({ ok: false, error: '请先扫描当前页面' });
   });
 
+  it('多记录入口默认关闭，且拒绝外部注入档案或执行参数', () => {
+    const response = vi.fn();
+    listener({ type: 'RA_RECORD_V2_STATUS' }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: true, data: {
+      version: expect.any(String),
+      state: { enabled: false, state: 'disabled', snapshotVersion: 0 },
+    } });
+
+    listener({ type: 'RA_RECORD_V2_START', payload: { profile: { name: '伪造档案' }, selector: '#submit' } },
+      sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: false, error: '无效的扩展请求' });
+
+    listener({ type: 'RA_RECORD_V2_START' }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: false, error: '通用多记录填写功能尚未启用' });
+  });
+
   it('扫描只返回可序列化描述，随后填写对应的内存节点', async () => {
     const response = vi.fn();
     listener({ type: 'RA_SCAN' }, sender, response);

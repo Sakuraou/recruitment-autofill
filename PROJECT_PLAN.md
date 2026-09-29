@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-D 功能开关与内容脚本入口
-> 最近完整验证：2026-09-29，477 项测试、生产构建；上一轮 9 项 DOM 浏览器检查及完整扩展 E2E 通过
+> 当前迭代：I-004B-D2 测试页面会话工厂
+> 最近完整验证：2026-09-29，484 项测试、生产构建；9 项 DOM、12 项扩展与 7 项工作流浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -323,6 +323,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-C1 | 单步编排状态机 | verified | 单步推进、并发去重、暂停重扫、迟到结果共 4 项专项；470 项全量测试 | 由 I-004B-C2 验证多记录闭环 |
 | I-004B-C2 | 多记录完整循环 | verified | 7 项完整循环与对抗测试；477 项全量测试 | 进入功能开关和浏览器 E2E |
 | I-004B-C2A | 六项目正常闭环与错误身份 | verified | 仅新增 4 条、12 个步骤；错误新卡停止；472 项全量测试 | 由 C2B 补齐其余对抗场景 |
+| I-004B-D1 | 默认关闭的内容脚本网关 | verified | 6 项网关、5 项内容消息测试；484 项全量测试及完整 E2E | 由 D2 仅在虚构测试页安装会话工厂 |
 
 ## 7. 本轮记录
 
@@ -547,6 +548,22 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 设计默认关闭的 repeatable-record-v2 功能开关和独立内容脚本消息入口。入口只接收启动、单步推进、暂停、恢复、停止和状态读取；不得从消息传入 Planner 能力、DOM 节点、令牌或任意回调。内容脚本内部从最新 scanDocument 构造 RunContext、身份比较和值提供器，并只在明确启用且页面/档案版本一致时创建 Orchestrator。先接入纯虚构测试档案与测试页面，保持现有移动站工作流和逐字段填写路径不变；为消息重复、页面导航、扩展重载、开关关闭、暂停/停止和 request-human 建浏览器 E2E。确认 delete/upload/next-step/submit 零点击后，再决定真实档案适配和受控试用范围。
+```
+
+### 2026-09-29 · I-004B-D1
+
+- 新增默认关闭的 `repeatable-record-v2` 构建期开关；当前生产包不会创建会话，也不会改变现有逐字段填写或中国移动连续流程。
+- 内容脚本新增独立的 start、advance、status、pause、resume、stop 消息；六种消息均为严格空载荷，档案、字段值、选择器、DOM、Planner 能力和回调不能从扩展页面注入。
+- 新增 `RecordV2Gateway` 作为可信生命周期边界；会话只能由内容脚本内工厂创建，单次 advance 只转发一个步骤，并保留 pause、resume 与 stop 的状态。
+- 页面 origin、path 或 query 变化会停止并丢弃旧会话；推进中的迟到结果也会失效。并发状态读取不会重复停止同一会话。
+- request-human 由网关保持为终止态；在用户停止并重新启动前不能继续推进，避免歧义后仍执行下一步。
+- 新增 6 项网关测试和 1 项内容消息边界测试；完整 `npm run check` 通过 25 个测试文件、484 项测试和生产构建。
+- 首次聚合浏览器回归中，DOM 与扩展检查通过，工作流首段等待发生一次 15 秒时序超时；工作流单独重跑通过，随后完整 `npm run test:e2e` 重跑通过 9 项 DOM、12 项扩展和 7 项工作流检查。外部请求、页面错误、删除与最终提交均为 0。
+
+下一步 I-004B-D2 执行提示词：
+
+```text
+保持 repeatable-record-v2 的发布默认值为 false。建立一个只在本地虚构 E2E 页面、明确测试构建标记和固定页面指纹同时满足时才可创建的内部 SessionFactory；消息不得携带档案、字段值、选择器、DOM 或计划。工厂从内容脚本内固定虚构记录意图、scanDocument、RecordRunContext、RecordPlanner、TransactionExecutor、RecordEditorBinder 和 RecordTransactionOrchestrator 组成会话，每次 RA_RECORD_V2_ADVANCE 只推进一步。浏览器 E2E 覆盖禁用构建、非法消息载荷、重复 start、并发 advance、暂停/恢复、页面导航、request-human、扩展页面重开，以及六条虚构项目中两条已有、四条新增的完整循环；断言 add/save 各 4 次，delete/upload/next-step/submit 永远为 0。测试页面之外必须始终返回未启用或驱动未安装。完成后运行专项、npm run check 和完整 npm run test:e2e，再评估是否为真实档案建立只读适配层。
 ```
 
 ## 8. 每轮通用提示词
