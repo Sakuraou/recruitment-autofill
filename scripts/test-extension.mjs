@@ -100,8 +100,22 @@ try {
   });
   assert.deepEqual(recordV2Production?.data?.state,
     { enabled: false, state: 'disabled', snapshotVersion: 0 });
+  const projectionResults = await worker.evaluate(async targetUrl => {
+    const tabs = await chrome.tabs.query({});
+    const tab = tabs.find(candidate => candidate.url === targetUrl);
+    if (!tab?.id) throw new Error('No content tab for projection check');
+    return chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, func: async () => (
+      chrome.runtime.sendMessage({ type: 'RA_PROFILE_PROJECT' })
+    ) });
+  }, form.url());
+  const projection = projectionResults[0]?.result;
+  assert.equal(projection.ok, true);
+  assert.deepEqual(projection.data.projects.map(item => item.id), profile.projects.map(item => item.id));
+  assert.equal(projection.data.projects[0].name, profile.projects[0].name);
+  assert.equal(JSON.stringify(projection).includes(profile.basic.name), false);
+  assert.equal(JSON.stringify(projection).includes(profile.internships[0].organization), false);
   await popup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'popup.png') });
-  report.checks.push('Real toolbar action grants activeTab; production popup scans native fixture and keeps record-v2 disabled');
+  report.checks.push('Real toolbar action grants activeTab; production popup scans native fixture, keeps record-v2 disabled, and content-only project projection excludes unrelated profile data');
 
   await popup.getByRole('button', { name: '一键填写高置信度字段' }).click();
   await popup.getByRole('status').filter({ hasText: /已填写/ }).waitFor();

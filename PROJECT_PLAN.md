@@ -2,8 +2,8 @@
 
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
-> 当前迭代：I-004B-D3 可信档案投影
-> 最近完整验证：2026-09-29，487 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
+> 当前迭代：I-004B-D4 项目投影接入编排器
+> 最近完整验证：2026-09-30，492 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -325,6 +325,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-C2A | 六项目正常闭环与错误身份 | verified | 仅新增 4 条、12 个步骤；错误新卡停止；472 项全量测试 | 由 C2B 补齐其余对抗场景 |
 | I-004B-D1 | 默认关闭的内容脚本网关 | verified | 6 项网关、5 项内容消息测试；484 项全量测试及完整 E2E | 由 D2 仅在虚构测试页安装会话工厂 |
 | I-004B-D2 | 固定虚构测试页会话工厂 | verified | 两条已有、四条新增、12 个单步；487 项全量测试及 5 项专项 MV3 检查 | 由 D3 建立后台可信档案投影，不启用真实页面 |
+| I-004B-D3 | 项目类型可信档案投影 | verified | 5 项投影/后台测试；生产 MV3 确认内容脚本只获项目字段 | 由 D4 把投影适配为内部值提供器，生产开关仍关闭 |
 
 ## 7. 本轮记录
 
@@ -582,6 +583,21 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 ```text
 保持生产 repeatable-record-v2 开关关闭，也不要把真实档案放入测试夹具或消息参数。设计后台可信档案投影协议：只有本扩展注入的顶层内容脚本、当前 activeTab 且由用户操作获得权限时，才能向 service worker 请求一个固定记录类型的最小只读投影；后台从受限 chrome.storage.local 读取并用现有 UserProfile schema 校验，只返回该记录类型允许的字段、档案修订号和不含原值的身份槽位描述，不返回 basic 身份证、手机号、邮箱或完整档案。请求不能携带字段路径、选择器、代码或任意回调。先仅支持虚构测试构建的 project 投影，并证明页面脚本无法读取、popup 不能伪装 content sender、失效 tab/导航/修订会停止会话；所有响应和错误日志不得含个人值。完成单元与真实 MV3 测试后，再把固定 fixture intent/value provider 替换为投影适配器，生产开关仍保持关闭。
+```
+
+### 2026-09-30 · I-004B-D3
+
+- 新增严格空载荷 `RA_PROFILE_PROJECT` 请求；请求不接受字段路径、选择器、DOM、计划、回调或任意 profile key。
+- Service worker 只接受同扩展、带网页 tab、HTTP(S) sender；popup、普通网页伪造、扩展页和无 tab sender 都被拒绝。
+- 后台从 `TRUSTED_CONTEXTS` 的本地档案读取并通过现有 schema 校验，只投影 `projects` 及 `profileRevision`；basic、internships、education、family、skills 和常用回答不进入响应。
+- 投影记录仅包含项目引擎需要的 id、名称、角色、组织、日期、描述、职责、成果和技术列表；响应和错误不携带异常详情。
+- 新增投影序列化、冻结、严格请求、sender 身份、读取失败和无关数据排除测试；生产 MV3 回归已从真实内容脚本请求投影并确认通过。
+- 完整 `npm run check` 目标为 27 个测试文件、492 项测试；现有普通字段、旧中国移动流程和 Record v2 测试页保持不变，生产 Record v2 仍关闭。
+
+下一步 I-004B-D4 执行提示词：
+
+```text
+把固定虚构 SessionFactory 的 value provider 改为内部 ProjectProjectionProvider，但仅在测试构建且固定 localhost 页面指纹通过时启用；生产构建继续 false。内容脚本启动会话前发送严格空载荷 RA_PROFILE_PROJECT，校验返回 recordType、profileRevision、项目 id 和字段类型，随后把项目记录投影转换为值提供器。会话每次 capture/advance 前检查投影修订号未变化；档案更新、响应结构异常、项目 id 重复、未知字段、页面导航或消息超时立即 request-human，不重试 add/save。增加“投影中途修订”“投影值缺失”“重复 id”“后台响应注入额外属性”“真实页面非测试指纹永远不创建会话”的单元和 MV3 测试。不要把任何投影值写入日志、storage、错误报告或消息回传；生产开关保持关闭。
 ```
 
 ## 8. 每轮通用提示词
