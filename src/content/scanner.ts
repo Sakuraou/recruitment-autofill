@@ -2,7 +2,7 @@ import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { EXTENSION_VERSION } from '../shared/version';
 import { isMobileResume, mobileLabel, mobileMaxLength, mobilePlaceholder, mobileSection } from './mobilePage';
 import { describeMobileSelect, MOBILE_DATE_SELECTOR, MOBILE_SELECT_SELECTOR, mobileFingerprint } from './mobileSelect';
-import { createControlAdapter, stableAriaComboboxListbox, type ControlAdapter } from './controlAdapter';
+import { createAriaRadioGroupAdapter, createControlAdapter, stableAriaComboboxListbox, type ControlAdapter } from './controlAdapter';
 import { buildPageSemanticGraph } from './semantic/graphBuilder';
 import {
   ariaLabel, attributesFingerprint, cleanText, collectControls, controlLabels, hasValue,
@@ -13,6 +13,7 @@ import {
 export type ScannedControl = { node: FormControl; fingerprint: string; adapter?: undefined }
   | { node: HTMLElement; fingerprint: string; adapter: 'mobile-select' }
   | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-combobox' }
+  | { node: Element; members: Element[]; controller: ControlAdapter; fingerprint: string; adapter: 'aria-radio-group' }
   | { node: HTMLInputElement; members: HTMLInputElement[]; fingerprint: string; adapter: 'radio-group' };
 export interface ScanState {
   result: ScanResult;
@@ -135,6 +136,31 @@ export function ariaComboboxFingerprint(node: Element, field: FieldDescriptor, c
     value: inspection.value, options: inspection.options });
 }
 
+export function describeAriaRadioGroup(group: Element, members: readonly Element[], id: string,
+  controller = createAriaRadioGroupAdapter(group, members)): FieldDescriptor {
+  const inspection = controller.inspect();
+  const label = labelledText(group);
+  const identity = [label, group.getAttribute('aria-label') ?? ''].join(' ');
+  const blocked = /同意|协议|隐私|授权|承诺|声明|consent|agreement|privacy|authorize/iu.test(identity)
+    ? '协议、授权和声明必须人工选择' : group.getAttribute('aria-disabled') === 'true' ? '单选组已禁用，需要人工处理' : undefined;
+  return {
+    id, kind: 'radio', type: 'radio', label, placeholder: '', name: '', htmlId: cleanText(group.id),
+    ariaLabel: cleanText(group.getAttribute('aria-label')), title: cleanText(group.getAttribute('title')),
+    parentText: '', previousText: '', tableHeader: '', sectionText: '',
+    options: inspection.options.map(option => ({ value: option.label, label: option.label, disabled: option.disabled })),
+    maxLength: null, required: group.getAttribute('aria-required') === 'true', hasValue: inspection.hasValue,
+    disabled: group.getAttribute('aria-disabled') === 'true', readOnly: group.getAttribute('aria-readonly') === 'true',
+    ...(!label ? { blockedReason: 'ARIA 单选组缺少可验证问题标签，需要人工处理' } : blocked ? { blockedReason: blocked } : {}),
+  };
+}
+
+export function ariaRadioGroupFingerprint(group: Element, members: readonly Element[], field: FieldDescriptor,
+  controller = createAriaRadioGroupAdapter(group, members)): string {
+  return JSON.stringify({ field: { ...field, groupId: undefined }, group: attributesFingerprint(group),
+    members: members.map(member => ({ attributes: attributesFingerprint(member), label: cleanText(member.textContent), checked: member.getAttribute('aria-checked') })),
+    options: controller.inspect().options });
+}
+
 /** Includes current values only inside private in-memory state, never ScanResult. */
 export function controlFingerprint(node: FormControl, field: FieldDescriptor): string {
   return JSON.stringify({
@@ -162,6 +188,9 @@ export function scanDocument(doc: Document = document): ScanState {
   const collected = collectControls(doc);
   const ariaComboboxes = collected.ariaComboboxes.filter(node => stableAriaComboboxListbox(node) !== null);
   const ariaComboboxSet = new Set(ariaComboboxes);
+  const ariaRadioGroups = collected.ariaRadioGroups.map(group => ({ group,
+    members: Array.from(group.querySelectorAll<Element>('[role="radio"]')).filter(member => member.closest('[role="radiogroup"]') === group) }))
+    .filter(item => item.members.length > 0);
   const nodes = collected.nodes
     .filter((node) => !ariaComboboxSet.has(node)
       && (node.tagName !== 'INPUT' || !['button', 'submit', 'reset', 'image'].includes((node as HTMLInputElement).type)));
@@ -199,6 +228,14 @@ export function scanDocument(doc: Document = document): ScanState {
     field.groupId = groupId(node);
     fields.push(field);
     controls.set(id, { node, controller, fingerprint: ariaComboboxFingerprint(node, field, controller), adapter: 'aria-combobox' });
+  }
+  for (const { group, members } of ariaRadioGroups.slice(0, 500 - fields.length)) {
+    const id = `${scanId}:${fields.length}`;
+    const controller = createAriaRadioGroupAdapter(group, members);
+    const field = describeAriaRadioGroup(group, members, id, controller);
+    field.groupId = groupId(group);
+    fields.push(field);
+    controls.set(id, { node: group, members, controller, fingerprint: ariaRadioGroupFingerprint(group, members, field, controller), adapter: 'aria-radio-group' });
   }
   if (isMobileResume(doc)) {
     warnings[0] = '中国移动教育与项目可使用上方「连续填写」自动新增、填表、保存及滚动。下方逐字段模式用于其他信息；城市联动、附件及最终投递仍需你完成。';

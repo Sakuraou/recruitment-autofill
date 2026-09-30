@@ -98,6 +98,14 @@ describe('扫描安全边界', () => {
     expect(result.fields.find(field => field.ariaLabel === '无绑定控件')?.blockedReason).toMatch(/自定义选择器/u);
   });
 
+  it('扫描普通 ARIA radiogroup，并阻止协议语义的单选组', () => {
+    const { result, controls } = scan('<span id="gender-label">性别</span><div role="radiogroup" aria-labelledby="gender-label"><div role="radio" aria-checked="false">男</div><div role="radio" aria-checked="false">女</div></div><div role="radiogroup" aria-label="隐私协议"><div role="radio" aria-checked="false">同意</div><div role="radio" aria-checked="false">不同意</div></div>');
+    const groups = result.fields.filter(field => field.kind === 'radio');
+    expect(groups[0]).toMatchObject({ label: '性别', options: [{ value: '男' }, { value: '女' }] });
+    expect(controls.get(groups[0]!.id)?.adapter).toBe('aria-radio-group');
+    expect(groups[1]?.blockedReason).toMatch(/协议|授权/u);
+  });
+
   it('扫描同源 iframe 与开放 Shadow DOM', () => {
     document.body.innerHTML = '<iframe></iframe><div id="host"></div>';
     const frame = document.querySelector('iframe')!;

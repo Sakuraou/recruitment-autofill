@@ -152,4 +152,17 @@ describe('安全填写原生 HTML 控件', () => {
     expect(outcomes).toEqual([expect.objectContaining({ status: 'filled' })]);
     expect(combo.value).toBe('硕士研究生');
   });
+
+  it('填写普通 ARIA radiogroup，但不代替协议单选', async () => {
+    document.body.innerHTML = '<span id="gender-label">性别</span><div id="gender" role="radiogroup" aria-labelledby="gender-label"><div role="radio" aria-checked="false">男</div><div role="radio" aria-checked="false">女</div></div>';
+    const group = document.querySelector<HTMLElement>('#gender')!;
+    const members = [...group.querySelectorAll<HTMLElement>('[role="radio"]')];
+    group.addEventListener('click', event => members.forEach(member => member.setAttribute('aria-checked', member === event.target ? 'true' : 'false')));
+    const state = scanDocument(document);
+    const field = state.result.fields.find(item => item.kind === 'radio')!;
+    const outcomes = await fillScan(state, { scanId: state.result.scanId,
+      items: [{ fieldId: field.id, value: '女', confirmed: true }] });
+    expect(outcomes).toEqual([expect.objectContaining({ status: 'filled' })]);
+    expect(members[1]?.getAttribute('aria-checked')).toBe('true');
+  });
 });

@@ -1,6 +1,6 @@
 import { hasValue, isPlaceholderOption, selectOptions } from './domUtils';
 
-export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'aria-combobox' | 'unknown';
+export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'aria-combobox' | 'aria-radio-group' | 'unknown';
 
 export interface ControlAdapterOption {
   readonly value: string;
@@ -177,6 +177,47 @@ function comboValue(node: Element): string {
 
 function comboHasValue(value: string): boolean {
   return Boolean(value) && !/^(?:请选择(?:.{0,24})?|请选(?:择)?|未选择|选择\.\.\.|please\s+(?:select|choose)(?:\s+.{0,30})?)$/iu.test(value);
+}
+
+function radioOptionLabel(node: Element): string {
+  return clean(node.getAttribute('aria-label') || node.textContent);
+}
+
+export function createAriaRadioGroupAdapter(group: Element, members: readonly Element[]): ControlAdapter {
+  const inspect = (): ControlInspection => {
+    const options = members.map(member => ({ value: radioOptionLabel(member), label: radioOptionLabel(member),
+      disabled: member.getAttribute('aria-disabled') === 'true' || member.hasAttribute('disabled') }));
+    const selected = members.find(member => member.getAttribute('aria-checked') === 'true');
+    return { kind: 'aria-radio-group', value: selected ? radioOptionLabel(selected) : '', hasValue: Boolean(selected), options,
+      ...(!group.isConnected ? { blockedReason: '单选组已被页面替换或移除，请重新扫描' }
+        : group.getAttribute('aria-disabled') === 'true' ? { blockedReason: '单选组已禁用，需要人工处理' } : {}) };
+  };
+  return {
+    node: group,
+    kind: 'aria-radio-group',
+    inspect,
+    open: async () => true,
+    readOptions: () => inspect().options,
+    write: async (value: string): Promise<ControlAdapterResult> => {
+      const current = inspect();
+      if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
+      if (current.hasValue) return current.value === value
+        ? { status: 'preserved', reason: '单选组已有相同答案，保留原值' }
+        : { status: 'request-human', reason: '单选组已有答案，不覆盖' };
+      const candidates = members.filter(member => radioOptionLabel(member) === value
+        && member.getAttribute('aria-disabled') !== 'true' && !member.hasAttribute('disabled'));
+      if (candidates.length !== 1) return { status: 'request-human', reason: '单选组没有唯一匹配选项' };
+      const target = candidates[0]!;
+      if (!target.isConnected || !group.contains(target)) return { status: 'request-human', reason: '单选组选项已被替换' };
+      try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
+      catch { return { status: 'request-human', reason: '单选项无法安全选择' }; }
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      return target.getAttribute('aria-checked') === 'true'
+        ? { status: 'written', reason: '单选选择后已核验' }
+        : { status: 'request-human', reason: '网页未保留预期单选答案' };
+    },
+    verify: (value: string) => members.some(member => member.getAttribute('aria-checked') === 'true' && radioOptionLabel(member) === value),
+  };
 }
 
 function comboOptions(node: Element): ControlAdapterOption[] {

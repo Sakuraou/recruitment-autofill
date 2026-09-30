@@ -174,6 +174,7 @@ export function selectOptions(node: HTMLSelectElement): FieldOption[] {
 export interface CollectedControls {
   nodes: FormControl[];
   ariaComboboxes: Element[];
+  ariaRadioGroups: Element[];
   sameOriginFrameCount: number;
   openShadowRootCount: number;
   inaccessibleFrameCount: number;
@@ -183,6 +184,7 @@ export interface CollectedControls {
 export function collectControls(doc: Document): CollectedControls {
   const nodes: FormControl[] = [];
   const ariaComboboxes: Element[] = [];
+  const ariaRadioGroups: Element[] = [];
   const seenRoots = new Set<Document | ShadowRoot>();
   let sameOriginFrameCount = 0;
   let openShadowRootCount = 0;
@@ -192,6 +194,7 @@ export function collectControls(doc: Document): CollectedControls {
     seenRoots.add(root);
     nodes.push(...Array.from(root.querySelectorAll<FormControl>(CONTROL_SELECTOR)));
     ariaComboboxes.push(...Array.from(root.querySelectorAll<Element>('[role="combobox"]')));
+    ariaRadioGroups.push(...Array.from(root.querySelectorAll<Element>('[role="radiogroup"]')));
     for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
       if (element.shadowRoot) { openShadowRootCount++; walk(element.shadowRoot); }
     }
@@ -203,7 +206,7 @@ export function collectControls(doc: Document): CollectedControls {
     }
   };
   walk(doc);
-  return { nodes, ariaComboboxes, sameOriginFrameCount, openShadowRootCount, inaccessibleFrameCount };
+  return { nodes, ariaComboboxes, ariaRadioGroups, sameOriginFrameCount, openShadowRootCount, inaccessibleFrameCount };
 }
 
 /** Validate that an element is still connected through accessible nested frames. */
