@@ -89,6 +89,15 @@ describe('扫描安全边界', () => {
     expect([...controls.values()][0]?.adapter).toBe('radio-group');
   });
 
+  it('只扫描带唯一显式 listbox 绑定的 ARIA combobox', () => {
+    const { result, controls } = scan('<label id="degree-label">最高学历</label><input role="combobox" aria-labelledby="degree-label" aria-controls="degree-list" aria-expanded="false"><div id="degree-list" role="listbox" hidden><div role="option">本科</div><div role="option">硕士研究生</div></div><input role="combobox" aria-label="无绑定控件">');
+    const aria = result.fields.find(field => field.type === 'aria-combobox');
+    expect(aria).toMatchObject({ kind: 'select', label: '最高学历', hasValue: false,
+      options: [{ value: '本科', label: '本科' }, { value: '硕士研究生', label: '硕士研究生' }] });
+    expect(controls.get(aria!.id)?.adapter).toBe('aria-combobox');
+    expect(result.fields.find(field => field.ariaLabel === '无绑定控件')?.blockedReason).toMatch(/自定义选择器/u);
+  });
+
   it('扫描同源 iframe 与开放 Shadow DOM', () => {
     document.body.innerHTML = '<iframe></iframe><div id="host"></div>';
     const frame = document.querySelector('iframe')!;

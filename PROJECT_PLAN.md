@@ -3,7 +3,7 @@
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
 > 当前迭代：I-004B-D5 控件适配器基础
-> 最近完整验证：2026-09-30，502 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
+> 最近完整验证：2026-09-30，504 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -327,7 +327,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-D2 | 固定虚构测试页会话工厂 | verified | 两条已有、四条新增、12 个单步；487 项全量测试及 5 项专项 MV3 检查 | 由 D3 建立后台可信档案投影，不启用真实页面 |
 | I-004B-D3 | 项目类型可信档案投影 | verified | 5 项投影/后台测试；生产 MV3 确认内容脚本只获项目字段 | 由 D4 把投影适配为内部值提供器，生产开关仍关闭 |
 | I-004B-D4 | 投影驱动的测试会话 | verified | 档案投影驱动六项目闭环；修订变化在保存前停止；493 项全量测试 | 由 D5 建立原生控件与稳定 ARIA 控件适配器 |
-| I-004B-D5 | 控件适配器基础 | in_progress | 9 项适配器专项、502 项全量测试、生产构建及完整 E2E；已接入原生填写路径 | 将稳定 ARIA 控件纳入只读扫描并增加受控框架夹具 |
+| I-004B-D5 | 控件适配器基础 | in_progress | 9 项适配器专项、504 项全量测试、生产构建及完整 E2E；原生与稳定 ARIA combobox 已接入填写路径 | 增加 ARIA radio/checkbox、受控框架和保存回滚夹具 |
 
 ## 7. 本轮记录
 
@@ -619,14 +619,15 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 - 新增 `ControlAdapter` 抽象，按控件边界提供读取、打开、选项枚举、写入和核验接口；原生 input、textarea、select 使用当前页面所属 realm 的安全 setter，避免跨 iframe 构造器误判。
 - 原生控件已有值保持不覆盖；select 只有唯一、非禁用、非占位选项才允许写入；空答案和无效回读都会 request-human。
-- ARIA combobox 只点击自身打开关联 listbox，只接受唯一可见选项；异步列表、重复选项和未知自定义控件不会触发广泛点击。
+- ARIA combobox 只扫描有唯一显式 `aria-controls/aria-owns` listbox 绑定的控件；填写时只点击自身并接受唯一可见选项。异步列表、重复选项、未归属 portal 和未知自定义控件不会触发广泛点击。
+- `fillScan` 已接入稳定 ARIA combobox；字段以 select 语义进入匹配，缺少绑定、标签、唯一选项或页面节点被替换时保持人工处理。
 - `fillScan` 的原生 input、textarea、select 路径已改用 ControlAdapter，保留扫描快照、原值保护、候选校验和整批 200ms 回读；radio-group、checkbox、mobile-select 的边界保持原有安全路径。
-- 新增 9 项专项测试，覆盖动态节点替换、延迟原生 select 选项、唯一 portal listbox、多 portal 拒绝和延迟期间节点替换；当前专项与类型检查通过，完整回归基线为 29 个测试文件、502 项测试与生产构建。此前完整 `npm run test:e2e` 已通过 9 项 DOM、12 项扩展、7 项工作流和 5 项 Record v2 检查；生产 Record v2 仍关闭。
+- 新增 9 项适配器专项及 2 项 ARIA 扫描/填写测试，覆盖动态节点替换、延迟原生 select 选项、唯一 portal listbox、多 portal 拒绝和稳定绑定 combobox；完整 `npm test` 通过 29 个测试文件、504 项测试，lint、类型检查、生产构建和完整 `npm run test:e2e` 均通过。生产 Record v2 仍关闭。
 
-下一步 I-004B-D5b 执行提示词：
+下一步 I-004B-D5c 执行提示词：
 
 ```text
-为 ControlAdapter 增加 React 受控 input、Vue/异步 select、portal listbox、节点替换四个真实夹具；验证事件触发后页面状态最终保留值，控件被替换或异步回填冲突时回滚已写字段并 request-human，不推进保存步骤。补齐 ARIA radio/checkbox 只读识别与日期/代码类唯一映射边界；继续禁止猜测和广泛点击。运行 adapter、binder 专项、npm run check 与完整 npm run test:e2e。
+为稳定 ARIA radio/checkbox 建立只读扫描和唯一选项描述，先只支持无协议/无授权语义的普通选择；同意、隐私、承诺、文件上传和不可逆按钮继续人工。增加 React 受控 input、Vue/异步 select、portal listbox、节点替换四个真实夹具，验证事件触发后页面状态最终保留值，控件被替换或异步回填冲突时 request-human，不推进记录保存。运行 adapter、binder、scanner 专项、npm run check 与完整 npm run test:e2e。
 ```
 
 ## 8. 每轮通用提示词

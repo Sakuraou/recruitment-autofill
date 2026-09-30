@@ -138,4 +138,18 @@ describe('安全填写原生 HTML 控件', () => {
     expect((document.querySelector('iframe')!.contentDocument!.querySelector('#frame-email') as HTMLInputElement).value).toBe('test@example.invalid');
     expect((document.querySelector('#host')!.shadowRoot!.querySelector('#shadow-phone') as HTMLInputElement).value).toBe('00000000000');
   });
+
+  it('填写带唯一显式 listbox 绑定的 ARIA combobox', async () => {
+    document.body.innerHTML = '<label id="degree-label">最高学历</label><input id="degree" role="combobox" aria-labelledby="degree-label" aria-controls="degree-list" aria-expanded="false"><div id="degree-list" role="listbox" hidden><div role="option">本科</div><div role="option">硕士研究生</div></div>';
+    const combo = document.querySelector<HTMLInputElement>('#degree')!;
+    const list = document.querySelector<HTMLElement>('#degree-list')!;
+    combo.addEventListener('click', () => { combo.setAttribute('aria-expanded', 'true'); list.hidden = false; });
+    list.addEventListener('click', event => { combo.value = (event.target as HTMLElement).textContent?.trim() ?? ''; });
+    const state = scanDocument(document);
+    const field = state.result.fields.find(item => item.type === 'aria-combobox')!;
+    const outcomes = await fillScan(state, { scanId: state.result.scanId,
+      items: [{ fieldId: field.id, value: '硕士研究生', confirmed: true }] });
+    expect(outcomes).toEqual([expect.objectContaining({ status: 'filled' })]);
+    expect(combo.value).toBe('硕士研究生');
+  });
 });

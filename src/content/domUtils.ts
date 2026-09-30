@@ -173,6 +173,7 @@ export function selectOptions(node: HTMLSelectElement): FieldOption[] {
 
 export interface CollectedControls {
   nodes: FormControl[];
+  ariaComboboxes: Element[];
   sameOriginFrameCount: number;
   openShadowRootCount: number;
   inaccessibleFrameCount: number;
@@ -181,6 +182,7 @@ export interface CollectedControls {
 /** Walk every browser-accessible form root without crossing an origin boundary. */
 export function collectControls(doc: Document): CollectedControls {
   const nodes: FormControl[] = [];
+  const ariaComboboxes: Element[] = [];
   const seenRoots = new Set<Document | ShadowRoot>();
   let sameOriginFrameCount = 0;
   let openShadowRootCount = 0;
@@ -189,6 +191,7 @@ export function collectControls(doc: Document): CollectedControls {
     if (seenRoots.has(root)) return;
     seenRoots.add(root);
     nodes.push(...Array.from(root.querySelectorAll<FormControl>(CONTROL_SELECTOR)));
+    ariaComboboxes.push(...Array.from(root.querySelectorAll<Element>('[role="combobox"]')));
     for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
       if (element.shadowRoot) { openShadowRootCount++; walk(element.shadowRoot); }
     }
@@ -200,7 +203,7 @@ export function collectControls(doc: Document): CollectedControls {
     }
   };
   walk(doc);
-  return { nodes, sameOriginFrameCount, openShadowRootCount, inaccessibleFrameCount };
+  return { nodes, ariaComboboxes, sameOriginFrameCount, openShadowRootCount, inaccessibleFrameCount };
 }
 
 /** Validate that an element is still connected through accessible nested frames. */

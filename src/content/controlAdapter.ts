@@ -144,13 +144,28 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
   };
 }
 
-function comboListbox(node: Element): HTMLElement | null {
-  const refs = `${node.getAttribute('aria-controls') ?? ''} ${node.getAttribute('aria-owns') ?? ''}`
+function comboRefs(node: Element): string[] {
+  return `${node.getAttribute('aria-controls') ?? ''} ${node.getAttribute('aria-owns') ?? ''}`
     .trim().split(/\s+/u).filter(Boolean);
-  for (const id of refs) {
-    const target = node.ownerDocument.getElementById(id);
-    if (target?.getAttribute('role') === 'listbox') return target as HTMLElement;
-  }
+}
+
+/** A scan-safe binding never opens the page and requires one explicit same-document listbox reference. */
+export function stableAriaComboboxListbox(node: Element): HTMLElement | null {
+  const refs = comboRefs(node);
+  if (refs.length !== 1) return null;
+  const root = node.getRootNode();
+  if (root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return null;
+  const target = Array.from((root as Document | ShadowRoot).querySelectorAll<HTMLElement>('[id]'))
+    .find(candidate => candidate.id === refs[0]);
+  return target?.ownerDocument === node.ownerDocument && target.getAttribute('role') === 'listbox'
+    ? target as HTMLElement : null;
+}
+
+function comboListbox(node: Element): HTMLElement | null {
+  const explicit = stableAriaComboboxListbox(node);
+  if (explicit) return explicit;
+  const refs = comboRefs(node);
+  if (refs.length) return null;
   const candidates = Array.from(node.ownerDocument.querySelectorAll<HTMLElement>('[role="listbox"]')).filter(visible);
   return candidates.length === 1 ? candidates[0]! : null;
 }
@@ -158,6 +173,10 @@ function comboListbox(node: Element): HTMLElement | null {
 function comboValue(node: Element): string {
   if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') return (node as HTMLInputElement | HTMLTextAreaElement).value;
   return clean(node.getAttribute('aria-valuetext') || node.textContent);
+}
+
+function comboHasValue(value: string): boolean {
+  return Boolean(value) && !/^(?:请选择(?:.{0,24})?|请选(?:择)?|未选择|选择\.\.\.|please\s+(?:select|choose)(?:\s+.{0,30})?)$/iu.test(value);
 }
 
 function comboOptions(node: Element): ControlAdapterOption[] {
@@ -172,7 +191,7 @@ function comboOptions(node: Element): ControlAdapterOption[] {
 
 function comboAdapter(node: Element): ControlAdapter {
   const inspect = (): ControlInspection => ({
-    kind: 'aria-combobox', value: comboValue(node), hasValue: Boolean(comboValue(node)), options: comboOptions(node),
+    kind: 'aria-combobox', value: comboValue(node), hasValue: comboHasValue(comboValue(node)), options: comboOptions(node),
     ...(!node.isConnected ? { blockedReason: '控件已被页面替换或移除，请重新扫描' }
       : node.getAttribute('aria-disabled') === 'true' ? { blockedReason: '组合框已禁用，需要人工处理' } : {}),
   });

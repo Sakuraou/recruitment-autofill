@@ -2,6 +2,7 @@ import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { EXTENSION_VERSION } from '../shared/version';
 import { isMobileResume, mobileLabel, mobileMaxLength, mobilePlaceholder, mobileSection } from './mobilePage';
 import { describeMobileSelect, MOBILE_DATE_SELECTOR, MOBILE_SELECT_SELECTOR, mobileFingerprint } from './mobileSelect';
+import { createControlAdapter, stableAriaComboboxListbox, type ControlAdapter } from './controlAdapter';
 import { buildPageSemanticGraph } from './semantic/graphBuilder';
 import {
   ariaLabel, attributesFingerprint, cleanText, collectControls, controlLabels, hasValue,
@@ -11,6 +12,7 @@ import {
 
 export type ScannedControl = { node: FormControl; fingerprint: string; adapter?: undefined }
   | { node: HTMLElement; fingerprint: string; adapter: 'mobile-select' }
+  | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-combobox' }
   | { node: HTMLInputElement; members: HTMLInputElement[]; fingerprint: string; adapter: 'radio-group' };
 export interface ScanState {
   result: ScanResult;
@@ -90,6 +92,49 @@ export function radioGroupFingerprint(members: HTMLInputElement[], field: FieldD
   })) });
 }
 
+function labelledText(node: Element): string {
+  const root = node.getRootNode();
+  const candidates = root.nodeType === Node.DOCUMENT_NODE || root.nodeType === Node.DOCUMENT_FRAGMENT_NODE
+    ? Array.from((root as Document | ShadowRoot).querySelectorAll<Element>('[id]')) : [];
+  const ids = (node.getAttribute('aria-labelledby') ?? '').trim().split(/\s+/u).filter(Boolean);
+  const referenced = ids.map(id => candidates.find(candidate => candidate.id === id))
+    .map(candidate => cleanText(candidate?.textContent)).filter(Boolean).join(' ');
+  if (referenced) return cleanText(referenced);
+  const aria = cleanText(node.getAttribute('aria-label'));
+  if (aria) return aria;
+  if (node.id) {
+    const label = Array.from(node.ownerDocument.querySelectorAll<HTMLLabelElement>('label'))
+      .find(candidate => candidate.htmlFor === node.id);
+    if (label) return cleanText(label.textContent);
+  }
+  return '';
+}
+
+export function describeAriaCombobox(node: Element, id: string, controller = createControlAdapter(node)): FieldDescriptor {
+  const inspection = controller.inspect();
+  const label = labelledText(node);
+  const readOnly = node.getAttribute('aria-readonly') === 'true';
+  const disabled = node.getAttribute('aria-disabled') === 'true';
+  return {
+    id, kind: 'select', type: 'aria-combobox', label,
+    placeholder: cleanText(node.getAttribute('placeholder')), name: cleanText(node.getAttribute('name')),
+    htmlId: cleanText(node.id), ariaLabel: cleanText(node.getAttribute('aria-label')), title: cleanText(node.getAttribute('title')),
+    parentText: '', previousText: '', tableHeader: '', sectionText: '',
+    options: inspection.options.map(option => ({ value: option.label, label: option.label, disabled: option.disabled })),
+    maxLength: null, required: node.getAttribute('aria-required') === 'true', hasValue: inspection.hasValue,
+    disabled, readOnly,
+    ...(!label ? { blockedReason: 'ARIA 组合框缺少可验证标签，需要人工处理' }
+      : disabled ? { blockedReason: 'ARIA 组合框已禁用，需要人工处理' }
+        : readOnly ? { blockedReason: 'ARIA 组合框只读，需要人工处理' } : {}),
+  };
+}
+
+export function ariaComboboxFingerprint(node: Element, field: FieldDescriptor, controller = createControlAdapter(node)): string {
+  const inspection = controller.inspect();
+  return JSON.stringify({ field: { ...field, groupId: undefined }, attributes: attributesFingerprint(node),
+    value: inspection.value, options: inspection.options });
+}
+
 /** Includes current values only inside private in-memory state, never ScanResult. */
 export function controlFingerprint(node: FormControl, field: FieldDescriptor): string {
   return JSON.stringify({
@@ -115,8 +160,11 @@ export function scanDocument(doc: Document = document): ScanState {
     return groups.get(root);
   };
   const collected = collectControls(doc);
+  const ariaComboboxes = collected.ariaComboboxes.filter(node => stableAriaComboboxListbox(node) !== null);
+  const ariaComboboxSet = new Set(ariaComboboxes);
   const nodes = collected.nodes
-    .filter((node) => node.tagName !== 'INPUT' || !['button', 'submit', 'reset', 'image'].includes((node as HTMLInputElement).type));
+    .filter((node) => !ariaComboboxSet.has(node)
+      && (node.tagName !== 'INPUT' || !['button', 'submit', 'reset', 'image'].includes((node as HTMLInputElement).type)));
   const warnings: string[] = ['已扫描主页面、可访问的同源 iframe 与开放 Shadow DOM；跨域 iframe、封闭 Shadow DOM 和特殊自定义控件仍需人工处理。'];
   if (collected.sameOriginFrameCount || collected.openShadowRootCount) warnings.push(`已额外读取 ${collected.sameOriginFrameCount} 个同源 iframe、${collected.openShadowRootCount} 个开放 Shadow DOM。`);
   if (collected.inaccessibleFrameCount) warnings.push(`另有 ${collected.inaccessibleFrameCount} 个跨域或不可访问 iframe，浏览器安全边界不允许从本页读取。`);
@@ -143,6 +191,14 @@ export function scanDocument(doc: Document = document): ScanState {
     field.groupId = groupId(node);
     fields.push(field);
     controls.set(id, { node, fingerprint: controlFingerprint(node, field) });
+  }
+  for (const node of ariaComboboxes.slice(0, 500 - fields.length)) {
+    const id = `${scanId}:${fields.length}`;
+    const controller = createControlAdapter(node);
+    const field = describeAriaCombobox(node, id, controller);
+    field.groupId = groupId(node);
+    fields.push(field);
+    controls.set(id, { node, controller, fingerprint: ariaComboboxFingerprint(node, field, controller), adapter: 'aria-combobox' });
   }
   if (isMobileResume(doc)) {
     warnings[0] = '中国移动教育与项目可使用上方「连续填写」自动新增、填表、保存及滚动。下方逐字段模式用于其他信息；城市联动、附件及最终投递仍需你完成。';
