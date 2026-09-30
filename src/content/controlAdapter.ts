@@ -130,6 +130,9 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
         const applySelect = (): ControlAdapterResult => {
           const unavailable = unavailableReason(select, '下拉框');
           if (unavailable) return { status: 'request-human', reason: unavailable };
+          if (hasValue(select)) return select.value === value
+            ? { status: 'preserved', reason: '等待期间用户已选择相同答案，保留原值' }
+            : { status: 'request-human', reason: '等待期间用户已选择其他答案，不覆盖' };
           if (selectableOptions(select, value).length !== 1) return { status: 'request-human', reason: '下拉选项不存在或不唯一' };
           try {
             nativeSetter(select)(value);

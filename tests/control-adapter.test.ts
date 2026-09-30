@@ -161,6 +161,17 @@ describe('control adapters', () => {
     expect(events).not.toHaveBeenCalled();
   });
 
+  it('preserves a target selected by the user while a native option is loading', async () => {
+    document.body.innerHTML = '<select><option value="">请选择</option></select>';
+    const select = document.querySelector('select')!;
+    const events = vi.spyOn(select, 'dispatchEvent');
+    const pending = createControlAdapter(select).write('master');
+    select.append(new Option('硕士研究生', 'master'));
+    select.value = 'master';
+    expect(await pending).toMatchObject({ status: 'preserved' });
+    expect(events).not.toHaveBeenCalled();
+  });
+
   it.each(['mixed', null])('never treats indeterminate or absent checkbox state as false: %s', async state => {
     document.body.innerHTML = '<div role="checkbox" aria-label="有实习经历"></div>';
     const checkbox = document.querySelector('[role="checkbox"]')!;

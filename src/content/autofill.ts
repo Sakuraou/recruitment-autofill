@@ -151,7 +151,9 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       const adapter = createControlAdapter(node);
       const pending = adapter.write(item.value);
       const result = isPromiseLike(pending) ? await pending : pending;
-      if (result.status === 'written' && belongsToDocument(node, state.document) && adapter.verify(item.value)) {
+      if (result.status === 'preserved') {
+        outcomes.push({ fieldId: item.fieldId, status: 'skipped', reason: result.reason });
+      } else if (result.status === 'written' && belongsToDocument(node, state.document) && adapter.verify(item.value)) {
         outcomes.push({ fieldId: item.fieldId, status: 'filled', reason: '已填写并检查当前值；请在提交前复核' });
       } else {
         outcomes.push({ fieldId: item.fieldId, status: 'error', reason: result.reason || '网页更新后未保留预期答案，请检查并重新扫描' });
