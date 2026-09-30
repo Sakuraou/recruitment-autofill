@@ -148,6 +148,20 @@ describe('control adapters', () => {
     expect(clicks).toBe(1);
   });
 
+  it('writes an ordinary labelled native checkbox through input/change and preserves checked state', async () => {
+    document.body.innerHTML = '<label>是否学生干部<input id="cadre" type="checkbox"></label>';
+    const checkbox = document.querySelector<HTMLInputElement>('#cadre')!;
+    const events: string[] = [];
+    checkbox.addEventListener('input', () => events.push('input'));
+    checkbox.addEventListener('change', () => events.push('change'));
+    const adapter = createControlAdapter(checkbox);
+    await expect(await adapter.write('是')).toMatchObject({ status: 'written' });
+    expect(checkbox.checked).toBe(true);
+    expect(events).toEqual(['input', 'change']);
+    await expect(await adapter.write('否')).toMatchObject({ status: 'request-human' });
+    expect(checkbox.checked).toBe(true);
+  });
+
   it.each(['user-answer', 'disabled'])('protects a native select changed during async loading: %s', async change => {
     document.body.innerHTML = '<select><option value="">请选择</option><option value="user">用户答案</option></select>';
     const select = document.querySelector('select')!;

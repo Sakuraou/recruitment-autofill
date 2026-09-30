@@ -22,6 +22,10 @@ function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
 
 function candidateProblem(node: FormControl, value: string, field: FieldDescriptor): string | undefined {
   if (value.trim() === '') return '没有可靠的非空答案，需要人工填写';
+  // Checkbox answers are represented by checked state, not the input's
+  // string value. Validate the explicit boolean in its adapter instead of
+  // mutating a detached clone's `.value` and applying text-field rules.
+  if (field.kind === 'checkbox') return undefined;
   if (value.length > 50_000) return '答案过长，请在档案中维护合适的版本';
   const limit = effectiveMaxLength(field);
   if (limit !== null && value.length > limit) return '答案超过网页说明的长度限制；请修改后确认';
@@ -186,6 +190,9 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
           retained = control.controller.verify(value ?? '');
         } else if (control.adapter === 'aria-checkbox') {
           retained = control.controller.verify(value ?? '');
+        } else if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
+          const checked = (control.node as HTMLInputElement).checked;
+          retained = value === 'true' ? checked : value === 'false' ? !checked : false;
         } else retained = control.node.value === value && control.node.validity.valid;
       }
       if (!retained) {

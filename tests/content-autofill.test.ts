@@ -183,6 +183,29 @@ describe('安全填写原生 HTML 控件', () => {
     expect(document.querySelector('#consent')?.getAttribute('aria-checked')).toBe('false');
   });
 
+  it('填写带明确事实标签的原生 checkbox，但不自动取消已有勾选', async () => {
+    document.body.innerHTML = '<label>是否学生干部<input id="cadre" type="checkbox"></label><label>我同意隐私协议<input id="consent" type="checkbox"></label>';
+    const cadre = document.querySelector<HTMLInputElement>('#cadre')!;
+    const state = scanDocument(document);
+    const cadreField = state.result.fields.find(field => field.htmlId === 'cadre')!;
+    const consentField = state.result.fields.find(field => field.htmlId === 'consent')!;
+    const events: string[] = [];
+    cadre.addEventListener('input', () => events.push('input'));
+    cadre.addEventListener('change', () => events.push('change'));
+    const outcomes = await fillScan(state, { scanId: state.result.scanId, items: [
+      { fieldId: cadreField.id, value: 'true', confirmed: true },
+      { fieldId: consentField.id, value: 'true', confirmed: true },
+    ] });
+    expect(outcomes.map(outcome => outcome.status)).toEqual(['filled', 'skipped']);
+    expect(cadre.checked).toBe(true);
+    expect(events).toEqual(['input', 'change']);
+    cadre.checked = true;
+    const rescanned = scanDocument(document);
+    const current = rescanned.result.fields.find(field => field.htmlId === 'cadre')!;
+    expect((await fillScan(rescanned, { scanId: rescanned.result.scanId, items: [{ fieldId: current.id, value: 'false', confirmed: true }] }))[0]?.status).toBe('skipped');
+    expect(cadre.checked).toBe(true);
+  });
+
   it('等待受控框架异步回写 ARIA checkbox 状态，且只点击一次', async () => {
     document.body.innerHTML = '<span id="label">有远程经历</span><div id="remote" role="checkbox" aria-labelledby="label" aria-checked="false"></div>';
     const remote = document.querySelector<HTMLElement>('#remote')!;

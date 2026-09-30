@@ -105,6 +105,10 @@ function currentValueMatches(control: ScannedControl, value: string): boolean {
     const index = Number(value.replace('__radio_option_', ''));
     return Number.isInteger(index) && index >= 0 && control.members[index]?.checked === true;
   }
+  if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
+    const checked = (control.node as HTMLInputElement).checked;
+    return value === 'true' ? checked : value === 'false' ? !checked : false;
+  }
   return control.node.value === value && control.node.validity.valid;
 }
 
@@ -144,6 +148,11 @@ function rollbackBindings(state: ScanState, bindings: readonly Binding[]): boole
           member.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
           member.dispatchEvent(new view.Event('change', { bubbles: true, composed: true }));
         });
+      } else if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
+        const node = control.node as HTMLInputElement;
+        const original = binding.originalChecked[0];
+        if (original === undefined) throw new Error('checkbox snapshot unavailable');
+        if (node.checked !== original) node.click();
       } else {
         const node = control.node;
         const prototype: object = node instanceof view.HTMLInputElement ? view.HTMLInputElement.prototype
@@ -197,8 +206,10 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       return failure('field-target-replaced');
     }
     const descriptor = scanState.result.fields.find(field => field.id === fieldNode.fieldId);
+    const nativeCheckbox = descriptor?.kind === 'checkbox' && control.adapter === undefined
+      && control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox';
     if (!descriptor || descriptor.blockedReason || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
-      || descriptor.kind === 'checkbox') return failure('field-unsupported');
+      || (descriptor.kind === 'checkbox' && !nativeCheckbox)) return failure('field-unsupported');
     let supplied: unknown;
     try {
       supplied = input.provideValue(Object.freeze({ fieldNodeId, scanFieldId: fieldNode.fieldId }));
@@ -212,7 +223,8 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     bindings.push({
       fieldNodeId, scanFieldId: fieldNode.fieldId, value: supplied, control, preserved,
       originalValue: 'value' in control.node ? control.node.value : '',
-      originalChecked: control.adapter === 'radio-group' ? control.members.map(member => member.checked) : [],
+      originalChecked: control.adapter === 'radio-group' ? control.members.map(member => member.checked)
+        : nativeCheckbox ? [(control.node as HTMLInputElement).checked] : [],
     });
   }
 

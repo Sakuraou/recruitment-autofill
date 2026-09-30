@@ -265,6 +265,15 @@ describe('native select and candidate confirmation', () => {
       source: 'rule', status: 'auto', reason: '已核实', sensitive: false });
     expect(result).toMatchObject({ status: 'auto', value: 'option-0' });
   });
+
+  it('maps a labelled checkbox to the saved student-cadre fact', () => {
+    const data = profile();
+    data.basic.studentCadre = '否';
+    const target = field('是否学生干部', { kind: 'checkbox', type: 'checkbox', options: [
+      { value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false },
+    ] });
+    expect(matchField(target, data)).toMatchObject({ status: 'auto', value: 'false', matchedProfileKey: 'basic.studentCadre' });
+  });
 });
 
 describe('text variants and original facts', () => {

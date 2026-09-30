@@ -1,9 +1,9 @@
 # 校招智能网申助手：可迭代项目计划
 
-> 最后更新：2026-09-29
+> 最后更新：2026-09-30
 > 当前版本：v0.5.0（已验证基线）  
 > 当前迭代：I-004B-D5 控件适配器基础
-> 最近完整验证：2026-09-30，524 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
+> 最近完整验证：2026-09-30，530 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -327,7 +327,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-D2 | 固定虚构测试页会话工厂 | verified | 两条已有、四条新增、12 个单步；487 项全量测试及 5 项专项 MV3 检查 | 由 D3 建立后台可信档案投影，不启用真实页面 |
 | I-004B-D3 | 项目类型可信档案投影 | verified | 5 项投影/后台测试；生产 MV3 确认内容脚本只获项目字段 | 由 D4 把投影适配为内部值提供器，生产开关仍关闭 |
 | I-004B-D4 | 投影驱动的测试会话 | verified | 档案投影驱动六项目闭环；修订变化在保存前停止；493 项全量测试 | 由 D5 建立原生控件与稳定 ARIA 控件适配器 |
-| I-004B-D5 | 控件适配器基础 | in_progress | 22 项控件适配器专项、524 项全量测试、生产构建及完整 E2E；原生、ARIA combobox、普通 ARIA radiogroup/checkbox 已接入填写路径 | 增加受控框架和保存回滚夹具 |
+| I-004B-D5 | 控件适配器基础 | in_progress | 23 项控件/受控表单专项、530 项全量测试、生产构建及完整 E2E；原生、ARIA combobox、普通 ARIA radiogroup/checkbox 已接入填写路径，原生事实 checkbox 已接入记录编辑器并支持失败回滚 | 增加 React/Vue 受控下拉和保存回滚夹具 |
 
 ## 7. 本轮记录
 
@@ -641,10 +641,17 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 - 新增 2 项异步组合框专项；`npm run check` 通过 29 个测试文件、523 项测试，完整 E2E 再次通过。
 - 异步原生下拉等待期间若用户已经选中目标项，会保留并跳过重复 input/change 事件；完整填写结果按 skipped 记录，避免误报新增写入。
 
+### 2026-09-30 · I-004B-D5d（进行中）
+
+- 原生 checkbox 只有在扫描到明确的人类可读事实标签时才开放；机器 id、name、裸 checkbox 和协议/隐私/授权/承诺/声明语义仍 request-human。
+- 原生 checkbox 使用一次语义 `click()` 进入浏览器和 React/Vue 的受控事件链，支持明确“是”，已有“是”不会被取消；整批 200ms 留存复核按 checked 状态验证，不再把默认 `value="on"` 当作失败。
+- 记录编辑器绑定器允许原生事实 checkbox，保存前仍不点击保存；后续字段失败时按原始 checked 状态回滚，ARIA/未知 checkbox 保持人工处理。
+- 新增 React 受控 checkbox、无标签保护、原生 checkbox 填写与记录回滚专项；`npm run check` 通过 29 个测试文件、530 项测试，生产构建及完整 E2E 均通过。浏览器回归使用 Chrome/153 隔离夹具，外部请求、页面异常、删除和最终提交均为 0。
+
 下一步 I-004B-D5c 执行提示词：
 
 ```text
-为稳定 ARIA radio/checkbox 建立只读扫描和唯一选项描述，先只支持无协议/无授权语义的普通选择；同意、隐私、承诺、文件上传和不可逆按钮继续人工。增加 React 受控 input、Vue/异步 select、portal listbox、节点替换四个真实夹具，验证事件触发后页面状态最终保留值，控件被替换或异步回填冲突时 request-human，不推进记录保存。运行 adapter、binder、scanner 专项、npm run check 与完整 npm run test:e2e。
+继续补齐 Vue/异步 select 和 React 受控下拉的真实夹具，覆盖选项延迟插入、用户中途选择、节点替换和保存前回读；已有答案、重复选项、未知自定义控件与协议类控件继续人工。验证事件触发后页面状态最终保留值，冲突时 request-human，不推进记录保存。运行 adapter、binder、scanner 专项、npm run check 与完整 npm run test:e2e。
 ```
 
 ## 8. 每轮通用提示词

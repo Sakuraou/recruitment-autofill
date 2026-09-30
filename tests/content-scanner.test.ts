@@ -117,6 +117,14 @@ describe('扫描安全边界', () => {
     expect(result.fields.find(field => field.htmlId === 'unknown')?.blockedReason).toMatch(/不明确/u);
   });
 
+  it('开放带明确事实标签的原生复选框，阻止无标签和协议复选框', () => {
+    const { result } = scan('<label>是否学生干部<input id="cadre" type="checkbox"></label><label>我同意隐私协议<input id="consent" type="checkbox"></label><input id="unknown" type="checkbox">');
+    expect(result.fields.find(field => field.htmlId === 'cadre')?.blockedReason).toBeUndefined();
+    expect(result.fields.find(field => field.htmlId === 'cadre')?.options).toEqual([{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }]);
+    expect(result.fields.find(field => field.htmlId === 'consent')?.blockedReason).toMatch(/协议/u);
+    expect(result.fields.find(field => field.htmlId === 'unknown')?.blockedReason).toMatch(/标签/u);
+  });
+
   it('扫描同源 iframe 与开放 Shadow DOM', () => {
     document.body.innerHTML = '<iframe></iframe><div id="host"></div>';
     const frame = document.querySelector('iframe')!;

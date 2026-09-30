@@ -207,7 +207,7 @@ describe('记录编辑器脱敏绑定器', () => {
     expect(second.value).toBe('网站保留值');
   });
 
-  it('扫描后字段 DOM 被替换或字段是 checkbox 时保持零写入', async () => {
+  it('扫描后字段 DOM 被替换时保持零写入，原生事实 checkbox 可安全填写', async () => {
     const input = document.createElement('input');
     const state = lifecycle([input]);
     const replacement = document.createElement('input');
@@ -223,13 +223,32 @@ describe('记录编辑器脱敏绑定器', () => {
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
+    checkbox.setAttribute('aria-label', '是否学生干部');
     const unsupported = lifecycle([checkbox]);
     const checkboxResult = await bindRecordEditor({
       plan: unsupported.populatePlan, capture: unsupported.editing, activeTransaction: unsupported.active,
       runContext: unsupported.context, scanState: unsupported.fixture.scanState,
       provideValue: () => 'true', rescan: () => unsupported.context.capture(unsupported.fixture.source),
     });
-    expect(checkboxResult).toMatchObject({ status: 'request-human', reason: 'field-unsupported' });
+    expect(checkboxResult.status).toBe('advanced');
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it('后续字段失败时回滚此前勾选的原生 checkbox', async () => {
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.setAttribute('aria-label', '是否学生干部');
+    const broken = document.createElement('input');
+    broken.addEventListener('input', () => { broken.value = '网页保留值'; });
+    const state = lifecycle([checkbox, broken]);
+    const result = await bindRecordEditor({
+      plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: ({ fieldNodeId }) => fieldNodeId === 'field:0' ? 'true' : '预期值',
+      rescan: () => state.context.capture(state.fixture.source),
+    });
+    expect(result).toMatchObject({ status: 'request-human', reason: 'field-write-failed', rollbackComplete: true });
     expect(checkbox.checked).toBe(false);
+    expect(broken.value).toBe('网页保留值');
   });
 });

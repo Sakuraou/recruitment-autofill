@@ -34,7 +34,15 @@ function blockedReason(node: FormControl, field: FieldDescriptor): string | unde
   if (field.disabled) return '字段被禁用，需要人工处理';
   if (field.readOnly) return '只读字段，需要人工处理';
   if (isMobileResume(node.ownerDocument) && node.matches('.resumeCon1 .secon input.inputStudy')) return '学校需要在移动网站目录中搜索并选择；请人工操作以确认学校代码和地区';
-  if (field.kind === 'checkbox') return '复选框及同意条款请人工选择';
+  if (field.kind === 'checkbox') {
+    // Machine ids and names are useful for matching ordinary fields, but they
+    // are not evidence that a checkbox has a human-readable question. A bare
+    // checkbox such as <input id="x" type="checkbox"> must stay manual.
+    const checkboxIdentity = [field.label, field.ariaLabel, field.placeholder, field.title, field.parentText, field.previousText, field.tableHeader]
+      .filter((text) => text && text !== field.htmlId && text !== field.name).join(' ');
+    if (/同意|协议|隐私|授权|承诺|声明|consent|agreement|privacy|authorize/iu.test(checkboxIdentity)) return '协议、授权和声明必须人工选择';
+    if (!checkboxIdentity.trim()) return '复选框缺少可验证标签，需要人工处理';
+  }
   if (field.kind === 'radio' && /同意|协议|隐私|授权|承诺|声明|consent|agreement|privacy|authorize/iu.test(identity)) return '协议、授权和声明必须人工选择';
   if (node.tagName === 'SELECT' && (node as HTMLSelectElement).multiple) return '多选下拉框暂不支持，请人工选择';
   if (node.closest('[role="combobox"], [aria-haspopup="listbox"], .ant-select, .el-select, .el-cascader, .ant-picker, .el-date-editor')) return '自定义选择器暂不支持，请人工操作';
@@ -60,7 +68,8 @@ export function describeControl(node: FormControl, id: string): FieldDescriptor 
     id, kind, type, label: associatedLabel || mobileLabel(node), placeholder: cleanText(node.getAttribute('placeholder')) || (node.tagName !== 'SELECT' ? mobilePlaceholder(node as HTMLInputElement | HTMLTextAreaElement) : ''),
     name: cleanText(node.name), htmlId: cleanText(node.id), ariaLabel: ariaLabel(node), title: cleanText(node.title),
     parentText: parentText(node), previousText: previousText(node), tableHeader: visibleStructure, sectionText: mobileSection(node) || sectionText(node),
-    options: node.tagName === 'SELECT' ? selectOptions(node as HTMLSelectElement) : [],
+    options: node.tagName === 'SELECT' ? selectOptions(node as HTMLSelectElement)
+      : kind === 'checkbox' ? [{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }] : [],
     maxLength, required: node.required, hasValue: hasValue(node),
     disabled: node.disabled || node.matches(':disabled') || node.closest('[aria-disabled="true"]') !== null,
     readOnly: rawReadOnly && !supportedReadOnlyDate,

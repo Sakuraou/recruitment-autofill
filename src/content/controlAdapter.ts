@@ -1,6 +1,6 @@
 import { hasValue, isPlaceholderOption, selectOptions } from './domUtils';
 
-export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'aria-combobox' | 'aria-radio-group' | 'aria-checkbox' | 'unknown';
+export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'native-checkbox' | 'aria-combobox' | 'aria-radio-group' | 'aria-checkbox' | 'unknown';
 
 export interface ControlAdapterOption {
   readonly value: string;
@@ -160,6 +160,40 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
         : { status: 'request-human', reason: '网页更新后未保留预期值' };
     },
     verify: (value: string) => node.value === value && node.validity.valid,
+  };
+}
+
+function nativeCheckboxAdapter(node: HTMLInputElement): ControlAdapter {
+  const inspect = (): ControlInspection => ({
+    kind: 'native-checkbox', value: node.checked ? 'true' : 'false', hasValue: node.checked,
+    options: [{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }],
+    ...(unavailableReason(node, '复选框') ? { blockedReason: unavailableReason(node, '复选框') } : {}),
+  });
+  return {
+    node, kind: 'native-checkbox', inspect,
+    open: async () => true,
+    readOptions: () => inspect().options,
+    write: (value: string): ControlAdapterResult => {
+      const current = inspect();
+      if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
+      const desired = booleanValue(value);
+      if (desired === undefined) return { status: 'request-human', reason: '复选框答案不是明确的“是/否”，需要人工确认' };
+      if (node.checked && desired === false) return { status: 'request-human', reason: '复选框已有选择，不自动取消已有内容' };
+      if (node.checked === desired) return { status: 'preserved', reason: '复选框已有相同答案，保留原值' };
+      try {
+        // Native click is the browser's checkbox activation path: it updates
+        // checked state and emits the event sequence used by React/Vue
+        // controlled inputs. The scan already rejects hidden, disabled and
+        // consent-like checkboxes, so this is one explicit semantic action,
+        // not a broad click search.
+        node.click();
+      } catch { return { status: 'request-human', reason: '复选框未能安全选择' }; }
+      return node.checked ? { status: 'written', reason: '复选框选择后已核验' } : { status: 'request-human', reason: '网页未保留预期复选框答案' };
+    },
+    verify: (value: string) => {
+      const desired = booleanValue(value);
+      return desired !== undefined && !unavailableReason(node, '复选框') && node.checked === desired;
+    },
   };
 }
 
@@ -405,6 +439,7 @@ async function thisOpen(node: Element): Promise<boolean> {
 export function createControlAdapter(node: Element): ControlAdapter {
   if (node.getAttribute('role') === 'combobox') return comboAdapter(node);
   if (node.getAttribute('role') === 'checkbox') return createAriaCheckboxAdapter(node);
+  if (node.tagName === 'INPUT' && (node as HTMLInputElement).type === 'checkbox') return nativeCheckboxAdapter(node as HTMLInputElement);
   if (node.tagName === 'INPUT' && !['radio', 'checkbox', 'file', 'hidden', 'submit', 'button'].includes((node as HTMLInputElement).type)) return nativeAdapter(node as HTMLInputElement);
   if (node.tagName === 'TEXTAREA' || node.tagName === 'SELECT') return nativeAdapter(node as HTMLTextAreaElement | HTMLSelectElement);
   const blocked = Object.freeze({

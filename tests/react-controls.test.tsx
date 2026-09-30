@@ -32,3 +32,27 @@ it('native setters update React controlled input, textarea and select state with
   expect(JSON.parse(screen.getByTestId('state').textContent!)).toEqual({ name: values[0], answer: values[1], level: values[2] });
   expect(submits).toBe(0);
 });
+
+it('updates a React controlled native checkbox and retains its state after a rerender', async () => {
+  let submits = 0;
+  function ControlledCheckbox() {
+    const [checked, setChecked] = useState(false);
+    const [renderCount, setRenderCount] = useState(0);
+    return <form onSubmit={event => { event.preventDefault(); submits++; }}>
+      <label>是否学生干部<input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} /></label>
+      <button type="button" onClick={() => setRenderCount(count => count + 1)}>重新渲染</button>
+      <output data-testid="checked-state">{JSON.stringify({ checked, renderCount })}</output>
+    </form>;
+  }
+  render(<ControlledCheckbox />);
+  const state = scanDocument();
+  await act(async () => {
+    const outcomes = await fillScan(state, { scanId: state.result.scanId,
+      items: [{ fieldId: state.result.fields[0]!.id, value: 'true', confirmed: true }] });
+    expect(outcomes[0]?.status).toBe('filled');
+  });
+  await act(async () => { screen.getByRole('button', { name: '重新渲染' }).click(); });
+  expect(JSON.parse(screen.getByTestId('checked-state').textContent!)).toEqual({ checked: true, renderCount: 1 });
+  expect((screen.getByLabelText('是否学生干部') as HTMLInputElement).checked).toBe(true);
+  expect(submits).toBe(0);
+});
