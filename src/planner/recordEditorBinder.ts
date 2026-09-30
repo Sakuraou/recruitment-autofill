@@ -100,6 +100,7 @@ function currentValueMatches(control: ScannedControl, value: string): boolean {
   if (control.adapter === 'mobile-select') return false;
   if (control.adapter === 'aria-combobox') return control.controller.verify(value);
   if (control.adapter === 'aria-radio-group') return control.controller.verify(value);
+  if (control.adapter === 'aria-checkbox') return control.controller.verify(value);
   if (control.adapter === 'radio-group') {
     const index = Number(value.replace('__radio_option_', ''));
     return Number.isInteger(index) && index >= 0 && control.members[index]?.checked === true;
@@ -111,6 +112,7 @@ function controlHasValue(control: ScannedControl): boolean {
   if (control.adapter === 'mobile-select') return true;
   if (control.adapter === 'aria-combobox') return control.controller.inspect().hasValue;
   if (control.adapter === 'aria-radio-group') return control.controller.inspect().hasValue;
+  if (control.adapter === 'aria-checkbox') return control.controller.inspect().hasValue;
   if (control.adapter === 'radio-group') return control.members.some(member => member.checked);
   return hasValue(control.node);
 }
@@ -125,7 +127,7 @@ function rollbackBindings(state: ScanState, bindings: readonly Binding[]): boole
   let complete = true;
   for (const binding of [...bindings].reverse()) {
     const control = state.controls.get(binding.scanFieldId);
-    if (!control || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group'
+    if (!control || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
       || !belongsToDocument(control.node, state.document)) {
       complete = false;
       continue;
@@ -195,7 +197,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       return failure('field-target-replaced');
     }
     const descriptor = scanState.result.fields.find(field => field.id === fieldNode.fieldId);
-    if (!descriptor || descriptor.blockedReason || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group'
+    if (!descriptor || descriptor.blockedReason || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
       || descriptor.kind === 'checkbox') return failure('field-unsupported');
     let supplied: unknown;
     try {

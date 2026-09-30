@@ -104,4 +104,18 @@ describe('control adapters', () => {
     await expect(await pending).toMatchObject({ status: 'request-human' });
     expect(dispatch).not.toHaveBeenCalled();
   });
+
+  it('selects an ordinary ARIA checkbox only for an explicit true answer and never clears an existing selection', async () => {
+    document.body.innerHTML = '<div id="flag" role="checkbox" aria-checked="false"></div>';
+    const checkbox = document.querySelector<HTMLElement>('#flag')!;
+    let clicks = 0;
+    checkbox.addEventListener('click', () => { clicks++; checkbox.setAttribute('aria-checked', 'true'); });
+    const adapter = createControlAdapter(checkbox);
+    await expect(await adapter.write('否')).toMatchObject({ status: 'preserved' });
+    expect(clicks).toBe(0);
+    await expect(await adapter.write('是')).toMatchObject({ status: 'written' });
+    expect(clicks).toBe(1);
+    await expect(await adapter.write('否')).toMatchObject({ status: 'request-human' });
+    expect(clicks).toBe(1);
+  });
 });

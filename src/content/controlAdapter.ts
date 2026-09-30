@@ -1,6 +1,6 @@
 import { hasValue, isPlaceholderOption, selectOptions } from './domUtils';
 
-export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'aria-combobox' | 'aria-radio-group' | 'unknown';
+export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'aria-combobox' | 'aria-radio-group' | 'aria-checkbox' | 'unknown';
 
 export interface ControlAdapterOption {
   readonly value: string;
@@ -220,6 +220,51 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
   };
 }
 
+function booleanValue(value: string): boolean | undefined {
+  const normalized = clean(value).toLocaleLowerCase();
+  if (/^(?:true|yes|y|on|checked|是|有|同意|已完成|具备)$/iu.test(normalized)) return true;
+  if (/^(?:false|no|n|off|unchecked|否|无|不同意|未完成|不具备)$/iu.test(normalized)) return false;
+  return undefined;
+}
+
+/** Safe adapter for ordinary ARIA checkboxes. Consent and authorization labels are blocked by the scanner. */
+export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
+  const inspect = (): ControlInspection => {
+    const checked = node.getAttribute('aria-checked') === 'true';
+    return {
+      kind: 'aria-checkbox', value: checked ? 'true' : 'false', hasValue: checked,
+      options: [{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }],
+      ...(!node.isConnected ? { blockedReason: '复选框已被页面替换或移除，请重新扫描' }
+        : node.getAttribute('aria-disabled') === 'true' ? { blockedReason: '复选框已禁用，需要人工处理' }
+          : node.getAttribute('aria-readonly') === 'true' ? { blockedReason: '复选框只读，需要人工处理' } : {}),
+    };
+  };
+  return {
+    node, kind: 'aria-checkbox', inspect,
+    open: async () => true,
+    readOptions: () => inspect().options,
+    write: async (value: string): Promise<ControlAdapterResult> => {
+      const current = inspect();
+      if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
+      const desired = booleanValue(value);
+      if (desired === undefined) return { status: 'request-human', reason: '复选框答案不是明确的“是/否”，需要人工确认' };
+      const checked = current.value === 'true';
+      if (checked && desired === false) return { status: 'request-human', reason: '复选框已有选择，不自动取消已有内容' };
+      if (checked === desired) return { status: 'preserved', reason: '复选框已有相同答案，保留原值' };
+      try { node.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
+      catch { return { status: 'request-human', reason: '复选框无法安全选择' }; }
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      return node.getAttribute('aria-checked') === 'true'
+        ? { status: 'written', reason: '复选框选择后已核验' }
+        : { status: 'request-human', reason: '网页未保留预期复选框答案' };
+    },
+    verify: (value: string) => {
+      const desired = booleanValue(value);
+      return desired !== undefined && (node.getAttribute('aria-checked') === 'true') === desired;
+    },
+  };
+}
+
 function comboOptions(node: Element): ControlAdapterOption[] {
   const list = comboListbox(node);
   if (!list) return [];
@@ -285,6 +330,7 @@ async function thisOpen(node: Element): Promise<boolean> {
 
 export function createControlAdapter(node: Element): ControlAdapter {
   if (node.getAttribute('role') === 'combobox') return comboAdapter(node);
+  if (node.getAttribute('role') === 'checkbox') return createAriaCheckboxAdapter(node);
   if (node.tagName === 'INPUT' && !['radio', 'checkbox', 'file', 'hidden', 'submit', 'button'].includes((node as HTMLInputElement).type)) return nativeAdapter(node as HTMLInputElement);
   if (node.tagName === 'TEXTAREA' || node.tagName === 'SELECT') return nativeAdapter(node as HTMLTextAreaElement | HTMLSelectElement);
   const blocked = Object.freeze({

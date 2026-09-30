@@ -1,7 +1,7 @@
 import type { FieldDescriptor, FillOutcome, FillRequest } from '../shared/types';
 import { effectiveMaxLength } from '../matching/profileResolver';
 import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
-import { ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
+import { ariaCheckboxFingerprint, ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, describeAriaCheckbox, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
 import { createControlAdapter } from './controlAdapter';
 
@@ -89,6 +89,20 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: 'ARIA 单选组未能安全完成选择，请人工检查' }); }
       continue;
     }
+    if (control.adapter === 'aria-checkbox') {
+      const { node, controller } = control;
+      if (!belongsToDocument(node, state.document)) { skip('复选框已被替换或移除，请重新扫描'); continue; }
+      const current = describeAriaCheckbox(node, item.fieldId, controller);
+      if (current.blockedReason) { skip(current.blockedReason); continue; }
+      if (ariaCheckboxFingerprint(node, current, controller) !== control.fingerprint) { skip('复选框标签、选项或内容已改变，请重新扫描'); continue; }
+      try {
+        const pending = controller.write(item.value);
+        const result = isPromiseLike(pending) ? await pending : pending;
+        const successful = result.status === 'written' || result.status === 'preserved';
+        outcomes.push({ fieldId: item.fieldId, status: successful ? 'filled' : 'error', reason: result.reason });
+      } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: 'ARIA 复选框未能安全完成选择，请人工检查' }); }
+      continue;
+    }
     if (control.adapter === 'mobile-select') {
       const { node } = control;
       if (!node.isConnected || node.ownerDocument !== state.document) { skip('字段已被替换或移除，请重新扫描'); continue; }
@@ -167,6 +181,8 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
         } else if (control.adapter === 'aria-combobox') {
           retained = control.controller.verify(value ?? '');
         } else if (control.adapter === 'aria-radio-group') {
+          retained = control.controller.verify(value ?? '');
+        } else if (control.adapter === 'aria-checkbox') {
           retained = control.controller.verify(value ?? '');
         } else retained = control.node.value === value && control.node.validity.valid;
       }

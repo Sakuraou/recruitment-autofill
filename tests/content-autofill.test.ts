@@ -165,4 +165,21 @@ describe('安全填写原生 HTML 控件', () => {
     expect(outcomes).toEqual([expect.objectContaining({ status: 'filled' })]);
     expect(members[1]?.getAttribute('aria-checked')).toBe('true');
   });
+
+  it('填写普通 ARIA checkbox，明确“是/否”且不触碰协议复选框', async () => {
+    document.body.innerHTML = '<span id="remote-label">有远程实习经历</span><div id="remote" role="checkbox" aria-labelledby="remote-label" aria-checked="false"></div><span id="consent-label">我同意隐私协议</span><div id="consent" role="checkbox" aria-labelledby="consent-label" aria-checked="false"></div>';
+    const remote = document.querySelector<HTMLElement>('#remote')!;
+    remote.addEventListener('click', () => remote.setAttribute('aria-checked', 'true'));
+    const state = scanDocument(document);
+    const fields = state.result.fields;
+    const remoteField = fields.find(field => field.htmlId === 'remote')!;
+    const consentField = fields.find(field => field.htmlId === 'consent')!;
+    const outcomes = await fillScan(state, { scanId: state.result.scanId, items: [
+      { fieldId: remoteField.id, value: 'true', confirmed: true },
+      { fieldId: consentField.id, value: 'true', confirmed: true },
+    ] });
+    expect(outcomes.map(outcome => outcome.status)).toEqual(['filled', 'skipped']);
+    expect(remote.getAttribute('aria-checked')).toBe('true');
+    expect(document.querySelector('#consent')?.getAttribute('aria-checked')).toBe('false');
+  });
 });

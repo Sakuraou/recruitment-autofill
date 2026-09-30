@@ -2,7 +2,7 @@ import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { EXTENSION_VERSION } from '../shared/version';
 import { isMobileResume, mobileLabel, mobileMaxLength, mobilePlaceholder, mobileSection } from './mobilePage';
 import { describeMobileSelect, MOBILE_DATE_SELECTOR, MOBILE_SELECT_SELECTOR, mobileFingerprint } from './mobileSelect';
-import { createAriaRadioGroupAdapter, createControlAdapter, stableAriaComboboxListbox, type ControlAdapter } from './controlAdapter';
+import { createAriaCheckboxAdapter, createAriaRadioGroupAdapter, createControlAdapter, stableAriaComboboxListbox, type ControlAdapter } from './controlAdapter';
 import { buildPageSemanticGraph } from './semantic/graphBuilder';
 import {
   ariaLabel, attributesFingerprint, cleanText, collectControls, controlLabels, hasValue,
@@ -14,6 +14,7 @@ export type ScannedControl = { node: FormControl; fingerprint: string; adapter?:
   | { node: HTMLElement; fingerprint: string; adapter: 'mobile-select' }
   | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-combobox' }
   | { node: Element; members: Element[]; controller: ControlAdapter; fingerprint: string; adapter: 'aria-radio-group' }
+  | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-checkbox' }
   | { node: HTMLInputElement; members: HTMLInputElement[]; fingerprint: string; adapter: 'radio-group' };
 export interface ScanState {
   result: ScanResult;
@@ -161,6 +162,31 @@ export function ariaRadioGroupFingerprint(group: Element, members: readonly Elem
     options: controller.inspect().options });
 }
 
+export function describeAriaCheckbox(node: Element, id: string,
+  controller = createAriaCheckboxAdapter(node)): FieldDescriptor {
+  const inspection = controller.inspect();
+  const label = labelledText(node);
+  const identity = [label, node.getAttribute('aria-label') ?? ''].join(' ');
+  const blocked = /同意|协议|隐私|授权|承诺|声明|consent|agreement|privacy|authorize/iu.test(identity)
+    ? '协议、授权和声明必须人工选择' : undefined;
+  return {
+    id, kind: 'checkbox', type: 'aria-checkbox', label, placeholder: '', name: cleanText(node.getAttribute('name')),
+    htmlId: cleanText(node.id), ariaLabel: cleanText(node.getAttribute('aria-label')), title: cleanText(node.getAttribute('title')),
+    parentText: '', previousText: '', tableHeader: '', sectionText: '',
+    options: inspection.options.map(option => ({ value: option.value, label: option.label, disabled: option.disabled })),
+    maxLength: null, required: node.getAttribute('aria-required') === 'true', hasValue: inspection.hasValue,
+    disabled: node.getAttribute('aria-disabled') === 'true', readOnly: node.getAttribute('aria-readonly') === 'true',
+    ...(!label ? { blockedReason: 'ARIA 复选框缺少可验证标签，需要人工处理' } : blocked ? { blockedReason: blocked } : {}),
+  };
+}
+
+export function ariaCheckboxFingerprint(node: Element, field: FieldDescriptor,
+  controller = createAriaCheckboxAdapter(node)): string {
+  const inspection = controller.inspect();
+  return JSON.stringify({ field: { ...field, groupId: undefined }, attributes: attributesFingerprint(node),
+    value: inspection.value, options: inspection.options });
+}
+
 /** Includes current values only inside private in-memory state, never ScanResult. */
 export function controlFingerprint(node: FormControl, field: FieldDescriptor): string {
   return JSON.stringify({
@@ -191,6 +217,7 @@ export function scanDocument(doc: Document = document): ScanState {
   const ariaRadioGroups = collected.ariaRadioGroups.map(group => ({ group,
     members: Array.from(group.querySelectorAll<Element>('[role="radio"]')).filter(member => member.closest('[role="radiogroup"]') === group) }))
     .filter(item => item.members.length > 0);
+  const ariaCheckboxes = collected.ariaCheckboxes.filter(node => node.closest('[role="radiogroup"]') === null);
   const nodes = collected.nodes
     .filter((node) => !ariaComboboxSet.has(node)
       && (node.tagName !== 'INPUT' || !['button', 'submit', 'reset', 'image'].includes((node as HTMLInputElement).type)));
@@ -236,6 +263,14 @@ export function scanDocument(doc: Document = document): ScanState {
     field.groupId = groupId(group);
     fields.push(field);
     controls.set(id, { node: group, members, controller, fingerprint: ariaRadioGroupFingerprint(group, members, field, controller), adapter: 'aria-radio-group' });
+  }
+  for (const node of ariaCheckboxes.slice(0, 500 - fields.length)) {
+    const id = `${scanId}:${fields.length}`;
+    const controller = createAriaCheckboxAdapter(node);
+    const field = describeAriaCheckbox(node, id, controller);
+    field.groupId = groupId(node);
+    fields.push(field);
+    controls.set(id, { node, controller, fingerprint: ariaCheckboxFingerprint(node, field, controller), adapter: 'aria-checkbox' });
   }
   if (isMobileResume(doc)) {
     warnings[0] = '中国移动教育与项目可使用上方「连续填写」自动新增、填表、保存及滚动。下方逐字段模式用于其他信息；城市联动、附件及最终投递仍需你完成。';
