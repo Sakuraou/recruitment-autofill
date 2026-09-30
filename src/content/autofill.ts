@@ -41,7 +41,11 @@ function candidateProblem(node: FormControl, value: string, field: FieldDescript
     // option list before it gets a chance to observe a framework-inserted
     // option; it will still reject duplicates, disabled options and timeout.
     if (options.length > 1) return '下拉选项不存在或存在重复值，请重新扫描或人工选择';
-    if (options.length === 0) return undefined;
+    if (options.length === 0) {
+      const initialHasMeaningfulOption = field.options.some(option =>
+        !/^(?:请选择|请选|未选择|选择\.\.\.|please\s+(?:select|choose))/iu.test(option.label.trim()));
+      return initialHasMeaningfulOption ? '下拉选项不存在或存在重复值，请重新扫描或人工选择' : undefined;
+    }
     if (options.length === 1) {
       const option = options[0];
       if (!option || option.disabled || option.parentElement?.hasAttribute('disabled') || isPlaceholderOption(option)) return '不能选择禁用选项或占位选项';
