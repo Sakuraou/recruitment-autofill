@@ -42,6 +42,13 @@ function visible(node: Element): boolean {
   return style?.display !== 'none' && style?.visibility !== 'hidden';
 }
 
+function visibleTree(node: Element): boolean {
+  for (let current: Element | null = node; current; current = current.parentElement) {
+    if (!visible(current)) return false;
+  }
+  return true;
+}
+
 function nativeSetter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): (value: string) => void {
   const view = node.ownerDocument.defaultView;
   if (!view) throw new Error('document unavailable');
@@ -307,6 +314,39 @@ function comboOptions(node: Element): ControlAdapterOption[] {
   }));
 }
 
+function visibleComboOptions(node: Element, value: string): HTMLElement[] {
+  const list = comboListbox(node);
+  if (!list) return [];
+  return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).filter(option => (
+    visibleTree(option)
+    && !option.hasAttribute('disabled') && option.getAttribute('aria-disabled') !== 'true'
+    && clean(option.getAttribute('aria-label') || option.textContent) === value
+  ));
+}
+
+function waitForComboOption(node: Element, value: string): Promise<boolean> {
+  const matches = (): boolean => node.isConnected && !comboHasValue(comboValue(node)) && visibleComboOptions(node, value).length === 1;
+  if (matches()) return Promise.resolve(true);
+  const Observer = node.ownerDocument.defaultView?.MutationObserver;
+  if (!Observer) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const observer = new Observer(() => {
+      if (!node.isConnected || comboHasValue(comboValue(node))) finish(false);
+      else if (matches()) finish(true);
+    });
+    const timer = setTimeout(() => finish(false), 500);
+    const finish = (result: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      observer.disconnect();
+      resolve(result);
+    };
+    observer.observe(node.ownerDocument, { childList: true, subtree: true, attributes: true });
+  });
+}
+
 function comboAdapter(node: Element): ControlAdapter {
   const inspect = (): ControlInspection => ({
     kind: 'aria-combobox', value: comboValue(node), hasValue: comboHasValue(comboValue(node)), options: comboOptions(node),
@@ -333,12 +373,11 @@ function comboAdapter(node: Element): ControlAdapter {
         : { status: 'request-human', reason: '组合框已有内容，不覆盖' };
       if (!await thisOpen(node)) return { status: 'request-human', reason: '组合框未能安全打开' };
       const options = comboOptions(node).filter(option => !option.disabled && option.label === value);
-      if (options.length !== 1) return { status: 'request-human', reason: '组合框没有唯一匹配选项' };
+      if (options.length !== 1 && !await waitForComboOption(node, value)) return { status: 'request-human', reason: '组合框选项未在限定时间内形成唯一匹配' };
+      const visibleMatches = visibleComboOptions(node, value);
+      if (visibleMatches.length !== 1) return { status: 'request-human', reason: '组合框没有唯一可见匹配选项' };
       const list = comboListbox(node);
-      const target = list && Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).find(option => (
-        visible(option) && !option.hasAttribute('disabled') && option.getAttribute('aria-disabled') !== 'true'
-        && clean(option.getAttribute('aria-label') || option.textContent) === value
-      ));
+      const target = list && visibleMatches[0];
       if (!target) return { status: 'request-human', reason: '组合框选项已被替换' };
       try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
       catch { return { status: 'request-human', reason: '组合框选项无法选择' }; }

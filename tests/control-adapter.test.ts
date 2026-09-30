@@ -47,6 +47,35 @@ describe('control adapters', () => {
     expect(adapter.readOptions()).toHaveLength(2);
   });
 
+  it('waits for asynchronously inserted portal options and selects only the unique visible match', async () => {
+    document.body.innerHTML = '<input id="city" role="combobox" aria-expanded="false" aria-controls="cities"><div id="cities" role="listbox" hidden></div>';
+    const combo = document.querySelector<HTMLInputElement>('#city')!;
+    const list = document.querySelector<HTMLElement>('#cities')!;
+    combo.addEventListener('click', () => {
+      combo.setAttribute('aria-expanded', 'true');
+      list.hidden = false;
+      setTimeout(() => { list.innerHTML = '<div role="option">云南</div>'; }, 25);
+    });
+    list.addEventListener('click', event => { combo.value = (event.target as HTMLElement).textContent?.trim() ?? ''; });
+    await expect(await createControlAdapter(combo).write('云南')).toMatchObject({ status: 'written' });
+    expect(combo.value).toBe('云南');
+  });
+
+  it('stops an async combobox when the user types before options arrive', async () => {
+    document.body.innerHTML = '<input id="city" role="combobox" aria-expanded="false" aria-controls="cities"><div id="cities" role="listbox" hidden></div>';
+    const combo = document.querySelector<HTMLInputElement>('#city')!;
+    const list = document.querySelector<HTMLElement>('#cities')!;
+    combo.addEventListener('click', () => {
+      combo.setAttribute('aria-expanded', 'true');
+      list.hidden = false;
+      setTimeout(() => { combo.value = '用户手动输入'; list.innerHTML = '<div role="option">云南</div>'; }, 25);
+    });
+    const events = vi.spyOn(combo, 'dispatchEvent');
+    await expect(await createControlAdapter(combo).write('云南')).toMatchObject({ status: 'request-human' });
+    expect(combo.value).toBe('用户手动输入');
+    expect(events).toHaveBeenCalledTimes(1);
+  });
+
   it('stops on an ambiguous or unknown custom control without clicking broadly', async () => {
     document.body.innerHTML = '<div id="unknown" class="fancy-select">请选择</div><input id="combo" role="combobox" aria-expanded="true" aria-controls="list"><div id="list" role="listbox"><div role="option">相同</div><div role="option">相同</div></div>';
     const unknown = document.querySelector<HTMLElement>('#unknown')!;
