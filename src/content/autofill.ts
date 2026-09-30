@@ -131,12 +131,10 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       const target = members[optionIndex];
       if (optionIndex < 0 || !target) { skip('没有唯一可用的单选项，请重新扫描或人工选择'); continue; }
       try {
-        const view = target.ownerDocument.defaultView;
-        const setter = view && Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'checked')?.set;
-        if (!view || !setter) throw new Error('浏览器不支持单选填写');
-        setter.call(target, true);
-        target.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
-        target.dispatchEvent(new view.Event('change', { bubbles: true, composed: true }));
+        // Activate the unique semantic option through the browser's native
+        // radio path so controlled React/Vue groups receive their normal
+        // click/change sequence. No selector search or broad click is used.
+        target.click();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         outcomes.push({ fieldId: item.fieldId, status: target.checked ? 'filled' : 'error',
           reason: target.checked ? '已选择唯一匹配的单选项；请在提交前复核' : '网页未保留预期单选答案，请人工检查' });

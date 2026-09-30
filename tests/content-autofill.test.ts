@@ -113,7 +113,7 @@ describe('安全填写原生 HTML 控件', () => {
     expect((await fill(state, ['x', 'x'])).every((outcome) => outcome.status === 'skipped')).toBe(true);
   });
 
-  it('填写普通 radio 组但不点击控件或提交表单', async () => {
+  it('填写普通 radio 组只激活唯一选项且不提交表单', async () => {
     const state = prepare('<form><span>性别</span><label><input type="radio" name="gender" value="M">男</label><label><input type="radio" name="gender" value="F">女</label><button type="submit">提交</button></form>');
     let clicks = 0; let submits = 0;
     document.querySelector('form')!.addEventListener('click', () => { clicks++; });
@@ -121,7 +121,7 @@ describe('安全填写原生 HTML 控件', () => {
     const outcomes = await fill(state, ['__radio_option_0']);
     expect(outcomes[0]?.status).toBe('filled');
     expect(document.querySelector<HTMLInputElement>('input[value="M"]')?.checked).toBe(true);
-    expect(clicks).toBe(0);
+    expect(clicks).toBe(1);
     expect(submits).toBe(0);
   });
 

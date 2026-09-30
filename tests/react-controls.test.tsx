@@ -56,3 +56,28 @@ it('updates a React controlled native checkbox and retains its state after a rer
   expect((screen.getByLabelText('是否学生干部') as HTMLInputElement).checked).toBe(true);
   expect(submits).toBe(0);
 });
+
+it('updates a React controlled radio group through the native option activation path', async () => {
+  let submits = 0;
+  function ControlledRadio() {
+    const [gender, setGender] = useState('');
+    return <form onSubmit={event => { event.preventDefault(); submits++; }}>
+      <fieldset><legend>性别</legend>
+        <label>男<input type="radio" name="gender" value="M" checked={gender === 'M'} onChange={event => setGender(event.target.value)} /></label>
+        <label>女<input type="radio" name="gender" value="F" checked={gender === 'F'} onChange={event => setGender(event.target.value)} /></label>
+      </fieldset>
+      <output data-testid="gender-state">{gender}</output>
+    </form>;
+  }
+  render(<ControlledRadio />);
+  const state = scanDocument();
+  const field = state.result.fields.find(item => item.kind === 'radio')!;
+  await act(async () => {
+    const outcomes = await fillScan(state, { scanId: state.result.scanId,
+      items: [{ fieldId: field.id, value: '__radio_option_1', confirmed: true }] });
+    expect(outcomes[0]?.status).toBe('filled');
+  });
+  expect(screen.getByTestId('gender-state').textContent).toBe('F');
+  expect((screen.getByLabelText('女') as HTMLInputElement).checked).toBe(true);
+  expect(submits).toBe(0);
+});
