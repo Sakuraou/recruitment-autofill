@@ -209,6 +209,14 @@ export function controlFingerprint(node: FormControl, field: FieldDescriptor): s
   });
 }
 
+/** Structural identity used only to permit an initially empty native select to load options asynchronously. */
+export function controlStructureFingerprint(node: FormControl, field: FieldDescriptor): string {
+  return JSON.stringify({
+    field: { ...field, groupId: undefined, options: undefined, hasValue: undefined },
+    attributes: attributesFingerprint(node),
+  });
+}
+
 export function scanDocument(doc: Document = document): ScanState {
   const scanId = crypto.randomUUID();
   const controls = new Map<string, ScannedControl>();

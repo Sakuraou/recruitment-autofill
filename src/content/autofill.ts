@@ -1,7 +1,7 @@
 import type { FieldDescriptor, FillOutcome, FillRequest } from '../shared/types';
 import { effectiveMaxLength } from '../matching/profileResolver';
 import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
-import { ariaCheckboxFingerprint, ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, describeAriaCheckbox, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
+import { ariaCheckboxFingerprint, ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, controlStructureFingerprint, describeAriaCheckbox, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
 import { createControlAdapter } from './controlAdapter';
 
@@ -37,9 +37,15 @@ function candidateProblem(node: FormControl, value: string, field: FieldDescript
   }
   if (node.tagName === 'SELECT') {
     const options = Array.from((node as HTMLSelectElement).options).filter((option) => option.value === value);
-    if (options.length !== 1) return '下拉选项不存在或存在重复值，请重新扫描或人工选择';
-    const option = options[0];
-    if (!option || option.disabled || option.parentElement?.hasAttribute('disabled') || isPlaceholderOption(option)) return '不能选择禁用选项或占位选项';
+    // The adapter owns bounded async option waiting. Do not reject an empty
+    // option list before it gets a chance to observe a framework-inserted
+    // option; it will still reject duplicates, disabled options and timeout.
+    if (options.length > 1) return '下拉选项不存在或存在重复值，请重新扫描或人工选择';
+    if (options.length === 0) return undefined;
+    if (options.length === 1) {
+      const option = options[0];
+      if (!option || option.disabled || option.parentElement?.hasAttribute('disabled') || isPlaceholderOption(option)) return '不能选择禁用选项或占位选项';
+    }
   }
   if (node.validity.customError) return '网页为字段设置了验证错误，请人工处理后重新扫描';
   // Validate on a detached clone first, without changing the live form or firing events.
@@ -146,7 +152,14 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
     const current = describeControl(node, item.fieldId);
     if (current.blockedReason) { skip(current.blockedReason); continue; }
     if (hasValue(node)) { skip('字段已有内容，不覆盖网页或您填写的信息'); continue; }
-    if (controlFingerprint(node, current) !== control.fingerprint) { skip('字段标签、选项、属性或当前内容已改变，请重新扫描'); continue; }
+    const fingerprintChanged = controlFingerprint(node, current) !== control.fingerprint;
+    const scannedField = state.result.fields.find(field => field.id === item.fieldId);
+    const onlyPlaceholderOptions = Boolean(scannedField?.kind === 'select' && scannedField.options.every(option =>
+      /^(?:请选择|请选|未选择|选择\.\.\.|please\s+(?:select|choose))/iu.test(option.label.trim())));
+    const asyncSelectBootstrap = fingerprintChanged && node.tagName === 'SELECT' && !current.hasValue
+      && onlyPlaceholderOptions && scannedField !== undefined
+      && controlStructureFingerprint(node, current) === controlStructureFingerprint(node, scannedField);
+    if (fingerprintChanged && !asyncSelectBootstrap) { skip('字段标签、选项、属性或当前内容已改变，请重新扫描'); continue; }
     try {
       const problem = candidateProblem(node, item.value, current);
       if (problem) { skip(problem); continue; }

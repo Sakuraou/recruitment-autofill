@@ -43,6 +43,15 @@ describe('安全填写原生 HTML 控件', () => {
     expect(events).toEqual(['input', 'change', 'input', 'change', 'input', 'change', 'input', 'change']);
   });
 
+  it('整条填写路径等待异步原生 select 选项，不会默认选择第一项', async () => {
+    const state = prepare('<select id="degree"><option value="">请选择学历</option></select>');
+    const select = document.querySelector<HTMLSelectElement>('#degree')!;
+    setTimeout(() => { select.append(new Option('硕士研究生', 'master')); }, 25);
+    const outcome = (await fill(state, ['master']))[0];
+    expect(outcome?.status).toBe('filled');
+    expect(select.value).toBe('master');
+  });
+
   it('使用原生 setter 兼容前端自定义实例 setter', async () => {
     const state = prepare('<input>');
     const node = document.querySelector('input');
@@ -90,7 +99,8 @@ describe('安全填写原生 HTML 控件', () => {
   it('不截断超长答案，不推测日期，不写入错误格式或不存在的选项', async () => {
     const state = prepare('<textarea maxlength="2"></textarea><input type="date"><input type="email"><input type="number" min="0" max="4"><select><option value="">请选择</option><option value="x">真实选项</option></select>');
     const outcomes = await fill(state, ['长度超限', '2027-06', 'invalid-address', '5', '不存在']);
-    expect(outcomes.every((outcome) => outcome.status === 'skipped')).toBe(true);
+    expect(outcomes.slice(0, 4).every((outcome) => outcome.status === 'skipped')).toBe(true);
+    expect(outcomes[4]?.status).toBe('error');
     expect(document.querySelector('textarea')?.value).toBe('');
     expect(outcomes[1]?.reason).toContain('不会推测');
   });
