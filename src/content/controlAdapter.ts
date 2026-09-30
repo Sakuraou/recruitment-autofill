@@ -59,6 +59,15 @@ function dispatchInput(node: Element): void {
   node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
 }
 
+function unavailableReason(node: Element, kind: string): string | undefined {
+  if (!node.isConnected) return `${kind}已被页面替换或移除，请重新扫描`;
+  if (node.matches(':disabled') || node.closest('fieldset:disabled')) return `${kind}已禁用，需要人工处理`;
+  if (node.closest('[aria-disabled="true"]')) return `${kind}已禁用，需要人工处理`;
+  if (node.closest('[aria-readonly="true"]')) return `${kind}只读，需要人工处理`;
+  if (node.closest('[hidden], [inert], [aria-hidden="true"]')) return `${kind}不可交互，需要人工处理`;
+  return undefined;
+}
+
 function selectableOptions(select: HTMLSelectElement, value: string): HTMLOptionElement[] {
   return Array.from(select.options).filter(option => option.value === value
     && !option.disabled && !option.parentElement?.hasAttribute('disabled') && !isPlaceholderOption(option));
@@ -71,7 +80,7 @@ function waitForSelectableOption(select: HTMLSelectElement, value: string): Prom
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const observer = new Observer(() => {
-      if (!select.isConnected) finish(false);
+      if (unavailableReason(select, '下拉框') || (hasValue(select) && select.value !== value)) finish(false);
       else if (selectableOptions(select, value).length === 1) finish(true);
     });
     const timer = setTimeout(() => finish(false), 500);
@@ -94,8 +103,7 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     value: node.value,
     hasValue: hasValue(node),
     options: node.tagName === 'SELECT' ? selectOptions(node as HTMLSelectElement) : [],
-    ...(!node.isConnected ? { blockedReason: '控件已被页面替换或移除，请重新扫描' }
-      : node.disabled ? { blockedReason: '控件已禁用，需要人工处理' } : {}),
+    ...(unavailableReason(node, '控件') ? { blockedReason: unavailableReason(node, '控件') } : {}),
   });
   return {
     node,
@@ -113,7 +121,8 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
       if (node.tagName === 'SELECT') {
         const select = node as HTMLSelectElement;
         const applySelect = (): ControlAdapterResult => {
-          if (!select.isConnected) return { status: 'request-human', reason: '控件已被页面替换或移除，请重新扫描' };
+          const unavailable = unavailableReason(select, '下拉框');
+          if (unavailable) return { status: 'request-human', reason: unavailable };
           if (selectableOptions(select, value).length !== 1) return { status: 'request-human', reason: '下拉选项不存在或不唯一' };
           try {
             nativeSetter(select)(value);
@@ -209,8 +218,7 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
       disabled: member.getAttribute('aria-disabled') === 'true' || member.hasAttribute('disabled') }));
     const selected = members.find(member => member.getAttribute('aria-checked') === 'true');
     return { kind: 'aria-radio-group', value: selected ? radioOptionLabel(selected) : '', hasValue: Boolean(selected), options,
-      ...(!group.isConnected ? { blockedReason: '单选组已被页面替换或移除，请重新扫描' }
-        : group.getAttribute('aria-disabled') === 'true' ? { blockedReason: '单选组已禁用，需要人工处理' } : {}) };
+      ...(unavailableReason(group, '单选组') ? { blockedReason: unavailableReason(group, '单选组') } : {}) };
   };
   return {
     node: group,
@@ -235,7 +243,11 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
         ? { status: 'written', reason: '单选选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期单选答案' };
     },
-    verify: (value: string) => members.some(member => member.getAttribute('aria-checked') === 'true' && radioOptionLabel(member) === value),
+    verify: (value: string) => {
+      const selected = members.filter(member => member.getAttribute('aria-checked') === 'true');
+      return selected.length === 1 && selected[0]!.isConnected && group.contains(selected[0]!)
+        && radioOptionLabel(selected[0]!) === value;
+    },
   };
 }
 
@@ -249,13 +261,13 @@ function booleanValue(value: string): boolean | undefined {
 /** Safe adapter for ordinary ARIA checkboxes. Consent and authorization labels are blocked by the scanner. */
 export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
   const inspect = (): ControlInspection => {
-    const checked = node.getAttribute('aria-checked') === 'true';
+    const rawChecked = node.getAttribute('aria-checked');
+    const checked = rawChecked === 'true';
     return {
       kind: 'aria-checkbox', value: checked ? 'true' : 'false', hasValue: checked,
       options: [{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }],
-      ...(!node.isConnected ? { blockedReason: '复选框已被页面替换或移除，请重新扫描' }
-        : node.getAttribute('aria-disabled') === 'true' ? { blockedReason: '复选框已禁用，需要人工处理' }
-          : node.getAttribute('aria-readonly') === 'true' ? { blockedReason: '复选框只读，需要人工处理' } : {}),
+      ...(unavailableReason(node, '复选框') ? { blockedReason: unavailableReason(node, '复选框') }
+        : rawChecked !== 'true' && rawChecked !== 'false' ? { blockedReason: '复选框状态不明确，需要人工处理' } : {}),
     };
   };
   return {
@@ -278,7 +290,9 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
     },
     verify: (value: string) => {
       const desired = booleanValue(value);
-      return desired !== undefined && (node.getAttribute('aria-checked') === 'true') === desired;
+      const rawChecked = node.getAttribute('aria-checked');
+      return desired !== undefined && (rawChecked === 'true' || rawChecked === 'false')
+        && (rawChecked === 'true') === desired && !unavailableReason(node, '复选框');
     },
   };
 }

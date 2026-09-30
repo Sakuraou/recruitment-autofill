@@ -143,7 +143,7 @@ export function describeAriaRadioGroup(group: Element, members: readonly Element
   const label = labelledText(group);
   const identity = [label, group.getAttribute('aria-label') ?? ''].join(' ');
   const blocked = /同意|协议|隐私|授权|承诺|声明|consent|agreement|privacy|authorize/iu.test(identity)
-    ? '协议、授权和声明必须人工选择' : group.getAttribute('aria-disabled') === 'true' ? '单选组已禁用，需要人工处理' : undefined;
+    ? '协议、授权和声明必须人工选择' : inspection.blockedReason;
   return {
     id, kind: 'radio', type: 'radio', label, placeholder: '', name: '', htmlId: cleanText(group.id),
     ariaLabel: cleanText(group.getAttribute('aria-label')), title: cleanText(group.getAttribute('title')),
@@ -168,7 +168,7 @@ export function describeAriaCheckbox(node: Element, id: string,
   const label = labelledText(node);
   const identity = [label, node.getAttribute('aria-label') ?? ''].join(' ');
   const blocked = /同意|协议|隐私|授权|承诺|声明|consent|agreement|privacy|authorize/iu.test(identity)
-    ? '协议、授权和声明必须人工选择' : undefined;
+    ? '协议、授权和声明必须人工选择' : inspection.blockedReason;
   return {
     id, kind: 'checkbox', type: 'aria-checkbox', label, placeholder: '', name: cleanText(node.getAttribute('name')),
     htmlId: cleanText(node.id), ariaLabel: cleanText(node.getAttribute('aria-label')), title: cleanText(node.getAttribute('title')),

@@ -107,13 +107,14 @@ describe('扫描安全边界', () => {
   });
 
   it('扫描普通 ARIA checkbox，并阻止协议语义的复选框', () => {
-    const { result, controls } = scan('<span id="remote-label">有远程实习经历</span><div id="remote" role="checkbox" aria-labelledby="remote-label" aria-checked="false"></div><span id="consent-label">我同意隐私协议</span><div id="consent" role="checkbox" aria-labelledby="consent-label" aria-checked="false"></div>');
+    const { result, controls } = scan('<span id="remote-label">有远程实习经历</span><div id="remote" role="checkbox" aria-labelledby="remote-label" aria-checked="false"></div><span id="consent-label">我同意隐私协议</span><div id="consent" role="checkbox" aria-labelledby="consent-label" aria-checked="false"></div><div id="unknown" role="checkbox" aria-label="有未知经历"></div>');
     const remote = result.fields.find(field => field.htmlId === 'remote');
     const consent = result.fields.find(field => field.htmlId === 'consent');
     expect(remote).toMatchObject({ kind: 'checkbox', type: 'aria-checkbox', options: [{ value: 'true' }, { value: 'false' }] });
     expect(remote?.blockedReason).toBeUndefined();
     expect(controls.get(remote!.id)?.adapter).toBe('aria-checkbox');
     expect(consent?.blockedReason).toMatch(/协议/u);
+    expect(result.fields.find(field => field.htmlId === 'unknown')?.blockedReason).toMatch(/不明确/u);
   });
 
   it('扫描同源 iframe 与开放 Shadow DOM', () => {

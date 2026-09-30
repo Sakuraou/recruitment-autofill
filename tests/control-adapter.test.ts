@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createControlAdapter } from '../src/content/controlAdapter';
+import { createAriaRadioGroupAdapter, createControlAdapter } from '../src/content/controlAdapter';
 
 describe('control adapters', () => {
   beforeEach(() => {
@@ -117,5 +117,52 @@ describe('control adapters', () => {
     expect(clicks).toBe(1);
     await expect(await adapter.write('否')).toMatchObject({ status: 'request-human' });
     expect(clicks).toBe(1);
+  });
+
+  it.each(['user-answer', 'disabled'])('protects a native select changed during async loading: %s', async change => {
+    document.body.innerHTML = '<select><option value="">请选择</option><option value="user">用户答案</option></select>';
+    const select = document.querySelector('select')!;
+    const events = vi.spyOn(select, 'dispatchEvent');
+    const pending = createControlAdapter(select).write('master');
+    if (change === 'user-answer') select.value = 'user';
+    else select.disabled = true;
+    select.append(new Option('硕士研究生', 'master'));
+    expect(await pending).toMatchObject({ status: 'request-human' });
+    expect(select.value).toBe(change === 'user-answer' ? 'user' : '');
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it.each(['mixed', null])('never treats indeterminate or absent checkbox state as false: %s', async state => {
+    document.body.innerHTML = '<div role="checkbox" aria-label="有实习经历"></div>';
+    const checkbox = document.querySelector('[role="checkbox"]')!;
+    if (state !== null) checkbox.setAttribute('aria-checked', state);
+    const adapter = createControlAdapter(checkbox);
+    const events = vi.spyOn(checkbox, 'dispatchEvent');
+    expect(await adapter.write('否')).toMatchObject({ status: 'request-human' });
+    expect(await adapter.write('是')).toMatchObject({ status: 'request-human' });
+    expect(adapter.verify('否')).toBe(false);
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it.each(['hidden', 'inert', 'aria-disabled', 'aria-readonly'])('never clicks a checkbox in an unavailable ancestor: %s', async attribute => {
+    document.body.innerHTML = '<section><div role="checkbox" aria-label="有实习经历" aria-checked="false"></div></section>';
+    document.querySelector('section')!.setAttribute(attribute, attribute.startsWith('aria-') ? 'true' : '');
+    const checkbox = document.querySelector('[role="checkbox"]')!;
+    const events = vi.spyOn(checkbox, 'dispatchEvent');
+    expect(await createControlAdapter(checkbox).write('是')).toMatchObject({ status: 'request-human' });
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('does not verify a removed or multiply selected ARIA radio option', async () => {
+    document.body.innerHTML = '<div role="radiogroup" aria-label="性别"><div role="radio" aria-checked="false">男</div><div role="radio" aria-checked="false">女</div></div>';
+    const group = document.querySelector('[role="radiogroup"]')!;
+    const members = [...group.querySelectorAll('[role="radio"]')];
+    const adapter = createAriaRadioGroupAdapter(group, members);
+    members[0]!.setAttribute('aria-checked', 'true');
+    members[1]!.setAttribute('aria-checked', 'true');
+    expect(adapter.verify('男')).toBe(false);
+    members[1]!.setAttribute('aria-checked', 'false');
+    members[0]!.remove();
+    expect(adapter.verify('男')).toBe(false);
   });
 });
