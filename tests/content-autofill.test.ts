@@ -182,4 +182,30 @@ describe('安全填写原生 HTML 控件', () => {
     expect(remote.getAttribute('aria-checked')).toBe('true');
     expect(document.querySelector('#consent')?.getAttribute('aria-checked')).toBe('false');
   });
+
+  it('等待受控框架异步回写 ARIA checkbox 状态，且只点击一次', async () => {
+    document.body.innerHTML = '<span id="label">有远程经历</span><div id="remote" role="checkbox" aria-labelledby="label" aria-checked="false"></div>';
+    const remote = document.querySelector<HTMLElement>('#remote')!;
+    let clicks = 0;
+    remote.addEventListener('click', () => { clicks++; setTimeout(() => remote.setAttribute('aria-checked', 'true'), 25); });
+    const state = scanDocument(document);
+    const field = state.result.fields[0]!;
+    expect((await fillScan(state, { scanId: state.result.scanId, items: [{ fieldId: field.id, value: 'true', confirmed: true }] }))[0]?.status).toBe('filled');
+    expect(clicks).toBe(1);
+  });
+
+  it('等待受控框架异步回写 ARIA radiogroup 状态，且不重复点击', async () => {
+    document.body.innerHTML = '<span id="label">性别</span><div id="gender" role="radiogroup" aria-labelledby="label"><div role="radio" aria-checked="false">男</div><div role="radio" aria-checked="false">女</div></div>';
+    const group = document.querySelector<HTMLElement>('#gender')!;
+    const members = [...group.querySelectorAll<HTMLElement>('[role="radio"]')];
+    let clicks = 0;
+    group.addEventListener('click', event => {
+      clicks++;
+      setTimeout(() => members.forEach(member => member.setAttribute('aria-checked', member === event.target ? 'true' : 'false')), 25);
+    });
+    const state = scanDocument(document);
+    const field = state.result.fields[0]!;
+    expect((await fillScan(state, { scanId: state.result.scanId, items: [{ fieldId: field.id, value: '女', confirmed: true }] }))[0]?.status).toBe('filled');
+    expect(clicks).toBe(1);
+  });
 });

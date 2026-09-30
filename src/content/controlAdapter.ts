@@ -183,6 +183,26 @@ function radioOptionLabel(node: Element): string {
   return clean(node.getAttribute('aria-label') || node.textContent);
 }
 
+function waitForAriaChecked(node: Element, desired: boolean): Promise<boolean> {
+  const matches = (): boolean => node.isConnected && (node.getAttribute('aria-checked') === 'true') === desired;
+  if (matches()) return Promise.resolve(true);
+  const Observer = node.ownerDocument.defaultView?.MutationObserver;
+  if (!Observer) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const observer = new Observer(() => { if (matches()) finish(true); });
+    const timer = setTimeout(() => finish(false), 500);
+    const finish = (result: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      observer.disconnect();
+      resolve(result);
+    };
+    observer.observe(node, { attributes: true, attributeFilter: ['aria-checked'] });
+  });
+}
+
 export function createAriaRadioGroupAdapter(group: Element, members: readonly Element[]): ControlAdapter {
   const inspect = (): ControlInspection => {
     const options = members.map(member => ({ value: radioOptionLabel(member), label: radioOptionLabel(member),
@@ -211,8 +231,7 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
       if (!target.isConnected || !group.contains(target)) return { status: 'request-human', reason: '单选组选项已被替换' };
       try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
       catch { return { status: 'request-human', reason: '单选项无法安全选择' }; }
-      await new Promise<void>(resolve => setTimeout(resolve, 0));
-      return target.getAttribute('aria-checked') === 'true'
+      return await waitForAriaChecked(target, true)
         ? { status: 'written', reason: '单选选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期单选答案' };
     },
@@ -253,8 +272,7 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
       if (checked === desired) return { status: 'preserved', reason: '复选框已有相同答案，保留原值' };
       try { node.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
       catch { return { status: 'request-human', reason: '复选框无法安全选择' }; }
-      await new Promise<void>(resolve => setTimeout(resolve, 0));
-      return node.getAttribute('aria-checked') === 'true'
+      return await waitForAriaChecked(node, true)
         ? { status: 'written', reason: '复选框选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期复选框答案' };
     },
