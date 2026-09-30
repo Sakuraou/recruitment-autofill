@@ -3,7 +3,7 @@
 > 最后更新：2026-09-29
 > 当前版本：v0.5.0（已验证基线）  
 > 当前迭代：I-004B-D5 控件适配器基础
-> 最近完整验证：2026-09-30，509 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
+> 最近完整验证：2026-09-30，510 项测试、生产构建；9 项 DOM、12 项扩展、7 项工作流与 5 项 Record v2 浏览器检查通过
 > 等待用户：否  
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
@@ -327,7 +327,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-004B-D2 | 固定虚构测试页会话工厂 | verified | 两条已有、四条新增、12 个单步；487 项全量测试及 5 项专项 MV3 检查 | 由 D3 建立后台可信档案投影，不启用真实页面 |
 | I-004B-D3 | 项目类型可信档案投影 | verified | 5 项投影/后台测试；生产 MV3 确认内容脚本只获项目字段 | 由 D4 把投影适配为内部值提供器，生产开关仍关闭 |
 | I-004B-D4 | 投影驱动的测试会话 | verified | 档案投影驱动六项目闭环；修订变化在保存前停止；493 项全量测试 | 由 D5 建立原生控件与稳定 ARIA 控件适配器 |
-| I-004B-D5 | 控件适配器基础 | in_progress | 10 项适配器专项、509 项全量测试、生产构建及完整 E2E；原生、ARIA combobox、普通 ARIA radiogroup/checkbox 已接入填写路径 | 增加受控框架和保存回滚夹具 |
+| I-004B-D5 | 控件适配器基础 | in_progress | 10 项适配器专项、510 项全量测试、生产构建及完整 E2E；原生、ARIA combobox、普通 ARIA radiogroup/checkbox 已接入填写路径 | 增加受控框架和保存回滚夹具 |
 
 ## 7. 本轮记录
 
@@ -623,14 +623,16 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 - `fillScan` 已接入稳定 ARIA combobox；字段以 select 语义进入匹配，缺少绑定、标签、唯一选项或页面节点被替换时保持人工处理。
 - 普通 ARIA radiogroup 已以 radio 语义接入；协议、隐私、授权、承诺和声明语义保持人工，单选组已有答案、选项重复或节点变化时不覆盖。
 - 普通 ARIA checkbox 已以明确“是/否”语义接入；协议、隐私、授权、承诺和声明语义保持人工，已有“是”不会被自动取消，未选状态只有在档案明确要求“是”时才点击。
+- 选项匹配补充了显式布尔别名（true/false、yes/no、有/无等），仍要求网页可见选项唯一，不把任意数字或第一个选项当作答案。
 - `fillScan` 的原生 input、textarea、select 路径已改用 ControlAdapter，保留扫描快照、原值保护、候选校验和整批 200ms 回读；radio-group、checkbox、mobile-select 的边界保持原有安全路径。
-- 新增 10 项适配器专项及 6 项 ARIA 扫描/填写测试，覆盖动态节点替换、延迟原生 select 选项、唯一 portal listbox、多 portal 拒绝、稳定绑定 combobox、普通 radiogroup 与普通 checkbox；`npm run check` 和完整 `npm run test:e2e` 均通过，当前回归基线为 29 个测试文件、509 项测试。生产 Record v2 仍关闭。
+- 新增 10 项适配器专项及 6 项 ARIA 扫描/填写测试，覆盖动态节点替换、延迟原生 select 选项、唯一 portal listbox、多 portal 拒绝、稳定绑定 combobox、普通 radiogroup 与普通 checkbox；补充布尔选项别名测试。`npm run check` 和完整 `npm run test:e2e` 均通过，当前回归基线为 29 个测试文件、510 项测试。生产 Record v2 仍关闭。
 
 ### 2026-09-30 · I-004B-D5c（进行中）
 
 - 本轮先完成 ARIA checkbox 的最小安全适配：只接受明确可映射的“是/否”，不对已有勾选执行取消，不把协议、隐私、授权、承诺或声明类复选框交给自动填写。
 - 普通 ARIA checkbox 已进入扫描、匹配、填写和 200ms 留存复核路径；未知自定义控件仍 request-human，不触发广泛点击。
-- 相关专项、509 项全量测试、生产构建和完整浏览器 E2E 均通过；浏览器回归中的外部请求、异常、删除和最终提交保持为 0。
+- 相关专项、510 项全量测试、生产构建和完整浏览器 E2E 均通过；浏览器回归中的外部请求、异常、删除和最终提交保持为 0。
+- 补充了选项文字与布尔档案答案的安全别名映射；完整质量检查和浏览器回归再次通过。
 
 下一步 I-004B-D5c 执行提示词：
 

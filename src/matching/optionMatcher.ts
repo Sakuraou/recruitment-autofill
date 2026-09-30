@@ -12,6 +12,7 @@ const optionAliases: readonly (readonly string[])[] = [
   ['全日制', '普通全日制', 'Full time'], ['非全日制', 'Part time'],
   ['中华人民共和国', '中国', 'China', 'Chinese'],
   ['居民身份证', '身份证', '中华人民共和国居民身份证'],
+  ['是', '有', 'true', 'yes', 'y', 'on'], ['否', '无', 'false', 'no', 'n', 'off'],
 ];
 
 /** Numeric punctuation carries meaning: 前5.0% must never become 前50%. */

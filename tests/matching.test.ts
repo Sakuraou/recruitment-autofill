@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProfile, type UserProfile } from '../src/profile/schema';
 import { matchField, matchFields } from '../src/matching/ruleMatcher';
+import { matchOption } from '../src/matching/optionMatcher';
 import type { FieldDescriptor } from '../src/shared/types';
 
 function field(label: string, overrides: Partial<FieldDescriptor> = {}): FieldDescriptor {
@@ -256,6 +257,13 @@ describe('native select and candidate confirmation', () => {
   it('uses visible labels even if the option value looks like a conflicting alias', () => {
     expect(matchField(field('性别', { kind: 'radio', options: [{ label: '女', value: 'male', disabled: false }] }), profile()))
       .toMatchObject({ status: 'review', value: undefined });
+  });
+
+  it('matches explicit boolean answers to visible yes/no option labels', () => {
+    const target = selection('是否有远程经历', ['是', '否']);
+    const result = matchOption(target, { fieldId: target.id, fieldName: target.label, value: 'true', confidence: 1,
+      source: 'rule', status: 'auto', reason: '已核实', sensitive: false });
+    expect(result).toMatchObject({ status: 'auto', value: 'option-0' });
   });
 });
 
