@@ -1,10 +1,22 @@
-export type AliasScope = 'basic' | 'education' | 'research' | 'projects' | 'internships' | 'studentWork' | 'awards' | 'certificates' | 'skills' | 'commonAnswers';
+export type AliasScope = 'basic' | 'education' | 'research' | 'projects' | 'internships' | 'studentWork' | 'awards' | 'certificates' | 'skills' | 'commonAnswers' | 'jobPreferences' | 'links';
 export interface FieldAlias { scope: AliasScope; key: string; aliases: readonly string[]; sensitive?: boolean }
 
 /** Only factual field names live here. A dictionary entry never supplies profile data. */
 export const fieldAliases: readonly FieldAlias[] = [
   { scope: 'basic', key: 'name', aliases: ['姓名', '真实姓名', '个人姓名', '申请人姓名', '中文姓名', 'name', 'full name', 'applicant name'], sensitive: true },
   { scope: 'basic', key: 'gender', aliases: ['性别', 'gender', 'sex'] },
+  { scope: 'basic', key: 'englishName', aliases: ['英文姓名', '英文名', 'English name', 'English full name'], sensitive: true },
+  { scope: 'basic', key: 'healthStatus', aliases: ['健康状况', '健康状态', 'health status'], sensitive: true },
+  { scope: 'basic', key: 'maritalStatus', aliases: ['婚姻状况', '婚姻状态', 'marital status'], sensitive: true },
+  { scope: 'basic', key: 'heightCm', aliases: ['身高', '身高CM', '身高厘米', 'height', 'height cm'] },
+  { scope: 'basic', key: 'weightKg', aliases: ['体重', '体重KG', '体重千克', '体重公斤', 'weight', 'weight kg'] },
+  { scope: 'jobPreferences', key: 'positions', aliases: ['期望岗位', '意向岗位', '目标岗位', 'desired position', 'preferred role'] },
+  { scope: 'jobPreferences', key: 'cities', aliases: ['意向城市', '期望工作城市', '期望工作地点', 'preferred locations'] },
+  { scope: 'jobPreferences', key: 'expectedSalary', aliases: ['期望薪资', '期望薪酬', 'expected salary'] },
+  { scope: 'jobPreferences', key: 'earliestStartDate', aliases: ['最早到岗日期', '可到岗日期', 'earliest start date'] },
+  { scope: 'links', key: 'github', aliases: ['GitHub主页', 'GitHub个人主页', 'GitHub profile'] },
+  { scope: 'links', key: 'portfolio', aliases: ['作品展示链接', '作品集链接', 'portfolio url', 'portfolio link'] },
+  { scope: 'links', key: 'personalSite', aliases: ['个人主页', '个人网站', 'personal website'] },
   { scope: 'basic', key: 'phone', aliases: ['手机', '手机号', '手机号码', '联系电话', '移动电话', '联系电话手机', 'mobile', 'phone', 'telephone', 'mobile number'], sensitive: true },
   { scope: 'basic', key: 'email', aliases: ['邮箱', '电子邮箱', '电子邮件', '邮件地址', 'email', 'e-mail', 'email address'], sensitive: true },
   { scope: 'basic', key: 'birthday', aliases: ['出生日期', '出生年月', '生日', 'birthday', 'date of birth'], sensitive: true },
@@ -39,6 +51,7 @@ export const fieldAliases: readonly FieldAlias[] = [
   { scope: 'research', key: 'papers', aliases: ['论文', '论文成果', '发表论文', '学术论文', '学术专著', '学术成果', 'publications', 'papers'] },
   { scope: 'research', key: 'patents', aliases: ['专利', '专利成果', '申请专利', 'patents'] },
   { scope: 'projects', key: 'name', aliases: ['项目名称', '课题名称', 'project name'] },
+  { scope: 'projects', key: 'url', aliases: ['项目链接', '项目网址', '项目仓库地址', 'repository url', 'project url'] },
   { scope: 'projects', key: 'organization', aliases: ['项目单位', '项目所属单位', '项目公司', 'project organization'] },
   { scope: 'projects', key: 'startDate', aliases: ['项目开始日期', '项目开始时间'] },
   { scope: 'projects', key: 'endDate', aliases: ['项目结束日期', '项目结束时间'] },
@@ -102,5 +115,6 @@ export const contextualAliases: readonly FieldAlias[] = [
   { scope: 'projects', key: 'description', aliases: ['描述', '简介', 'description'] },
   { scope: 'projects', key: 'role', aliases: ['角色', '职务', 'role'] },
   { scope: 'projects', key: 'organization', aliases: ['所在公司', '单位名称', '单位', '组织名称', 'company', 'organization'] },
+  { scope: 'projects', key: 'url', aliases: ['仓库地址', 'repository link'] },
   { scope: 'awards', key: 'level', aliases: ['级别', '等级', 'level'] },
 ];

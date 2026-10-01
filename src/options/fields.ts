@@ -13,6 +13,9 @@ export interface CollectionSpec {
 }
 export const basicFields: EditorField[] = [
   { key: 'name', label: '姓名' }, { key: 'gender', label: '性别' },
+  { key: 'englishName', label: '英文姓名', hint: '填写实际使用的完整英文姓名；不自动转拼音或拆分名和姓' },
+  { key: 'healthStatus', label: '健康状况' }, { key: 'maritalStatus', label: '婚姻状况' },
+  { key: 'heightCm', label: '身高（厘米）' }, { key: 'weightKg', label: '体重（千克）' },
   { key: 'birthday', label: '出生日期', kind: 'date' },
   { key: 'phone', label: '手机号' }, { key: 'email', label: '邮箱' },
   { key: 'idType', label: '证件类型' }, { key: 'idNumber', label: '证件号码', kind: 'secret' },
@@ -55,6 +58,7 @@ export const collections: Record<string, CollectionSpec> = {
   ] },
   projects: { path: 'projects', title: '项目经历', defaults: { technologies: [] }, fields: [
     { key: 'name', label: '项目名称' }, { key: 'organization', label: '项目所在单位', hint: '学校、公司或个人项目，按实际所属填写' }, { key: 'role', label: '承担角色' }, ...dates,
+    { key: 'url', label: '项目作品 / 仓库链接', hint: '完整 http/https 地址，仅用于这一个项目，不用个人主页代替' },
     { key: 'description', label: '项目描述', kind: 'textarea' },
     { key: 'responsibilities', label: '本人职责', kind: 'textarea' },
     { key: 'achievements', label: '实际成果', kind: 'textarea' },
@@ -104,4 +108,5 @@ export const sections = [
   ['internships', '实习经历', '04'], ['research', '科研 · 论文 · 专利', '05'],
   ['awards', '奖项与证书', '06'], ['skills', '专业技能', '07'], ['studentWork', '学生工作', '08'],
   ['answers', '常用回答', '09'], ['family', '家庭信息', '10'], ['backup', '导入与备份', '11'],
+  ['preferences', '求职意向与作品', '12'],
 ] as const;

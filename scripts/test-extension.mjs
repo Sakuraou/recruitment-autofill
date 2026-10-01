@@ -327,6 +327,58 @@ try {
     await chrome.storage.local.set({ 'recruitment.profile.v1': value });
   }, backup);
 
+  await worker.evaluate(async value => {
+    await chrome.storage.local.set({ 'recruitment.profile.v1': { ...value, projects: [value.projects[0]] } });
+  }, backup);
+  const commonOptions = await context.newPage(); await commonOptions.goto(`chrome-extension://${extensionId}/options.html`);
+  await commonOptions.getByLabel('英文姓名', { exact: true }).fill('Fictional User');
+  await commonOptions.getByLabel('健康状况', { exact: true }).fill('健康');
+  await commonOptions.getByLabel('婚姻状况', { exact: true }).fill('未婚');
+  await commonOptions.getByLabel('身高（厘米）', { exact: true }).fill('175');
+  await commonOptions.getByLabel('体重（千克）', { exact: true }).fill('65');
+  await commonOptions.getByRole('button', { name: /12 求职意向与作品/ }).click();
+  await commonOptions.getByLabel('期望岗位', { exact: true }).fill('研发岗');
+  await commonOptions.getByLabel('意向城市', { exact: true }).fill('虚构城');
+  await commonOptions.getByLabel('期望薪资', { exact: true }).fill('10000-15000元/月');
+  await commonOptions.getByLabel('GitHub主页', { exact: true }).fill('javascript:alert(1)');
+  const beforeCommonSave = await commonOptions.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']);
+  await commonOptions.getByRole('button', { name: '保存档案' }).click();
+  await commonOptions.getByText('links.github：链接须为完整', { exact: false }).waitFor();
+  assert.deepEqual(await commonOptions.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']), beforeCommonSave);
+  await commonOptions.getByLabel('GitHub主页', { exact: true }).fill('https://github.com/fictional-example');
+  await commonOptions.getByLabel('作品展示链接', { exact: true }).fill('https://portfolio.example.test/');
+  await commonOptions.getByLabel('个人主页', { exact: true }).fill('https://home.example.test/');
+  await commonOptions.getByRole('button', { name: /03 项目经历/ }).click();
+  await commonOptions.getByLabel('项目作品 / 仓库链接', { exact: true }).fill('https://github.com/fictional-example/project');
+  await commonOptions.getByRole('button', { name: '保存档案' }).click();
+  await commonOptions.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
+  const commonSaved = await commonOptions.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']);
+  assert.match(commonSaved.revision, /^[\da-f]{8}-[\da-f-]{27}$/i);
+  assert.notEqual(commonSaved.revision, beforeCommonSave.revision);
+  await commonOptions.reload();
+  assert.equal(await commonOptions.getByLabel('英文姓名', { exact: true }).inputValue(), 'Fictional User');
+  await commonOptions.close();
+  const commonUrl = 'http://127.0.0.1:4173/common-facts-form.html'; const commonPage = await context.newPage();
+  await commonPage.goto(commonUrl);
+  const commonTarget = (await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos.find(target => target.url === commonUrl);
+  assert.ok(commonTarget); await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: commonTarget.targetId });
+  const commonPopup = await context.newPage(); await commonPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await worker.evaluate(async url => {
+    const tab = (await chrome.tabs.query({})).find(target => target.url === url); await chrome.tabs.update(tab.id, { active: true });
+  }, commonUrl);
+  await commonPopup.getByRole('button', { name: '扫描页面', exact: true }).click();
+  await commonPopup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+  await commonPopup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+  await commonPopup.getByRole('status').filter({ hasText: /已填写/ }).waitFor();
+  for (const [id, value] of Object.entries({ 'english-name': 'Fictional User', health: 'opaque-health', marital: 'opaque-marital', height: '175', weight: '65',
+    position: '研发岗', city: '虚构城', salary: '10000-15000元/月', github: 'https://github.com/fictional-example', portfolio: 'https://portfolio.example.test/',
+    homepage: 'https://home.example.test/', 'project-url': 'https://github.com/fictional-example/project' })) assert.equal(await commonPage.locator(`#${id}`).inputValue(), value);
+  for (const id of ['height-no-unit', 'first-name', 'contact-english']) assert.equal(await commonPage.locator(`#${id}`).inputValue(), '');
+  assert.equal(await commonPage.locator('#submit-count').textContent(), '0');
+  report.checks.push('Production options edits and persists common facts, preference lists, personal and project URLs; invalid script URL leaves storage unchanged; save replaces the opaque revision; real popup fills all 12 known fields while protecting missing units, split English names and contacts');
+  await commonPopup.close(); await commonPage.close();
+  await worker.evaluate(async value => { await chrome.storage.local.set({ 'recruitment.profile.v1': value }); }, backup);
+
   // Fulfill an isolated synthetic fixture at the adapter's origin. This never reaches the actual site.
   const mobileUrl = 'https://job.10086.cn/personal/resume_campus.html?fixture=1';
   await context.route(mobileUrl, route => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', path: resolve(root, 'tests/fixtures/mobile-resume.html') }));

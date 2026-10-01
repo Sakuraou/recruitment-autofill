@@ -1,9 +1,12 @@
 import { z } from 'zod';
 import { checkDateRange, profileDateSchema as date } from './calendarDates';
 import { collectionFactConflicts, collectionFactsSchema, endDateFactSchema } from './facts';
+import { profileUrlSchema } from './urls';
 
 const text = z.string().max(20000).optional();
 const list = z.array(z.string().max(2000)).max(100).default([]);
+const measurement = z.string().max(20).refine(value => value === '' || /^\d{1,4}(?:\.\d{1,2})?$/u.test(value) && Number(value) > 0,
+  '身高体重须为正数，按标签中的厘米或千克录入，不包含单位').optional();
 export const textVariantsSchema = z.object({
   short: text, medium: text, long: text,
   byLimit: z.record(z.string().regex(/^\d{1,4}$/), z.string().max(20000)).default({}),
@@ -25,6 +28,7 @@ export const projectSchema = z.object({
   id: z.string().min(1), name: text, role: text, startDate: date, endDate: date,
   endDateFact: endDateFactSchema.optional(),
   organization: text,
+  url: profileUrlSchema,
   description: text, responsibilities: text, achievements: text, technologies: list,
 }).strict().superRefine(checkDateRange);
 export type ProjectExperience = z.infer<typeof projectSchema>;
@@ -64,6 +68,7 @@ export const basicSchema = z.object({
   politicalStatus: text, address: text, postalCode: text,
   interests: text,
   studentCadre: z.enum(['', '是', '否']).optional(), studentCadreDescription: text,
+  englishName: text, healthStatus: text, maritalStatus: text, heightCm: measurement, weightKg: measurement,
 }).strict();
 export const commonAnswersSchema = z.object({
   selfEvaluation: textVariantsSchema.optional(), personalStrengths: textVariantsSchema.optional(),
@@ -74,6 +79,7 @@ export const commonAnswersSchema = z.object({
 
 export const profileSchema = z.object({
   schemaVersion: z.literal(1),
+  revision: z.uuid().optional(),
   updatedAt: z.string().optional(),
   basic: basicSchema,
   education: z.array(educationSchema).max(30),
@@ -89,6 +95,8 @@ export const profileSchema = z.object({
   commonAnswers: commonAnswersSchema,
   family: z.array(familyMemberSchema).max(30),
   collectionFacts: collectionFactsSchema.optional(),
+  jobPreferences: z.object({ positions: list, cities: list, expectedSalary: text, earliestStartDate: date }).strict().optional(),
+  links: z.object({ github: profileUrlSchema, portfolio: profileUrlSchema, personalSite: profileUrlSchema }).strict().optional(),
 }).strict().superRefine((profile, context) => {
   for (const key of collectionFactConflicts(profile)) context.addIssue({ code: 'custom', path: ['collectionFacts', key],
     message: '没有或不适用与已录入的资料冲突。请修改状态，已有记录不会被删除。' });

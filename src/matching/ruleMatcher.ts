@@ -16,9 +16,6 @@ export function matchField(field: FieldDescriptor, profile: UserProfile): MatchR
   const result = blankResult(field);
   if (field.blockedReason || field.disabled || field.readOnly) return { ...result, status: 'blocked', reason: field.blockedReason || '字段不可编辑。' };
   if (field.hasValue) return { ...result, status: 'existing', reason: '网页中已有内容，保留原值。' };
-  if (/英文(?:姓?名|姓名)|english[\s_-]*(?:full[\s_-]*)?name/iu.test([...directTexts(field), field.name, field.htmlId].join(' '))) {
-    return { ...result, reason: '当前档案未单独保存英文名，不能使用中文姓名或推测拼音，请人工填写。' };
-  }
   if (/平均成绩|平均分|学业成绩|百分制|average\s*(?:score|mark)/iu.test(directTexts(field).join(' '))) {
     return { ...result, reason: '该字段询问平均分或成绩，不能用GPA代替。当前档案没有独立平均分字段，请按成绩单人工填写。' };
   }
@@ -32,6 +29,13 @@ export function matchField(field: FieldDescriptor, profile: UserProfile): MatchR
   if (/家庭成员|家庭情况|家庭信息|亲属|紧急联系人|联系人|联系人员|推荐人|证明人|父亲|母亲|配偶|监护人|父母|联系人关系|emergency|family\s*(?:member|information)|father|mother|spouse|referee|reference\s*(?:name|phone|email)/i.test(localContext)) {
     return { ...result, status: 'blocked', sensitive: true, reason: '联系人或家庭成员字段需要人工对应，不能填入申请人本人信息。' };
   }
+  const nameEvidence = [...directTexts(field), field.name, field.htmlId].join(' ');
+  if (/英文(?:姓氏|名字)|英文姓(?!名)|(?:english[\s_-]*)?(?:first[\s_-]*name|last[\s_-]*name|given[\s_-]*name|surname)/iu.test(nameEvidence)) {
+    return { ...result, reason: '档案未独立保存英文名和姓的分项，不能拆分或猜测完整姓名。' };
+  }
+  const englishHint = /英文(?:名|姓名)|english[\s_-]*(?:full[\s_-]*)?name/iu.test(nameEvidence);
+  if (englishHint && !profile.basic.englishName?.trim()) return { ...result,
+    reason: '当前档案未单独保存英文名，不能使用中文姓名或推测拼音，请人工填写。' };
   const presence = matchCollectionPresence(field, profile, result);
   if (presence) return presence;
   const detected = detectField(field);
@@ -39,7 +43,15 @@ export function matchField(field: FieldDescriptor, profile: UserProfile): MatchR
   const alias = detected.alias;
   const sensitive = alias.sensitive ?? false;
   if (detected.ambiguous) return { ...result, status: 'review', sensitive, confidence: 0.65, reason: '字段同时匹配多个含义，需要人工确认。' };
-  if (alias.scope === 'basic' && ['name', 'phone', 'email', 'idNumber', 'birthday', 'address'].includes(alias.key)
+  if (englishHint && !(alias.scope === 'basic' && alias.key === 'englishName')) return { ...result,
+    status: 'review', sensitive: true, reason: '姓名标签与英文名提示不一致，需要确认字段含义。' };
+  if (alias.scope === 'basic' && ['heightCm', 'weightKg'].includes(alias.key)) {
+    const unitEvidence = directTexts(field).join(' ').normalize('NFKC');
+    const hasUnit = alias.key === 'heightCm' ? /厘米|\bcm\b/iu.test(unitEvidence) : /千克|公斤|\bkg\b/iu.test(unitEvidence);
+    const conflictingUnit = alias.key === 'heightCm' ? /英寸|inch|feet|\bft\b|米(?![\p{L}])/iu.test(unitEvidence.replace(/厘米/gu, '')) : /磅|\blbs?\b|pounds?|斤/iu.test(unitEvidence);
+    if (!hasUnit || conflictingUnit) return { ...result, status: 'review', reason: '网页的身高或体重单位未唯一明确为厘米/千克，不能推算或直接填数字。' };
+  }
+  if (alias.scope === 'basic' && ['name', 'englishName', 'phone', 'email', 'idNumber', 'birthday', 'address', 'healthStatus', 'maritalStatus', 'heightCm', 'weightKg'].includes(alias.key)
     && /项目|实习|工作经历|公司|学生组织|校内职务|社团|奖项|证书|project|internship|company|employer/i.test(field.sectionText)
     && !/本人|申请人|应聘者|applicant/i.test(directTexts(field).join(' '))) {
     return { ...result, status: 'review', sensitive: true, confidence: 0.5, reason: '该字段位于经历或组织区域，无法确认是否询问本人信息。' };

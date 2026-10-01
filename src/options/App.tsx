@@ -60,6 +60,12 @@ export function OptionsApp() {
           {section === 'awards' && <>{collection('awards')}{collection('certificates')}</>}
           {section === 'skills' && <><h2>专业技能</h2><CollectionFactEditor {...editorProps} factKey="computerSkills" title="计算机技能" /><p className="muted">每行一项，仅填写你实际掌握的技能。</p><Fields {...editorProps} base="skills" fields={[{ key: 'programmingLanguages', label: '编程语言', kind: 'list' }, { key: 'frameworks', label: '框架', kind: 'list' }, { key: 'tools', label: '工具', kind: 'list' }, { key: 'other', label: '其他技能', kind: 'list' }]} /></>}
           {section === 'answers' && <AnswerEditor {...editorProps} />}
+          {section === 'preferences' && <><h2>求职意向</h2><Fields {...editorProps} base="jobPreferences" fields={[
+            { key: 'positions', label: '期望岗位', kind: 'list', hint: '每行一项' }, { key: 'cities', label: '意向城市', kind: 'list', hint: '每行一项' },
+            { key: 'expectedSalary', label: '期望薪资', hint: '包含实际币种和周期，例如元/月；未知可留空' }, { key: 'earliestStartDate', label: '最早到岗日期', kind: 'date' },
+          ]} /><h2>个人作品与主页</h2><Fields {...editorProps} base="links" fields={[
+            { key: 'github', label: 'GitHub主页' }, { key: 'portfolio', label: '作品展示链接' }, { key: 'personalSite', label: '个人主页' },
+          ]} /><p className="muted">项目仓库链接请在对应项目里填写；只保存实际存在的网页地址。</p></>}
           {section === 'backup' && <BackupEditor profile={profile} onImport={imported => { setProfile(imported); setDirty(true); }} />}
         </fieldset>}
       </div>

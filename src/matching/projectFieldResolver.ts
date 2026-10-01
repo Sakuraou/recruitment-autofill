@@ -15,7 +15,7 @@ export type ProjectFieldResolution = Readonly<{
 }> | Readonly<{ status: 'request-human'; reason: ProjectFieldReason }>;
 
 const keys: ReadonlySet<string> = new Set(['name', 'description', 'responsibilities', 'role', 'organization',
-  'startDate', 'endDate', 'achievements', 'technologies']);
+  'startDate', 'endDate', 'achievements', 'technologies', 'url']);
 const ownershipCaptions = new Set(['项目经历', '项目', '课题', 'project', 'projects', 'project experience', 'project experiences'].map(normalize));
 
 function dateValue(value: string, field: FieldDescriptor): string | ProjectFieldReason {

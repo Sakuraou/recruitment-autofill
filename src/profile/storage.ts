@@ -16,7 +16,7 @@ export async function loadProfile(): Promise<UserProfile> {
   return raw === undefined ? createEmptyProfile() : profileSchema.parse(raw);
 }
 export async function saveProfile(profile: UserProfile): Promise<UserProfile> {
-  const valid = profileSchema.parse({ ...profile, updatedAt: new Date().toISOString() });
+  const valid = profileSchema.parse({ ...profile, revision: crypto.randomUUID(), updatedAt: new Date().toISOString() });
   const storage = await localStorageArea();
   await storage.set({ [PROFILE_STORAGE_KEY]: valid });
   return valid;

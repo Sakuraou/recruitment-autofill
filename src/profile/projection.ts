@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ProjectExperience, UserProfile } from './schema';
 import { checkDateRange, profileDateSchema } from './calendarDates';
 import { endDateFactSchema } from './facts';
+import { profileUrlSchema } from './urls';
 
 /** Fixed, payload-free request. The caller cannot choose a profile path or selector. */
 export const projectProjectionRequestSchema = z.object({ type: z.literal('RA_PROFILE_PROJECT') }).strict();
@@ -13,6 +14,7 @@ export const projectProjectionEntrySchema = z.object({
   name: optionalText,
   role: optionalText,
   organization: optionalText,
+  url: profileUrlSchema,
   startDate: profileDateSchema,
   endDate: profileDateSchema,
   endDateFact: endDateFactSchema.optional(),
@@ -40,6 +42,7 @@ function projectEntry(project: ProjectExperience): ProjectProjectionEntry {
     ...(project.name === undefined ? {} : { name: project.name }),
     ...(project.role === undefined ? {} : { role: project.role }),
     ...(project.organization === undefined ? {} : { organization: project.organization }),
+    ...(project.url === undefined ? {} : { url: project.url }),
     ...(project.startDate === undefined ? {} : { startDate: project.startDate }),
     ...(project.endDate === undefined ? {} : { endDate: project.endDate }),
     ...(project.endDateFact === undefined ? {} : { endDateFact: Object.freeze({ ...project.endDateFact }) }),
@@ -54,7 +57,7 @@ function projectEntry(project: ProjectExperience): ProjectProjectionEntry {
 export function projectProfile(profile: UserProfile): ProjectProjectionResponse {
   return Object.freeze({
     recordType: 'project',
-    profileRevision: profile.updatedAt ?? 'profile-without-updated-at',
+    profileRevision: profile.revision ?? profile.updatedAt ?? 'profile-without-updated-at',
     projects: Object.freeze(profile.projects.map(projectEntry)),
   });
 }
