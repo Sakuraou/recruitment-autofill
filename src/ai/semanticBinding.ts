@@ -73,6 +73,7 @@ export interface SemanticBindingSession {
 interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating' }
 interface LocalSession { snapshot: string; issuedAt: number; fields: ReadonlyMap<string, LocalField> }
 const sessions = new WeakMap<SemanticBindingSession, LocalSession>();
+const accepted = new WeakMap<object, Readonly<{ snapshot: string; issuedAt: number }>>();
 type CreateResult = { ok: true; session: SemanticBindingSession } | { ok: false; reason: 'invalid-graph' | 'no-candidates' | 'request-too-large' };
 export type BindingValidation = { ok: true; bindings: ReadonlyArray<Readonly<{ fieldId: string; path: SemanticBindingPath }>> }
   | { ok: false; reason: 'invalid-session' | 'stale-context' | 'invalid-response' | 'invalid-reference' | 'ownership-conflict' | 'unresolved' | 'uncertain' };
@@ -84,6 +85,16 @@ function validGraph(scan: ScanResult): boolean {
 function snapshot(scan: ScanResult, profile: UserProfile): string {
   // Private memory only; never expose a hash or serialization of personal values in the request.
   return JSON.stringify({ scanId: scan.scanId, url: scan.url, graph: scan.semanticGraph, fields: scan.fields, profile });
+}
+
+/** A JSON-shaped success object is not proof; only the original locally-issued result is accepted. */
+export function semanticBindingsCurrent(result: BindingValidation, scan: ScanResult, profile: UserProfile): boolean {
+  const receipt = accepted.get(result);
+  if (!receipt || !result.ok) return false;
+  try {
+    const age = Date.now() - receipt.issuedAt;
+    return age >= 0 && age <= 120_000 && validGraph(scan) && snapshot(scan, profile) === receipt.snapshot;
+  } catch { return false; }
 }
 function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
   let role: SemanticSectionRole = 'other'; let record: 'none' | 'creating' = 'none'; let allowed = true;
@@ -169,6 +180,8 @@ export function validateSemanticBindings(session: SemanticBindingSession, respon
       if (binding.certainty !== 'certain') return { ok: false, reason: 'uncertain' };
       seen.add(binding.ref); bindings.push(Object.freeze({ fieldId: target.fieldId, path: binding.path }));
     }
-    return { ok: true, bindings: Object.freeze(bindings) };
+    const result = Object.freeze({ ok: true as const, bindings: Object.freeze(bindings) });
+    accepted.set(result, { snapshot: local.snapshot, issuedAt: local.issuedAt });
+    return result;
   } catch { return { ok: false, reason: 'invalid-response' }; }
 }

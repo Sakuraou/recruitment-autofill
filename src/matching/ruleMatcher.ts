@@ -2,8 +2,8 @@ import type { UserProfile } from '../profile/schema';
 import type { FieldDescriptor, MatchResult } from '../shared/types';
 import { candidateStatus } from './confidence';
 import { bestFieldName, detectField, directTexts, fieldContext } from './fieldMatcher';
-import { matchOption } from './optionMatcher';
-import { effectiveMaxLength, resolveProfileValue } from './profileResolver';
+import { resolveProfileValue } from './profileResolver';
+import { finalizeCandidateValue, hasMeasurementUnits } from './candidateValue';
 import { matchCollectionPresence } from './collectionPresence';
 
 export const UNKNOWN_FIELD_REASON = '未找到可靠信息，需要人工填写。';
@@ -48,10 +48,7 @@ export function matchField(field: FieldDescriptor, profile: UserProfile): MatchR
   if (englishHint && !(alias.scope === 'basic' && alias.key === 'englishName')) return { ...result,
     status: 'review', sensitive: true, reason: '姓名标签与英文名提示不一致，需要确认字段含义。' };
   if (alias.scope === 'basic' && ['heightCm', 'weightKg'].includes(alias.key)) {
-    const unitEvidence = directTexts(field).join(' ').normalize('NFKC');
-    const hasUnit = alias.key === 'heightCm' ? /厘米|\bcm\b/iu.test(unitEvidence) : /千克|公斤|\bkg\b/iu.test(unitEvidence);
-    const conflictingUnit = alias.key === 'heightCm' ? /英寸|inch|feet|\bft\b|米(?![\p{L}])/iu.test(unitEvidence.replace(/厘米/gu, '')) : /磅|\blbs?\b|pounds?|斤/iu.test(unitEvidence);
-    if (!hasUnit || conflictingUnit) return { ...result, status: 'review', reason: '网页的身高或体重单位未唯一明确为厘米/千克，不能推算或直接填数字。' };
+    if (!hasMeasurementUnits(field, alias.key as 'heightCm' | 'weightKg')) return { ...result, status: 'review', reason: '网页的身高或体重单位未唯一明确为厘米/千克，不能推算或直接填数字。' };
   }
   if (alias.scope === 'basic' && ['name', 'englishName', 'phone', 'email', 'idNumber', 'birthday', 'address', 'healthStatus', 'maritalStatus', 'heightCm', 'weightKg'].includes(alias.key)
     && /项目|实习|工作经历|公司|学生组织|校内职务|社团|奖项|证书|project|internship|company|employer/i.test(field.sectionText)
@@ -63,15 +60,9 @@ export function matchField(field: FieldDescriptor, profile: UserProfile): MatchR
   const source = resolved.fuzzy ? 'fuzzy' : detected.source;
   if (!resolved.value) return { ...result, matchedProfileKey: resolved.key, status: resolved.review ? 'review' : 'missing',
     confidence: resolved.review ? confidence : 0, source, sensitive, reason: resolved.reason };
-  let matched: MatchResult = { ...result, matchedProfileKey: resolved.key, value: resolved.value, confidence, source, sensitive,
+  const matched: MatchResult = { ...result, matchedProfileKey: resolved.key, value: resolved.value, confidence, source, sensitive,
     status: resolved.review ? 'review' : candidateStatus(confidence, source), reason: resolved.reason };
-  const maxLength = effectiveMaxLength(field);
-  if (maxLength !== null && resolved.value.length > maxLength) return { ...matched, status: 'review', value: undefined,
-    reason: `档案原文超过 ${maxLength} 字限制，请人工改写；没有截断内容。` };
-  if (field.type === 'month' && /^\d{4}-\d{2}-\d{2}$/.test(resolved.value)) matched = { ...matched, value: resolved.value.slice(0, 7) };
-  if (field.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(resolved.value)) return { ...matched, value: undefined, status: 'review', reason: '网页需要完整日期，但档案只有年月；不能推测具体日期。' };
-  if (field.type === 'number' && !/^-?\d+(?:\.\d+)?$/.test(resolved.value)) return { ...matched, value: undefined, status: 'review', reason: '网页要求纯数字，档案格式不一致，需要人工确认数值。' };
-  return matchOption(field, matched);
+  return finalizeCandidateValue(field, matched);
 }
 
 export function matchFields(fields: FieldDescriptor[], profile: UserProfile): MatchResult[] {
