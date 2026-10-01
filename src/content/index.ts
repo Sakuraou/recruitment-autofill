@@ -3,6 +3,7 @@ import type { ContentResponse } from '../shared/types';
 import { fillScan } from './autofill';
 import { scanDocument, type ScanState } from './scanner';
 import { verifyScanObservation } from './scanFreshness';
+import { waitForDomStability } from './domStability';
 import { MobileWorkflow } from './mobileWorkflow';
 import { workflowRequestSchema } from '../workflow/model';
 import { EXTENSION_VERSION } from '../shared/version';
@@ -18,6 +19,7 @@ declare global {
 
 const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_SCAN') }).strict(),
+  z.object({ type: z.literal('RA_SCAN_SETTLED') }).strict(),
   z.object({ type: z.literal('RA_VERIFY_SCAN'), payload: z.object({ scanId: z.string().min(1).max(100) }).strict() }).strict(),
   z.object({ type: z.literal('RA_SELECTION') }).strict(),
   z.object({ type: z.literal('RA_WORKFLOW_START'), payload: workflowRequestSchema }).strict(),
@@ -149,6 +151,17 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return false;
     }
     if (workflow.isRunning()) { sendResponse({ ok: false, error: '连续填写正在运行，可在网页右下角暂停或停止' }); return false; }
+    if (request.type === 'RA_SCAN_SETTLED') {
+      filling = true; currentScan = undefined;
+      void waitForDomStability({ root: document.documentElement, quietWindowMs: 750, timeoutMs: 3000,
+        observe: { characterData: true }, predicate: () => !document.querySelector('[aria-busy="true"]') })
+        .then(result => {
+          if (result.status !== 'stable') throw new Error('网页仍在变化，请稍后重新扫描。');
+          currentScan = scanDocument(); sendResponse({ ok: true, data: currentScan.result });
+        }).catch(() => sendResponse({ ok: false, error: '网页尚未稳定或已经跳转，已停止后续填写。' }))
+        .finally(() => { filling = false; });
+      return true;
+    }
     if (request.type === 'RA_SCAN') {
       try {
         currentScan = scanDocument();

@@ -51,6 +51,7 @@ export interface SemanticProvider {
 }
 export interface SemanticInferenceOptions {
   timeoutMs?: number; signal?: AbortSignal;
+  excludedFieldIds?: ReadonlySet<string>;
   currentContext?: () => { scan: ScanResult; profile: UserProfile } | Promise<{ scan: ScanResult; profile: UserProfile }>;
 }
 export interface SemanticInferenceResult {
@@ -64,7 +65,7 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
   options: SemanticInferenceOptions = {}): Promise<SemanticInferenceResult> {
   if (options.signal?.aborted) return empty('cancelled');
   if (!provider) return empty('disabled');
-  const created = createSemanticBindingSession(scan, profile);
+  const created = createSemanticBindingSession(scan, profile, options.excludedFieldIds);
   if (!created.ok) return empty(created.reason === 'no-candidates' ? 'no-candidates' : 'rejected');
   const controller = new AbortController();
   const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(100, Math.min(options.timeoutMs!, 30_000)) : 15_000;

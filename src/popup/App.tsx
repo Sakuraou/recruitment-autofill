@@ -85,10 +85,11 @@ export function PopupApp() {
       const filled = result.outcomes.filter(item => item.status === 'filled').length;
       const stateMessage = {
         ready: 'AI 识别已处理', disabled: 'AI 未启用，请在“我的档案 → AI 识别连接”配置',
-        'no-candidates': '没有可交给 AI 的未知字段', rejected: 'AI 结果未通过核验，未用于填写',
+        'no-candidates': result.rounds ? 'AI 识别已处理，没有新增未知字段' : '没有可交给 AI 的未知字段', rejected: 'AI 结果未通过核验，未用于填写',
         unavailable: 'AI 服务不可用或页面已变化，未知字段未填', timeout: 'AI 识别超时，未知字段未填', cancelled: 'AI 识别已停止',
+        'no-progress': 'AI 识别已处理，本轮没有可继续自动填写的值', 'limit-reached': 'AI 识别已处理，已达到本次三轮上限',
       }[result.state];
-      setMessage(`本次已填写 ${filled} 项。${stateMessage}。剩余字段请查看匹配结果并检查网页。`);
+      setMessage(`本次已填写 ${filled} 项，AI 识别 ${result.rounds} 轮。${stateMessage}。剩余字段请查看匹配结果并检查网页。`);
     } catch (error) { setPlan(undefined); setMessage(controller.signal.aborted ? '已停止后续 AI 填写，请检查网页中已经填入的内容。' : errorMessage(error)); }
     finally { if (aiPending.current === controller) { aiPending.current = undefined; setBusy(false); } }
   }
@@ -135,7 +136,7 @@ export function PopupApp() {
       }}>下载问题报告（填写值已隐藏）</button>
       <details className="debug-panel"><summary>Debug · 识别详情（值已隐藏）</summary><pre>{debug}</pre><button className="secondary small" type="button" onClick={() => void navigator.clipboard.writeText(debug).then(() => setMessage('已复制脱敏调试信息。分享前请检查网站文字是否包含其他个人信息。')).catch(() => setMessage('复制失败，可手动选择调试文本。'))}>复制脱敏调试信息</button></details>
     </>}
-    <details className="jd-panel"><summary>岗位 JD · 手动备忘</summary><textarea aria-label="岗位 JD" rows={5} maxLength={20000} value={jd} onChange={event => setJd(event.target.value)} placeholder="粘贴岗位职责与要求。本版不调用 AI。" /><div className="row"><button type="button" className="secondary small" disabled={busy} onClick={() => { setBusy(true); void readSelection().then(text => text ? setJd(text) : setMessage('页面没有选中文本，请先选中岗位信息。')).catch(error => setMessage(errorMessage(error))).finally(() => setBusy(false)); }}>读取页面选中文本</button><span>{jd.length} 字符</span></div><p>仅在本次弹窗中保留，不参与规则匹配。关闭弹窗后清除。</p></details>
+    <details className="jd-panel"><summary>岗位 JD · 手动备忘</summary><textarea aria-label="岗位 JD" rows={5} maxLength={20000} value={jd} onChange={event => setJd(event.target.value)} placeholder="粘贴岗位职责与要求。仅作备忘，不参与 AI 识别。" /><div className="row"><button type="button" className="secondary small" disabled={busy} onClick={() => { setBusy(true); void readSelection().then(text => text ? setJd(text) : setMessage('页面没有选中文本，请先选中岗位信息。')).catch(error => setMessage(errorMessage(error))).finally(() => setBusy(false)); }}>读取页面选中文本</button><span>{jd.length} 字符</span></div><p>仅在本次弹窗中保留，不参与规则匹配。关闭弹窗后清除。</p></details>
     <p className="popup-footer"><span className="status-dot" />v{EXTENSION_VERSION} · 档案保存在本地 · 验证码与最终提交由你完成</p>
   </main>;
 }

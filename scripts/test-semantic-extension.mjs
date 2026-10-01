@@ -21,7 +21,8 @@ const service = createSemanticServer({ token, provider: async (request, signal) 
   const bindings = request.fields.flatMap(field => {
     const clues = `${field.label} ${field.ariaLabel}`;
     const path = clues.includes('称呼') ? 'basic.name' : clues.includes('身份称谓') ? 'basic.gender'
-      : clues.includes('诞生') ? 'basic.birthday' : clues.includes('体况') ? 'basic.healthStatus' : undefined;
+      : clues.includes('诞生') ? 'basic.birthday' : clues.includes('体况') ? 'basic.healthStatus'
+      : clues.includes('回信请寄往') ? 'basic.email' : undefined;
     return path ? [{ ref: field.ref, fingerprint: field.fingerprint, path, certainty: 'certain', evidence: 'label' }] : [];
   });
   if (mode === 'invalid' && bindings.length) bindings.push({ ...bindings[0], ref: 'field-29' });
@@ -34,7 +35,18 @@ const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>
 <label>您的诞生时刻<input type="date" id="b"></label><label>您的体况<input id="h"></label>
 <label>短信验证码<input id="captcha"></label><label>同意协议<input type="checkbox" id="consent"></label>
 <button type="submit">最终提交</button></section></form><script>window.submits=0;</script></body></html>`;
-const fixture = createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); response.end(html); });
+const dynamicHtml = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>虚构联动表单</title></head><body>
+<section id="fields"><h2>个人信息</h2><label>您的身份称谓<select id="g"><option value="">请选择</option><option value="opaque-m">男性</option></select></label></section>
+<button type="submit" onclick="window.submits++">最终提交</button><script>
+window.submits=0;let second=false;let third=false;
+document.querySelector('#g').addEventListener('change',()=>{if(second)return;second=true;setTimeout(()=>{
+document.querySelector('#fields').insertAdjacentHTML('beforeend','<label>回信请寄往<input type="email" id="e"></label>');
+document.querySelector('#e').addEventListener('change',()=>{if(third)return;third=true;setTimeout(()=>{
+document.querySelector('#fields').insertAdjacentHTML('beforeend','<label>如何称呼您<input id="u"></label>');
+document.querySelector('#u').addEventListener('change',()=>setTimeout(()=>{
+document.querySelector('#fields').insertAdjacentHTML('beforeend','<label>展示您制作的作品<input type="url" id="p"></label>');},600));},600);});},600);});
+</script></body></html>`;
+const fixture = createServer((request, response) => { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); response.end(request.url.startsWith('/dynamic') ? dynamicHtml : html); });
 let context;
 try {
   await new Promise((res, rej) => { service.once('error', rej); service.listen(43127, '127.0.0.1', res); });
@@ -62,12 +74,13 @@ try {
   await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
   const form = await context.newPage(); await form.goto(url);
   async function openPopup() {
+    const pageUrl = form.url();
     const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] });
-    const target = targetInfos.find(info => info.type === 'tab' && info.url === url); assert.ok(target);
+    const target = targetInfos.find(info => info.type === 'tab' && info.url === pageUrl); assert.ok(target);
     await cdp.send('Extensions.triggerAction', { id: extensionId, targetId: target.targetId });
     const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await worker.evaluate(async fixtureUrl => { const tabs = await chrome.tabs.query({});
-      const tab = tabs.find(item => item.url === fixtureUrl); await chrome.tabs.update(tab.id, { active: true }); }, url);
+      const tab = tabs.find(item => item.url === fixtureUrl); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl);
     return popup;
   }
   async function clickAi(popup) { await popup.getByRole('button', { name: 'AI 识别并填写本页', exact: true }).click(); }
@@ -148,6 +161,22 @@ try {
   await popup.getByText('未知字段未填', { exact: false }).waitFor();
   assert.equal(await form.locator('#u').inputValue(), ''); assert.equal(await form.locator('#g').inputValue(), ''); await popup.close();
   report.checks.push('Partially valid response with a forbidden field reference is rejected as a whole');
+
+  mode = 'normal'; await form.goto(`${url}dynamic`); popup = await openPopup(); previous = requests.length;
+  await clickAi(popup); await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+  await form.locator('#u').waitFor();
+  assert.equal(await form.locator('#g').inputValue(), 'opaque-m'); assert.equal(await form.locator('#e').inputValue(), profile.basic.email);
+  assert.equal(await form.locator('#u').inputValue(), '虚构用户乙'); assert.equal(requests.length - previous, 3);
+  assert.equal(await form.locator('#p').inputValue(), ''); await popup.getByText('已达到本次三轮上限', { exact: false }).waitFor();
+  assert.equal(await form.evaluate(() => window.submits), 0); await popup.close();
+  report.checks.push('One AI intent completes three unknown layers revealed after 600ms each, with fresh scan/session per layer; fourth layer stays pending at the explicit bound and no submit');
+
+  await form.reload(); popup = await openPopup(); previous = requests.length; await clickAi(popup);
+  await form.waitForFunction(() => document.querySelector('#g').value === 'opaque-m');
+  await popup.getByRole('button', { name: '停止 AI 填写', exact: true }).click();
+  await popup.getByText('已停止后续 AI 填写', { exact: false }).waitFor();
+  assert.equal(requests.length - previous, 1); assert.equal(await form.locator('#e').inputValue(), ''); await popup.close();
+  report.checks.push('Stop during delayed reveal prevents another model round or write while preserving the first selected answer');
 
   await options.getByRole('button', { name: '关闭 AI 连接', exact: true }).click();
   await options.getByText('已关闭 AI 连接并移除配对令牌。', { exact: false }).waitFor();

@@ -5,7 +5,8 @@ import type { ContentRequest, ContentResponse, FillOutcome, MatchResult, ScanRes
 import { EXTENSION_VERSION } from '../shared/version';
 import { loadAiConnection } from '../ai/connection';
 import { createLoopbackProvider } from '../ai/loopbackProvider';
-import { inferSemanticCandidates, type SemanticInferenceResult } from '../ai/semanticCandidates';
+import { inferSemanticCandidates } from '../ai/semanticCandidates';
+import { runAiFillWorkflow, type AiFillResult } from './aiWorkflow';
 
 export interface PagePlan { tabId: number; scan: ScanResult; matches: MatchResult[]; profile: UserProfile }
 export async function currentTab(): Promise<chrome.tabs.Tab & { id: number }> {
@@ -29,11 +30,11 @@ export async function send<T>(tabId: number, request: ContentRequest): Promise<T
     ? '网页仍运行旧版脚本，请先保留未保存内容，再刷新招聘网页以加载连续填写功能。' : response.error);
   return response.data;
 }
-export async function scanPage(): Promise<PagePlan> {
+export async function scanPage(settled = false): Promise<PagePlan> {
   const [tab, profile] = await Promise.all([currentTab(), loadProfile()]);
   try { await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }); }
   catch { throw new Error('无法访问此页面。请确认是普通网页；file:// 测试页需要在扩展详情开启文件访问，或使用本地测试服务器。'); }
-  const scan = await send<ScanResult>(tab.id, { type: 'RA_SCAN' });
+  const scan = await send<ScanResult>(tab.id, { type: settled ? 'RA_SCAN_SETTLED' : 'RA_SCAN' });
   if (scan.contentVersion !== EXTENSION_VERSION) throw new Error(`扩展已是 v${EXTENSION_VERSION}，但网页仍运行旧版脚本。请先保留未保存内容，再刷新招聘网页后扫描。`);
   return { tabId: tab.id, scan, matches: matchFields(scan.fields, profile), profile };
 }
@@ -60,6 +61,7 @@ export interface IterativeFillResult { plan: PagePlan; outcomes: FillOutcome[]; 
  */
 export async function fillAutoUntilStable(initial: PagePlan, maxRounds = 4, signal?: AbortSignal): Promise<IterativeFillResult> {
   let plan = initial;
+  const profileSnapshot = JSON.stringify(initial.profile);
   const outcomes: FillOutcome[] = [];
   let rounds = 0;
   for (; rounds < maxRounds; rounds++) {
@@ -73,35 +75,29 @@ export async function fillAutoUntilStable(initial: PagePlan, maxRounds = 4, sign
     await new Promise((resolve) => setTimeout(resolve, 300));
     signal?.throwIfAborted();
     plan = await scanPage();
+    if (plan.tabId !== initial.tabId || plan.scan.url !== initial.scan.url || JSON.stringify(plan.profile) !== profileSnapshot)
+      throw new Error('页面或档案已变化，已停止后续填写。');
   }
   return { plan, outcomes, rounds };
 }
 
-export interface AiFillResult { plan: PagePlan; outcomes: FillOutcome[]; state: SemanticInferenceResult['state'] }
 /** Explicit whole-page AI intent. Ordinary rules run first; model candidates still pass local value and live-DOM guards. */
 export async function fillWithAi(signal: AbortSignal): Promise<AiFillResult> {
   signal.throwIfAborted();
   const connection = await loadAiConnection();
-  const initial = await scanPage(); signal.throwIfAborted();
-  const ordinary = await fillAutoUntilStable(initial, 4, signal);
-  const plan = ordinary.plan;
   const provider = connection ? createLoopbackProvider({ protocol: 1, token: connection.token }) : undefined;
-  const inferred = await inferSemanticCandidates(plan.scan, plan.profile, provider, { signal, currentContext: async () => {
+  return runAiFillWorkflow({ scan: () => scanPage(), scanAfterFill: () => scanPage(true),
+    fillRules: (plan, activeSignal) => fillAutoUntilStable(plan, 4, activeSignal),
+    fillModel: (plan, ids, activeSignal) => fillPlan(plan, ids, 'review', activeSignal),
+    infer: (plan, activeSignal, excludedFieldIds) => inferSemanticCandidates(plan.scan, plan.profile, provider, { signal: activeSignal, excludedFieldIds, currentContext: async () => {
     const [tab, profile, latestConnection] = await Promise.all([currentTab(), loadProfile(), loadAiConnection()]);
     signal.throwIfAborted();
     if (tab.id !== plan.tabId || tab.url !== plan.scan.url || JSON.stringify(latestConnection) !== JSON.stringify(connection))
       throw new Error('页面或 AI 连接已经改变');
     const scan = await send<ScanResult>(plan.tabId, { type: 'RA_VERIFY_SCAN', payload: { scanId: plan.scan.scanId } });
     return { scan, profile };
-  } });
-  signal.throwIfAborted();
-  const replacements = new Map(inferred.matches.map(match => [match.fieldId, match]));
-  const augmented: PagePlan = { ...plan, matches: plan.matches.map(match => replacements.get(match.fieldId) ?? match) };
-  const ids = new Set(inferred.matches.filter(match => match.status === 'review' && match.value !== undefined && match.confidence >= 0.9).map(match => match.fieldId));
-  if (!ids.size) return { plan: augmented, outcomes: ordinary.outcomes, state: inferred.state };
-  const filled = await fillPlan(augmented, ids, 'review', signal);
-  signal.throwIfAborted();
-  return { plan: await scanPage(), outcomes: [...ordinary.outcomes, ...filled], state: inferred.state };
+    } }),
+  }, signal);
 }
 export async function readSelection(): Promise<string> {
   const tab = await currentTab();

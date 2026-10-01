@@ -30,6 +30,12 @@ const providerFor = (path: SemanticBindingPath = 'basic.name'): SemanticProvider
 afterEach(() => { vi.useRealTimers(); });
 
 describe('M5 local semantic candidates', () => {
+  it('excludes already considered fields using current references without a provider retry or altering the full observation', async () => {
+    const s = setup(); const provider = providerFor(); const before = JSON.stringify(s.scan);
+    const result = await inferSemanticCandidates(s.scan, s.profile, provider, { excludedFieldIds: new Set(s.scan.fields.map(field => field.id)) });
+    expect(result).toEqual({ state: 'no-candidates', matches: [] }); expect(provider.propose).not.toHaveBeenCalled();
+    expect(JSON.stringify(s.scan)).toBe(before);
+  });
   it('uses a signed binding to read the saved local name, retaining llm and review provenance', () => {
     const s = setup(); const proposal = binding(s);
     const result = resolveSemanticCandidates(proposal, s.scan, s.profile);

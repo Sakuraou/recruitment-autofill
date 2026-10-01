@@ -62,7 +62,7 @@ function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
 }
 
 /** Read-only proposal preparation. No model invocation or execution capability is granted. */
-export function createSemanticBindingSession(scan: ScanResult, profile: UserProfile): CreateResult {
+export function createSemanticBindingSession(scan: ScanResult, profile: UserProfile, excludedFieldIds?: ReadonlySet<string>): CreateResult {
   try {
     if (!validGraph(scan)) return { ok: false, reason: 'invalid-graph' };
     const graph = scan.semanticGraph!;
@@ -73,6 +73,7 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
     for (const node of graph.nodes) {
       if (node.kind !== 'field' || fields.length >= 30) continue;
       const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes);
+      if (excludedFieldIds?.has(field.id)) continue;
       if (!ownership.allowed || field.blockedReason || field.disabled || field.readOnly || field.hasValue || field.kind === 'checkbox') continue;
       if (field.kind === 'input' && !['text', 'search', 'email', 'tel', 'url', 'number', 'date', 'month'].includes(field.type)) continue;
       const match = matchField(field, profile);
