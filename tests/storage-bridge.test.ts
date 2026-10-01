@@ -51,6 +51,17 @@ describe('local profile storage', () => {
     expect(local.set).not.toHaveBeenCalled();
     expect(await loadProfile()).toEqual(profile);
   });
+  it('集合事实保存往返保留来源，冲突保存不覆盖原档案', async () => {
+    const enriched = { ...profile, collectionFacts: { projects: { state: 'none' as const, source: 'user' as const, confirmed: true,
+      updatedAt: '2026-10-01T00:00:00.000Z' } } };
+    const saved = await saveProfile(enriched);
+    expect(saved.collectionFacts).toEqual(enriched.collectionFacts);
+    local.get.mockResolvedValueOnce({ [PROFILE_STORAGE_KEY]: saved });
+    expect((await loadProfile()).collectionFacts).toEqual(enriched.collectionFacts);
+    local.set.mockClear();
+    await expect(saveProfile({ ...enriched, projects: [{ id: 'p', name: '虚构项目', technologies: [] }] })).rejects.toThrow('冲突');
+    expect(local.set).not.toHaveBeenCalled();
+  });
 });
 describe('popup execution gates', () => {
   it('拒绝旧页面脚本，明确告知刷新招聘网页而不是反复重装', async () => {

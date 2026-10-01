@@ -3,7 +3,7 @@ import { createEmptyProfile, type UserProfile } from '../profile/schema';
 import { isExtensionContext, loadProfile, saveProfile } from '../profile/storage';
 import { updatePath } from '../shared/profilePaths';
 import { errorMessage } from '../shared/errors';
-import { Fields, CollectionEditor } from './Editors';
+import { Fields, CollectionEditor, CollectionFactEditor } from './Editors';
 import { answerFields, basicFields, collections, sections } from './fields';
 import { AnswerEditor } from './AnswerEditor';
 import { BackupEditor } from './BackupEditor';
@@ -58,7 +58,7 @@ export function OptionsApp() {
           {section === 'family' && <p className="notice">家庭成员保存在本地。MVP 1 对家庭与联系人字段保留人工填写，避免与本人信息混淆。</p>}
           {section === 'research' && <><h2>科研经历</h2><Fields {...editorProps} base="research" fields={[{ key: 'researchDirection', label: '总体研究方向', kind: 'textarea' }, { key: 'summary', label: '科研总结', kind: 'textarea' }]} />{collection('papers')}{collection('patents')}</>}
           {section === 'awards' && <>{collection('awards')}{collection('certificates')}</>}
-          {section === 'skills' && <><h2>专业技能</h2><p className="muted">每行一项，仅填写你实际掌握的技能。</p><Fields {...editorProps} base="skills" fields={[{ key: 'programmingLanguages', label: '编程语言', kind: 'list' }, { key: 'frameworks', label: '框架', kind: 'list' }, { key: 'tools', label: '工具', kind: 'list' }, { key: 'other', label: '其他技能', kind: 'list' }]} /></>}
+          {section === 'skills' && <><h2>专业技能</h2><CollectionFactEditor {...editorProps} factKey="computerSkills" title="计算机技能" /><p className="muted">每行一项，仅填写你实际掌握的技能。</p><Fields {...editorProps} base="skills" fields={[{ key: 'programmingLanguages', label: '编程语言', kind: 'list' }, { key: 'frameworks', label: '框架', kind: 'list' }, { key: 'tools', label: '工具', kind: 'list' }, { key: 'other', label: '其他技能', kind: 'list' }]} /></>}
           {section === 'answers' && <AnswerEditor {...editorProps} />}
           {section === 'backup' && <BackupEditor profile={profile} onImport={imported => { setProfile(imported); setDirty(true); }} />}
         </fieldset>}

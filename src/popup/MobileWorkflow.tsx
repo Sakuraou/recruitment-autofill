@@ -63,6 +63,7 @@ export function MobileWorkflowControls() {
     {active && <div className="popup-actions"><button className="secondary" type="button" disabled={busy} onClick={() => void action(state.phase === 'running' ? 'RA_WORKFLOW_PAUSE' : 'RA_WORKFLOW_RESUME')}>{state.phase === 'running' ? '暂停连续填写' : '继续连续填写'}</button>
       <button className="secondary" type="button" disabled={busy} onClick={() => void action('RA_WORKFLOW_STOP')}>停止连续填写</button></div>}
     {error && <p className="notice" role="alert">{error}</p>}
-    <small>关闭弹窗后任务继续。未知的证明、薪资等不会采用默认“否”或随意猜测；家庭、求职意向等未核验栏目会列入待办。最终投递由你完成。</small>
+    {busy && !active && <p role="status">正在准备任务，请等网页显示任务已开始后再关闭弹窗。</p>}
+    <small>网页确认任务已开始后，关闭弹窗仍会继续。未知的证明、薪资等不会采用默认“否”或随意猜测；家庭、求职意向等未核验栏目会列入待办。最终投递由你完成。</small>
   </section>;
 }

@@ -58,6 +58,21 @@ try {
   await options.screenshot({ path: resolve(artifacts, 'options.png'), fullPage: true });
   report.checks.push('Options JSON import, save to chrome.storage.local, reload and persistence');
 
+  await options.getByRole('button', { name: /03 项目经历/ }).click();
+  await options.getByLabel('是否有项目经历', { exact: true }).selectOption('none');
+  const beforeFactConflict = await options.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']);
+  await options.getByRole('button', { name: '保存档案' }).click();
+  await options.getByText('没有或不适用与已录入的资料冲突。', { exact: false }).waitFor();
+  assert.deepEqual(await options.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']), beforeFactConflict);
+  assert.equal(await options.getByLabel('项目名称', { exact: true }).first().inputValue(), profile.projects[0].name);
+  await options.getByLabel('是否有项目经历', { exact: true }).selectOption('known');
+  await options.getByRole('button', { name: '保存档案' }).click();
+  await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
+  await options.reload();
+  await options.getByRole('button', { name: /03 项目经历/ }).click();
+  assert.equal(await options.getByLabel('是否有项目经历', { exact: true }).inputValue(), 'known');
+  report.checks.push('Collection fact editor preserves project records on a contradictory No, refuses the storage write, then saves explicit Yes and reloads its metadata');
+
   await options.getByRole('button', { name: /11 导入与备份/ }).click();
   const originalStorage = await options.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']);
   for (const invalid of [
@@ -78,6 +93,10 @@ try {
   const backup = JSON.parse(await readFile(backupPath, 'utf8'));
   assert.deepEqual(backup.education, profile.education);
   assert.deepEqual(backup.basic, profile.basic);
+  assert.equal(backup.collectionFacts.projects.state, 'known');
+  assert.equal(backup.collectionFacts.projects.source, 'user');
+  assert.equal(backup.collectionFacts.projects.confirmed, true);
+  assert.ok(backup.collectionFacts.projects.updatedAt);
   report.checks.push('Actual JSON download contains saved fictional profile');
   await options.close();
 
@@ -247,6 +266,52 @@ try {
   await legacy.screenshot({ path: resolve(artifacts, 'legacy-form.png'), fullPage: true });
   report.checks.push('Traditional portal: semantic long IDs, table/div labels, readonly birthday, radio, profile-level education, aggregate answers, iframe and open shadow fields fill automatically; unknown source fields stay empty; no submit');
   await legacyPopup.close();
+
+  const factsProfile = { ...profile, projects: [profile.projects[0]], internships: [], certificates: [] };
+  await worker.evaluate(async value => {
+    await chrome.storage.local.set({ 'recruitment.profile.v1': value });
+  }, factsProfile);
+  const factsOptions = await context.newPage();
+  await factsOptions.goto(`chrome-extension://${extensionId}/options.html`);
+  await factsOptions.getByRole('button', { name: /04 实习经历/ }).click();
+  await factsOptions.getByLabel('是否有实习经历', { exact: true }).selectOption('none');
+  await factsOptions.getByRole('button', { name: '保存档案' }).click();
+  await factsOptions.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
+  await factsOptions.reload();
+  await factsOptions.getByRole('button', { name: /04 实习经历/ }).click();
+  assert.equal(await factsOptions.getByLabel('是否有实习经历', { exact: true }).inputValue(), 'none');
+  await factsOptions.close();
+  const factsUrl = 'http://127.0.0.1:4173/collection-facts-form.html';
+  const factsPage = await context.newPage();
+  await factsPage.goto(factsUrl);
+  const factsTargets = await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] });
+  const factsTarget = factsTargets.targetInfos.find(target => target.url === factsUrl);
+  assert.ok(factsTarget);
+  await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: factsTarget.targetId });
+  const factsPopup = await context.newPage();
+  await factsPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await worker.evaluate(async url => {
+    const tab = (await chrome.tabs.query({})).find(target => target.url === url);
+    await chrome.tabs.update(tab.id, { active: true });
+  }, factsUrl);
+  await factsPopup.getByRole('button', { name: '扫描页面', exact: true }).click();
+  await factsPopup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+  await factsPopup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+  await factsPopup.getByRole('status').filter({ hasText: /已填写/ }).waitFor();
+  assert.equal(await factsPage.locator('#projects-present').inputValue(), 'opaque-a');
+  assert.equal(await factsPage.locator('#internships-present').inputValue(), 'opaque-d');
+  assert.equal(await factsPage.locator('#papers-present').inputValue(), 'opaque-g');
+  assert.equal(await factsPage.locator('#certificates-present').inputValue(), '');
+  assert.equal(await factsPage.locator('#combined').inputValue(), '');
+  assert.equal(await factsPage.locator('#project-name').inputValue(), profile.projects[0].name);
+  assert.equal(await factsPage.locator('#submit-count').textContent(), '0');
+  assert.match(await factsPopup.getByRole('status').textContent(), /自动重扫 1 次/);
+  report.checks.push('Explicit No edited in the production options persists; ordinary collection questions use unique visible Yes/No, keep unknown empty and combined questions unanswered, and rescan/fill the project field revealed by Yes without submitting');
+  await factsPopup.close();
+  await factsPage.close();
+  await worker.evaluate(async value => {
+    await chrome.storage.local.set({ 'recruitment.profile.v1': value });
+  }, backup);
 
   // Fulfill an isolated synthetic fixture at the adapter's origin. This never reaches the actual site.
   const mobileUrl = 'https://job.10086.cn/personal/resume_campus.html?fixture=1';

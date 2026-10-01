@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { checkDateRange, profileDateSchema as date } from './calendarDates';
+import { collectionFactConflicts, collectionFactsSchema } from './facts';
 
 const text = z.string().max(20000).optional();
 const list = z.array(z.string().max(2000)).max(100).default([]);
@@ -85,7 +86,11 @@ export const profileSchema = z.object({
   skills: z.object({ programmingLanguages: list, frameworks: list, tools: list, other: list }).strict(),
   commonAnswers: commonAnswersSchema,
   family: z.array(familyMemberSchema).max(30),
-}).strict();
+  collectionFacts: collectionFactsSchema.optional(),
+}).strict().superRefine((profile, context) => {
+  for (const key of collectionFactConflicts(profile)) context.addIssue({ code: 'custom', path: ['collectionFacts', key],
+    message: '没有或不适用与已录入的资料冲突。请修改状态，已有记录不会被删除。' });
+});
 
 export type UserProfile = z.infer<typeof profileSchema>;
 export type Paper = z.infer<typeof paperSchema>;

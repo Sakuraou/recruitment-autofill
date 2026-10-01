@@ -4,6 +4,7 @@ import { candidateStatus } from './confidence';
 import { bestFieldName, detectField, directTexts, fieldContext } from './fieldMatcher';
 import { matchOption } from './optionMatcher';
 import { effectiveMaxLength, resolveProfileValue } from './profileResolver';
+import { matchCollectionPresence } from './collectionPresence';
 
 function blankResult(field: FieldDescriptor): MatchResult {
   return { fieldId: field.id, fieldName: bestFieldName(field),
@@ -31,6 +32,8 @@ export function matchField(field: FieldDescriptor, profile: UserProfile): MatchR
   if (/家庭成员|家庭情况|家庭信息|亲属|紧急联系人|联系人|联系人员|推荐人|证明人|父亲|母亲|配偶|监护人|父母|联系人关系|emergency|family\s*(?:member|information)|father|mother|spouse|referee|reference\s*(?:name|phone|email)/i.test(localContext)) {
     return { ...result, status: 'blocked', sensitive: true, reason: '联系人或家庭成员字段需要人工对应，不能填入申请人本人信息。' };
   }
+  const presence = matchCollectionPresence(field, profile, result);
+  if (presence) return presence;
   const detected = detectField(field);
   if (!detected) return result;
   const alias = detected.alias;
