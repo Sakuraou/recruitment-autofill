@@ -5,10 +5,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { build as bundle } from 'esbuild';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const artifacts = resolve(root, 'artifacts');
 const url = 'http://localhost:3000/repeatable-records?case=happy';
+const ordinaryUrls = ['https://careers.example.test/projects?step=2', 'https://jobs.example.test/experience'];
 const report = { startedAt: new Date().toISOString(), checks: [], externalRequests: [], errors: [] };
 await mkdir(artifacts, { recursive: true });
 const html = await readFile(resolve(root, 'tests/fixtures/record-v2.html'), 'utf8');
@@ -43,8 +45,10 @@ try {
   });
   context.setDefaultTimeout(15_000);
   await context.route(/^https?:/, async route => {
-    if (route.request().url() === url) {
-      await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+    if (route.request().url() === url || ordinaryUrls.includes(route.request().url())) {
+      const ordinary = html.replace('data-ra-record-v2-fixture="v1"', '')
+        .replace(/<meta name="ra-record-v2-fixture"[^>]+>/u, '').replace('data-schema="record-v2-six-projects-v1"', '');
+      await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: route.request().url() === url ? html : ordinary });
     } else {
       report.externalRequests.push(route.request().url());
       await route.abort();
@@ -305,6 +309,34 @@ try {
   report.checks.push('Unknown editor field is reported as a semantic gap before writing any known field or saving');
   await unknownPopup.close();
   await unknown.close();
+
+  // This isolated browser harness calls the shared driver directly. The MV3
+  // runtime keeps its fixed fixture factory; ordinary-page production UI is a later gate.
+  const harness = await bundle({ stdin: { contents: "import { createProjectRecordSession } from './src/content/projectRecordSession'; window.startProjectHarness = projection => { window.projectHarness = createProjectRecordSession(document, projection); };", resolveDir: root },
+    bundle: true, write: false, format: 'iife', target: 'chrome114' });
+  const projection = { recordType: 'project', profileRevision: 'fictional-browser-revision', projects: profile.projects };
+  for (const [index, address] of ordinaryUrls.entries()) {
+    const ordinary = await context.newPage();
+    await ordinary.addInitScript(() => { window.fixtureEditorLayout = 'rich'; });
+    await ordinary.goto(address);
+    await ordinary.evaluate(usePlus => {
+      if (usePlus) [...document.querySelectorAll('button')].find(button => button.textContent === '添加项目经历').textContent = '+';
+    }, index === 0);
+    await ordinary.addScriptTag({ content: harness.outputFiles[0].text });
+    await ordinary.evaluate(value => window.startProjectHarness(value), projection);
+    let finished = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const result = await ordinary.evaluate(() => window.projectHarness.advance());
+      if (result.status === 'complete') { finished = true; break; }
+      assert.equal(result.status, 'advanced');
+    }
+    assert.equal(finished, true);
+    assert.deepEqual(await ordinary.evaluate(() => ({ add: window.fixture.add, save: window.fixture.save,
+      delete: window.fixture.delete, upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit })),
+    { add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0 });
+    await ordinary.close();
+    report.checks.push(`Shared ordinary-page driver completes six projects without fixture eligibility markers on host ${index + 1}, including scoped plus action`);
+  }
 
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);
