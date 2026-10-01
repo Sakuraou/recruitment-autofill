@@ -241,6 +241,21 @@ describe('Record v2 固定虚构会话', () => {
     expect(counters.save).toBe(0);
   });
 
+  it.each(['silent-value', 'new-field'] as const)('字段核验后到保存前仍检查原观察：%s', async mode => {
+    const { counters, list } = installFixture();
+    const session = createRecordV2FixtureSession(document, projection);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    if (mode === 'silent-value') list.querySelector('textarea')!.value = '通过脚本更改的虚构项目内容';
+    else {
+      const label = document.createElement('label'); label.innerHTML = '新增必填<input required>';
+      list.querySelector('form')!.append(label);
+    }
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'fields-changed-after-verification' });
+    expect(counters.add).toBe(1); expect(counters.save).toBe(0);
+    if (mode === 'silent-value') expect(list.querySelector('textarea')!.value).toBe('通过脚本更改的虚构项目内容');
+  });
+
   it('步骤间新增按钮改为最终提交时不再点击', async () => {
     const { counters, list } = installFixture();
     const session = createRecordV2FixtureSession(document, projection);

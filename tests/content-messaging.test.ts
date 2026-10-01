@@ -60,6 +60,18 @@ describe('Content Script 消息入口', () => {
     expect(response).toHaveBeenLastCalledWith({ ok: false, error: '通用多记录填写功能尚未启用' });
   });
 
+  it('项目试用只接受空载荷，并返回无个人值的可用性状态', () => {
+    const response = vi.fn();
+    listener({ type: 'RA_PROJECT_RECORD_STATUS' }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: true, data: { version: expect.any(String),
+      state: { phase: 'idle', total: 0, canStart: false, reason: 'record-list-unverified' } } });
+    listener({ type: 'RA_PROJECT_RECORD_START', payload: { selector: '#submit', profile: {} } }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: false, error: '无效的扩展请求' });
+    response.mockClear();
+    listener({ type: 'RA_PROJECT_RECORD_START' }, { ...sender, url: 'https://untrusted.example/' }, response);
+    expect(response).not.toHaveBeenCalled();
+  });
+
   it('扫描只返回可序列化描述，随后填写对应的内存节点', async () => {
     const response = vi.fn();
     listener({ type: 'RA_SCAN' }, sender, response);

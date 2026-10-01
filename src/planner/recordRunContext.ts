@@ -14,6 +14,7 @@ export type RecordRunCaptureFailureReason = RecordPlanHumanReason
   | 'record-target-disconnected'
   | 'record-target-outside-list'
   | 'record-target-ambiguous'
+  | 'fields-changed-after-verification'
   | 'handle-limit-reached';
 
 export interface RecordRunCaptureFailure {

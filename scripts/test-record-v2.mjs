@@ -310,6 +310,24 @@ try {
   await unknownPopup.close();
   await unknown.close();
 
+  for (const mode of ['silent-value', 'new-field']) {
+    const changed = await context.newPage(); await changed.goto(url); await grant(changed);
+    const changedPopup = await popupFor(changed);
+    assert.equal((await message(changedPopup, { type: 'RA_RECORD_V2_START' })).ok, true);
+    for (let step = 0; step < 2; step++) assert.equal((await message(changedPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data.status, 'advanced');
+    await changed.evaluate(value => {
+      const form = document.querySelector('form');
+      if (value === 'silent-value') form.querySelector('textarea').value = '通过脚本更改的虚构项目内容';
+      else { const label = document.createElement('label'); label.innerHTML = '新增必填<input required>'; form.append(label); }
+    }, mode);
+    assert.deepEqual((await message(changedPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data,
+      { status: 'request-human', snapshotVersion: 3, reason: 'fields-changed-after-verification' });
+    assert.equal(await changed.evaluate(() => window.fixture.save), 0);
+    if (mode === 'silent-value') assert.equal(await changed.locator('textarea').inputValue(), '通过脚本更改的虚构项目内容');
+    await changedPopup.close(); await changed.close();
+    report.checks.push(`Fresh pre-save capture retains verified field evidence and stops ${mode} with zero Save`);
+  }
+
   // This isolated browser harness calls the shared driver directly. The MV3
   // runtime keeps its fixed fixture factory; ordinary-page production UI is a later gate.
   const harness = await bundle({ stdin: { contents: "import { createProjectRecordSession } from './src/content/projectRecordSession'; window.startProjectHarness = projection => { window.projectHarness = createProjectRecordSession(document, projection); };", resolveDir: root },

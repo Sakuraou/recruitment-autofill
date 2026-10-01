@@ -9,6 +9,7 @@ import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
 import { requestProjectProjection } from './profileProjectionClient';
+import { ProjectRecordWorkflow } from './projectRecordWorkflow';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -28,6 +29,11 @@ const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_RECORD_V2_PAUSE') }).strict(),
   z.object({ type: z.literal('RA_RECORD_V2_RESUME') }).strict(),
   z.object({ type: z.literal('RA_RECORD_V2_STOP') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_START') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_STATUS') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_PAUSE') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_STOP') }).strict(),
   z.object({ type: z.literal('RA_FILL'), payload: z.object({
     scanId: z.string().min(1).max(100),
     items: z.array(z.object({
@@ -41,6 +47,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
+  const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection);
   let projectProjection: Awaited<ReturnType<typeof requestProjectProjection>> | undefined;
   let projectProjectionRequest: Promise<Awaited<ReturnType<typeof requestProjectProjection>>> | undefined;
   const recordV2 = new RecordV2Gateway({
@@ -58,6 +65,30 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     const parsed = requestSchema.safeParse(message);
     if (!parsed.success) { sendResponse({ ok: false, error: '无效的扩展请求' }); return false; }
     const request = parsed.data;
+    if (request.type === 'RA_PROJECT_RECORD_START' || request.type === 'RA_PROJECT_RECORD_STATUS'
+      || request.type === 'RA_PROJECT_RECORD_PAUSE' || request.type === 'RA_PROJECT_RECORD_RESUME'
+      || request.type === 'RA_PROJECT_RECORD_STOP') {
+      try {
+        if (request.type === 'RA_PROJECT_RECORD_STATUS') {
+          sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: projectWorkflow.status() } }); return false;
+        }
+        if (request.type === 'RA_PROJECT_RECORD_STOP' || request.type === 'RA_PROJECT_RECORD_PAUSE') {
+          currentScan = undefined;
+          sendResponse({ ok: true, data: request.type === 'RA_PROJECT_RECORD_STOP' ? projectWorkflow.stop() : projectWorkflow.pause() }); return false;
+        }
+        if (filling || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
+          || ['ready', 'running', 'paused'].includes(recordV2.status().state)) {
+          throw new Error('另一个填写任务尚未结束，请先停止该任务');
+        }
+        currentScan = undefined;
+        void (request.type === 'RA_PROJECT_RECORD_START' ? projectWorkflow.start() : projectWorkflow.resume())
+          .then(data => sendResponse({ ok: true, data }))
+          .catch(() => sendResponse({ ok: false, error: '项目任务尚未就绪，请检查网页并停止当前任务后重试' }));
+        return true;
+      } catch (error) {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : '项目任务操作失败' }); return false;
+      }
+    }
     if (request.type === 'RA_RECORD_V2_STATUS'
       || request.type === 'RA_RECORD_V2_START'
       || request.type === 'RA_RECORD_V2_ADVANCE'
@@ -65,6 +96,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_RECORD_V2_RESUME'
       || request.type === 'RA_RECORD_V2_STOP') {
       try {
+        if (request.type !== 'RA_RECORD_V2_STATUS' && request.type !== 'RA_RECORD_V2_STOP'
+          && (projectWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
         if (request.type === 'RA_RECORD_V2_STATUS') {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
@@ -107,6 +140,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return false;
     }
     if (filling) { sendResponse({ ok: false, error: '正在填写，请等待完成后再操作' }); return false; }
+    if (projectWorkflow.holdsPage()) { sendResponse({ ok: false, error: '项目任务尚未结束，请在扩展中暂停或停止；其它填写模式需先停止项目任务' }); return false; }
     if (request.type === 'RA_WORKFLOW_START' || request.type === 'RA_WORKFLOW_RESUME') {
       try { sendResponse({ ok: true, data: request.type === 'RA_WORKFLOW_START' ? workflow.start(request.payload) : workflow.resume() }); }
       catch (error) { sendResponse({ ok: false, error: error instanceof Error ? error.message : '启动连续填写失败' }); }

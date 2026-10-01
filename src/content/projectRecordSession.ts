@@ -63,6 +63,7 @@ class ProjectDriver implements RecordOrchestratorDriver {
   readonly #records: readonly ProjectProjectionResponse['projects'][number][];
   readonly #observations = new WeakMap<RecordRunCapture, ProjectObservation>();
   readonly #identities = new WeakMap<RecordRunCapture, string>();
+  #verifiedFields?: { readonly observation: ProjectObservation; readonly capture: RecordRunCapture };
 
   constructor(context: RecordRunContext, projection: ProjectProjectionResponse,
     observer: () => ProjectObservation | undefined) {
@@ -74,6 +75,13 @@ class ProjectDriver implements RecordOrchestratorDriver {
   capture(): RecordRunCapture | RecordRunCaptureFailure {
     const observation = this.#observe();
     if (!observation) return { status: 'request-human', snapshotVersion: 0, reason: 'record-list-unverified' };
+    // Populate deliberately requires a new adjacent capture before Save. Do
+    // not let that fresh capture erase evidence of silent value/field changes.
+    if (this.#verifiedFields && !recordObservationMatches(this.#verifiedFields.observation.scan,
+      observation.scan, this.#verifiedFields.capture.snapshot.recordListNodeId)) {
+      return { status: 'request-human', snapshotVersion: this.#verifiedFields.capture.snapshotVersion,
+        reason: 'fields-changed-after-verification' };
+    }
     const capture = this.#context.capture(observation.source);
     if (capture.status === 'ready') {
       this.#observations.set(capture, observation);
@@ -132,6 +140,10 @@ class ProjectDriver implements RecordOrchestratorDriver {
     const observation = this.#observations.get(capture);
     if (!observation) throw new Error('project observation missing');
     const list = observation.scan.semanticTargets.get(plan.recordListNodeId);
+    // The executor immediately checks the issued Save capability, clicks once,
+    // then captures the expected closed editor. That capture must no longer be
+    // compared with the populated editor; uncertain outcomes still stop.
+    if (plan.nextStep.kind === 'save-created') this.#verifiedFields = undefined;
     return executeRecordAction({
       plan,
       capture,
@@ -172,7 +184,7 @@ class ProjectDriver implements RecordOrchestratorDriver {
       if (resolved.status !== 'known') return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
       values.set(field.id, resolved.value);
     }
-    return bindRecordEditor({
+    const result = await bindRecordEditor({
       plan,
       capture,
       activeTransaction: active,
@@ -181,6 +193,11 @@ class ProjectDriver implements RecordOrchestratorDriver {
       provideValue: ({ scanFieldId }) => values.get(scanFieldId),
       rescan: () => this.capture(),
     });
+    if (result.status === 'advanced') {
+      const verified = this.#observations.get(result.capture);
+      if (verified) this.#verifiedFields = { observation: verified, capture: result.capture };
+    }
+    return result;
   }
 }
 

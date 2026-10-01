@@ -1,5 +1,6 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createProjectRecordSession, projectRecordAvailability } from '../src/content/projectRecordSession';
+import { ProjectRecordWorkflow } from '../src/content/projectRecordWorkflow';
 import type { ProjectProjectionResponse } from '../src/profile/projection';
 
 const projection: ProjectProjectionResponse = { recordType: 'project', profileRevision: 'fictional-project-revision',
@@ -115,3 +116,24 @@ it('开放 Shadow 内的项目列表不进入主文档试用', () => {
   expect(projectRecordAvailability(document)).toEqual({ eligible: false, reason: 'record-root-unsupported' });
   expect(() => createProjectRecordSession(document, projection)).toThrow();
 });
+
+it.each([2, 3])('在真实项目步骤 %s 后协作暂停，保留收据且恢复后不重复添加', async version => {
+  const { counts } = installPage(); let requested = false;
+  const flow: ProjectRecordWorkflow = new ProjectRecordWorkflow(document, async () => projection, (doc, supplied, refresh) => {
+    const session = createProjectRecordSession(doc, supplied, refresh);
+    return { get state() { return session.state; }, get snapshotVersion() { return session.snapshotVersion; },
+      advance: async () => {
+        const result = await session.advance();
+        if (!requested && result.status === 'advanced' && result.snapshotVersion === version) {
+          requested = true; flow.pause();
+        }
+        return result;
+      }, pause: () => session.pause(), resume: () => session.resume(), stop: () => session.stop() };
+  });
+  await flow.start();
+  await vi.waitFor(() => expect(flow.status().phase).toBe('paused'), { timeout: 3_000 });
+  expect(counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+  await flow.resume();
+  await vi.waitFor(() => expect(flow.status().phase).toBe('complete'), { timeout: 10_000 });
+  expect(counts).toEqual({ add: 4, save: 4, submit: 0, remove: 0 });
+}, 15_000);

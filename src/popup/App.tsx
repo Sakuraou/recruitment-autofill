@@ -9,6 +9,7 @@ import { createDebugReport, downloadDebugReport } from './debug';
 import { EXTENSION_VERSION } from '../shared/version';
 import { Results } from './Results';
 import { MobileWorkflowControls } from './MobileWorkflow';
+import { ProjectRecordControls } from './ProjectRecords';
 
 export function PopupApp() {
   const [plan, setPlan] = useState<PagePlan>();
@@ -93,6 +94,7 @@ export function PopupApp() {
     <section className="popup-intro"><div className="eyebrow">LESS REPETITION. MORE OPPORTUNITY.</div><h1>这一页，交给你的档案。</h1><p>本地识别重复信息，每一次申请由你确认。</p></section>
     {plan && <div className="scan-host">{new URL(plan.scan.url).host || '本地文件'} · {plan.scan.title}</div>}
     <MobileWorkflowControls />
+    <ProjectRecordControls />
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>
       <button type="button" className="primary" disabled={busy || !autoCount} onClick={() => void fill('auto')}>一键填写高置信度字段</button></div>

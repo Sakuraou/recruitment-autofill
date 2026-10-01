@@ -83,11 +83,16 @@
           state.savedFields.push({ index, values: Object.fromEntries([...form.querySelectorAll('input, textarea, select')]
             .filter(field => field.name).map(field => [field.name, field.value])) });
           state.cards.splice(1, 0, index);
-          renderClosed();
+          if (window.fixtureActionDelayMs) setTimeout(renderClosed, window.fixtureActionDelayMs);
+          else renderClosed();
         });
         list.replaceChildren(...state.cards.map(card), add, form);
       }
-      add.addEventListener('click', () => { state.add++; renderCreating(); });
+      add.addEventListener('click', () => {
+        state.add++;
+        if (window.fixtureActionDelayMs) setTimeout(renderCreating, window.fixtureActionDelayMs);
+        else renderCreating();
+      });
       document.querySelector('#fixture-upload').addEventListener('click', () => { state.upload++; });
       document.querySelector('#fixture-next').addEventListener('click', () => { state.next++; });
       document.querySelector('#fixture-submit').addEventListener('click', () => { state.submit++; });

@@ -55,5 +55,7 @@ export type ContentRequest = { type: 'RA_SCAN' } | { type: 'RA_FILL'; payload: F
   | { type: 'RA_WORKFLOW_START'; payload: import('../workflow/model').WorkflowRequest }
   | { type: 'RA_WORKFLOW_STATUS' | 'RA_WORKFLOW_PAUSE' | 'RA_WORKFLOW_RESUME' | 'RA_WORKFLOW_STOP' }
   | { type: 'RA_RECORD_V2_START' | 'RA_RECORD_V2_ADVANCE' | 'RA_RECORD_V2_STATUS'
-    | 'RA_RECORD_V2_PAUSE' | 'RA_RECORD_V2_RESUME' | 'RA_RECORD_V2_STOP' };
+    | 'RA_RECORD_V2_PAUSE' | 'RA_RECORD_V2_RESUME' | 'RA_RECORD_V2_STOP' }
+  | { type: 'RA_PROJECT_RECORD_START' | 'RA_PROJECT_RECORD_STATUS' | 'RA_PROJECT_RECORD_PAUSE'
+    | 'RA_PROJECT_RECORD_RESUME' | 'RA_PROJECT_RECORD_STOP' };
 export type ContentResponse<T> = { ok: true; data: T } | { ok: false; error: string };
