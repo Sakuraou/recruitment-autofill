@@ -52,6 +52,15 @@ describe('安全填写原生 HTML 控件', () => {
     expect(select.value).toBe('master');
   });
 
+  it('异步下拉插入选项时不能放行已改变的字段属性', async () => {
+    const state = prepare('<label>最高学历<select data-binding="original"><option value="">请选择</option></select></label>');
+    const select = document.querySelector('select')!;
+    select.dataset.binding = 'replacement';
+    select.append(new Option('硕士', 'master'));
+    expect((await fill(state, ['master']))[0]?.status).toBe('skipped');
+    expect(select.value).toBe('');
+  });
+
   it('使用原生 setter 兼容前端自定义实例 setter', async () => {
     const state = prepare('<input>');
     const node = document.querySelector('input');

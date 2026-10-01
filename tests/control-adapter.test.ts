@@ -162,13 +162,14 @@ describe('control adapters', () => {
     expect(checkbox.checked).toBe(true);
   });
 
-  it.each(['user-answer', 'disabled'])('protects a native select changed during async loading: %s', async change => {
+  it.each(['user-answer', 'disabled', 'binding-change'])('protects a native select changed during async loading: %s', async change => {
     document.body.innerHTML = '<select><option value="">请选择</option><option value="user">用户答案</option></select>';
     const select = document.querySelector('select')!;
     const events = vi.spyOn(select, 'dispatchEvent');
     const pending = createControlAdapter(select).write('master');
     if (change === 'user-answer') select.value = 'user';
-    else select.disabled = true;
+    else if (change === 'disabled') select.disabled = true;
+    else select.dataset.binding = 'changed';
     select.append(new Option('硕士研究生', 'master'));
     expect(await pending).toMatchObject({ status: 'request-human' });
     expect(select.value).toBe(change === 'user-answer' ? 'user' : '');
@@ -218,5 +219,60 @@ describe('control adapters', () => {
     members[1]!.setAttribute('aria-checked', 'false');
     members[0]!.remove();
     expect(adapter.verify('男')).toBe(false);
+  });
+
+  it('waits for the combobox selection to be committed asynchronously, with one option click', async () => {
+    document.body.innerHTML = '<input role="combobox" aria-expanded="true" aria-controls="list"><div id="list" role="listbox"><div role="option">硕士</div></div>';
+    const combo = document.querySelector('input')!;
+    const option = document.querySelector('[role="option"]')!;
+    let clicks = 0;
+    option.addEventListener('click', () => { clicks++; setTimeout(() => { combo.value = '硕士'; }, 25); });
+    const adapter = createControlAdapter(combo);
+    expect(await adapter.write('硕士')).toMatchObject({ status: 'written' });
+    expect(adapter.verify('硕士')).toBe(true);
+    expect(clicks).toBe(1);
+  });
+
+  it('protects a user answer entered while opening an already populated combobox', async () => {
+    document.body.innerHTML = '<input role="combobox" aria-controls="list"><div id="list" role="listbox" hidden><div role="option">硕士</div></div>';
+    const combo = document.querySelector('input')!;
+    const list = document.querySelector<HTMLElement>('#list')!;
+    combo.addEventListener('click', () => { combo.value = '用户答案'; list.hidden = false; });
+    const click = vi.spyOn(list.firstElementChild!, 'dispatchEvent');
+    expect(await createControlAdapter(combo).write('硕士')).toMatchObject({ status: 'request-human' });
+    expect(combo.value).toBe('用户答案');
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it.each(['aria-disabled', 'css-hidden'])('does not open a combobox in an unavailable ancestor: %s', async attribute => {
+    document.body.innerHTML = '<section><input role="combobox" aria-controls="list"></section><div id="list" role="listbox"><div role="option">硕士</div></div>';
+    const section = document.querySelector('section')!;
+    if (attribute === 'css-hidden') section.style.display = 'none';
+    else section.setAttribute(attribute, 'true');
+    const combo = document.querySelector('input')!;
+    const click = vi.spyOn(combo, 'dispatchEvent');
+    expect(await createControlAdapter(combo).write('硕士')).toMatchObject({ status: 'request-human' });
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it('never verifies an ambiguous selection or a detached selected option', async () => {
+    document.body.innerHTML = '<input role="combobox" aria-controls="list"><div id="list" role="listbox"><div role="option" aria-selected="true">硕士</div><div role="option" aria-selected="true">本科</div></div>';
+    const combo = document.querySelector('input')!;
+    combo.value = '硕士';
+    const adapter = createControlAdapter(combo);
+    expect(adapter.verify('硕士')).toBe(false);
+    combo.value = '';
+    const option = document.querySelector('[role="option"]')!;
+    document.querySelector('[role="option"] + [role="option"]')!.remove();
+    option.addEventListener('click', () => { option.remove(); });
+    expect(await adapter.write('硕士')).toMatchObject({ status: 'request-human' });
+  });
+
+  it('excludes options inside hidden or disabled groups', async () => {
+    document.body.innerHTML = '<input role="combobox" aria-expanded="true" aria-controls="list"><div id="list" role="listbox"><div style="display:none"><div role="option">硕士</div></div><div aria-disabled="true"><div role="option">硕士</div></div></div>';
+    const combo = document.querySelector('input')!;
+    const adapter = createControlAdapter(combo);
+    expect(adapter.readOptions().filter(option => !option.disabled)).toEqual([]);
+    expect(await adapter.write('硕士')).toMatchObject({ status: 'request-human' });
   });
 });

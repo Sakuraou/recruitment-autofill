@@ -13,7 +13,7 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-extension.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs",
+    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-extension.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs",
     "test:record-v2": "node scripts/test-record-v2.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "serve:example": "node scripts/serve-example.mjs"

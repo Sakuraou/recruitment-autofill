@@ -1,4 +1,4 @@
-import { hasValue, isPlaceholderOption, selectOptions } from './domUtils';
+import { attributesFingerprint, hasValue, isPlaceholderOption, selectOptions } from './domUtils';
 
 export type ControlAdapterKind = 'native-input' | 'native-textarea' | 'native-select' | 'native-checkbox' | 'aria-combobox' | 'aria-radio-group' | 'aria-checkbox' | 'unknown';
 
@@ -72,6 +72,7 @@ function unavailableReason(node: Element, kind: string): string | undefined {
   if (node.closest('[aria-disabled="true"]')) return `${kind}已禁用，需要人工处理`;
   if (node.closest('[aria-readonly="true"]')) return `${kind}只读，需要人工处理`;
   if (node.closest('[hidden], [inert], [aria-hidden="true"]')) return `${kind}不可交互，需要人工处理`;
+  if (!visibleTree(node)) return `${kind}不可交互，需要人工处理`;
   return undefined;
 }
 
@@ -127,9 +128,11 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
       if (!value.trim()) return { status: 'request-human', reason: '答案为空，不能猜测' };
       if (node.tagName === 'SELECT') {
         const select = node as HTMLSelectElement;
+        const originalAttributes = attributesFingerprint(select);
         const applySelect = (): ControlAdapterResult => {
           const unavailable = unavailableReason(select, '下拉框');
           if (unavailable) return { status: 'request-human', reason: unavailable };
+          if (attributesFingerprint(select) !== originalAttributes) return { status: 'request-human', reason: '等待期间下拉框属性已改变，请重新扫描' };
           if (hasValue(select)) return select.value === value
             ? { status: 'preserved', reason: '等待期间用户已选择相同答案，保留原值' }
             : { status: 'request-human', reason: '等待期间用户已选择其他答案，不覆盖' };
@@ -219,7 +222,7 @@ function comboListbox(node: Element): HTMLElement | null {
   if (explicit) return explicit;
   const refs = comboRefs(node);
   if (refs.length) return null;
-  const candidates = Array.from(node.ownerDocument.querySelectorAll<HTMLElement>('[role="listbox"]')).filter(visible);
+  const candidates = Array.from(node.ownerDocument.querySelectorAll<HTMLElement>('[role="listbox"]')).filter(visibleTree);
   return candidates.length === 1 ? candidates[0]! : null;
 }
 
@@ -344,10 +347,18 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
 function comboOptions(node: Element): ControlAdapterOption[] {
   const list = comboListbox(node);
   if (!list) return [];
-  return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).filter(visible).map((option) => ({
+  // A collapsed listbox can still describe its choices during scanning. Only
+  // ignore the listbox's own visibility, never hidden groups within it.
+  const visibleWithinList = (option: Element): boolean => {
+    for (let current: Element | null = option; current && current !== list; current = current.parentElement) {
+      if (!visible(current)) return false;
+    }
+    return true;
+  };
+  return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).filter(visibleWithinList).map((option) => ({
     value: option.getAttribute('data-value') ?? option.getAttribute('value') ?? option.id,
     label: clean(option.getAttribute('aria-label') || option.textContent),
-    disabled: option.getAttribute('aria-disabled') === 'true' || option.hasAttribute('disabled'),
+    disabled: Boolean(option.closest('[aria-disabled="true"], [aria-readonly="true"], [inert], [disabled]')),
   }));
 }
 
@@ -356,51 +367,49 @@ function visibleComboOptions(node: Element, value: string): HTMLElement[] {
   if (!list) return [];
   return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).filter(option => (
     visibleTree(option)
-    && !option.hasAttribute('disabled') && option.getAttribute('aria-disabled') !== 'true'
+    && !option.hasAttribute('disabled') && !unavailableReason(option, '选项')
     && clean(option.getAttribute('aria-label') || option.textContent) === value
   ));
 }
 
-function waitForComboOption(node: Element, value: string): Promise<boolean> {
-  const matches = (): boolean => node.isConnected && !comboHasValue(comboValue(node)) && visibleComboOptions(node, value).length === 1;
-  if (matches()) return Promise.resolve(true);
-  const Observer = node.ownerDocument.defaultView?.MutationObserver;
-  if (!Observer) return Promise.resolve(false);
+/** Polling also detects input.value changes, which do not generate DOM mutations. */
+function waitForComboState(state: () => 'ready' | 'stop' | 'wait'): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const observer = new Observer(() => {
-      if (!node.isConnected || comboHasValue(comboValue(node))) finish(false);
-      else if (matches()) finish(true);
-    });
-    const timer = setTimeout(() => finish(false), 500);
-    const finish = (result: boolean): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      observer.disconnect();
-      resolve(result);
+    const deadline = Date.now() + 500;
+    const check = (): void => {
+      const current = state();
+      if (current === 'ready') { resolve(true); return; }
+      if (current === 'stop' || Date.now() >= deadline) { resolve(false); return; }
+      setTimeout(check, 16);
     };
-    observer.observe(node.ownerDocument, { childList: true, subtree: true, attributes: true });
+    check();
   });
+}
+
+function clickComboNode(node: Element): void {
+  const MouseEventConstructor = node.ownerDocument.defaultView?.MouseEvent;
+  if (!MouseEventConstructor) throw new Error('event constructor unavailable');
+  node.dispatchEvent(new MouseEventConstructor('click', { bubbles: true, composed: true }));
+}
+
+function verifyCombo(node: Element, value: string): boolean {
+  if (unavailableReason(node, '组合框')) return false;
+  const selected = Array.from(comboListbox(node)?.querySelectorAll('[role="option"][aria-selected="true"]') ?? []);
+  if (selected.length > 1 || (selected.length === 1 && radioOptionLabel(selected[0]!) !== value)) return false;
+  const current = comboValue(node);
+  return current === value || (!comboHasValue(current) && selected.length === 1 && selected[0]!.isConnected);
 }
 
 function comboAdapter(node: Element): ControlAdapter {
   const inspect = (): ControlInspection => ({
     kind: 'aria-combobox', value: comboValue(node), hasValue: comboHasValue(comboValue(node)), options: comboOptions(node),
-    ...(!node.isConnected ? { blockedReason: '控件已被页面替换或移除，请重新扫描' }
-      : node.getAttribute('aria-disabled') === 'true' ? { blockedReason: '组合框已禁用，需要人工处理' } : {}),
+    ...(unavailableReason(node, '组合框') ? { blockedReason: unavailableReason(node, '组合框') } : {}),
   });
   return {
     node,
     kind: 'aria-combobox',
     inspect,
-    open: async () => {
-      if (node.getAttribute('aria-expanded') !== 'true') {
-        try { node.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); } catch { return false; }
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
-      }
-      return comboListbox(node) !== null;
-    },
+    open: () => thisOpen(node),
     readOptions: () => comboOptions(node),
     write: async (value: string): Promise<ControlAdapterResult> => {
       const current = inspect();
@@ -408,32 +417,49 @@ function comboAdapter(node: Element): ControlAdapter {
       if (current.hasValue) return current.value === value
         ? { status: 'preserved', reason: '组合框已有相同内容，保留原值' }
         : { status: 'request-human', reason: '组合框已有内容，不覆盖' };
+      const originalRefs = comboRefs(node).join(' ');
+      const originalList = comboListbox(node);
       if (!await thisOpen(node)) return { status: 'request-human', reason: '组合框未能安全打开' };
-      const options = comboOptions(node).filter(option => !option.disabled && option.label === value);
-      if (options.length !== 1 && !await waitForComboOption(node, value)) return { status: 'request-human', reason: '组合框选项未在限定时间内形成唯一匹配' };
+      const list = comboListbox(node);
+      const refs = comboRefs(node).join(' ');
+      if (refs !== originalRefs || (originalList !== null && list !== originalList)) return { status: 'request-human', reason: '打开期间组合框绑定已改变，请重新扫描' };
+      const stillAvailable = (): boolean => !unavailableReason(node, '组合框')
+        && comboListbox(node) === list && comboRefs(node).join(' ') === refs;
+      if (!await waitForComboState(() => {
+        if (!stillAvailable() || comboHasValue(comboValue(node))) return 'stop';
+        return visibleComboOptions(node, value).length === 1 ? 'ready' : 'wait';
+      })) return { status: 'request-human', reason: '组合框选项或当前答案已改变，未形成唯一匹配' };
+      // Opening and loading can synchronously update a controlled field. Check
+      // again at the action boundary, before dispatching the option click.
+      if (!stillAvailable() || comboHasValue(comboValue(node))) return { status: 'request-human', reason: '组合框已有新答案或已不可交互，不覆盖' };
       const visibleMatches = visibleComboOptions(node, value);
       if (visibleMatches.length !== 1) return { status: 'request-human', reason: '组合框没有唯一可见匹配选项' };
-      const list = comboListbox(node);
       const target = list && visibleMatches[0];
       if (!target) return { status: 'request-human', reason: '组合框选项已被替换' };
-      try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
+      try { clickComboNode(target); }
       catch { return { status: 'request-human', reason: '组合框选项无法选择' }; }
-      await new Promise<void>(resolve => setTimeout(resolve, 0));
-      return comboValue(node) === value || target.getAttribute('aria-selected') === 'true'
+      return await waitForComboState(() => {
+        if (unavailableReason(node, '组合框') || comboRefs(node).join(' ') !== refs) return 'stop';
+        const currentValue = comboValue(node);
+        if (comboHasValue(currentValue) && currentValue !== value) return 'stop';
+        if (verifyCombo(node, value)) return 'ready';
+        if (comboListbox(node) !== list || !target.isConnected) return 'stop';
+        return 'wait';
+      })
         ? { status: 'written', reason: '组合框选择后已核验' }
         : { status: 'request-human', reason: '网页未保留组合框选择' };
     },
-    verify: (value: string) => comboValue(node) === value
-      || comboListbox(node)?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.textContent?.trim() === value,
+    verify: (value: string) => verifyCombo(node, value),
   };
 }
 
 async function thisOpen(node: Element): Promise<boolean> {
-  if (node.getAttribute('aria-expanded') === 'true') return comboListbox(node) !== null;
-  try { node.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
-  catch { return false; }
-  await new Promise<void>(resolve => setTimeout(resolve, 0));
-  return comboListbox(node) !== null;
+  if (unavailableReason(node, '组合框')) return false;
+  if (node.getAttribute('aria-expanded') !== 'true') {
+    try { clickComboNode(node); } catch { return false; }
+  }
+  return waitForComboState(() => unavailableReason(node, '组合框') ? 'stop'
+    : comboListbox(node) !== null ? 'ready' : 'wait');
 }
 
 export function createControlAdapter(node: Element): ControlAdapter {

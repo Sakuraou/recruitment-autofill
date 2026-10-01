@@ -10,7 +10,7 @@ import {
   type FormControl,
 } from './domUtils';
 
-export type ScannedControl = { node: FormControl; fingerprint: string; adapter?: undefined }
+export type ScannedControl = { node: FormControl; fingerprint: string; structureFingerprint?: string; adapter?: undefined }
   | { node: HTMLElement; fingerprint: string; adapter: 'mobile-select' }
   | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-combobox' }
   | { node: Element; members: Element[]; controller: ControlAdapter; fingerprint: string; adapter: 'aria-radio-group' }
@@ -263,7 +263,7 @@ export function scanDocument(doc: Document = document): ScanState {
     const field = describeControl(node, id);
     field.groupId = groupId(node);
     fields.push(field);
-    controls.set(id, { node, fingerprint: controlFingerprint(node, field) });
+    controls.set(id, { node, fingerprint: controlFingerprint(node, field), structureFingerprint: controlStructureFingerprint(node, field) });
   }
   for (const node of ariaComboboxes.slice(0, 500 - fields.length)) {
     const id = `${scanId}:${fields.length}`;

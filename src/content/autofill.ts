@@ -162,7 +162,8 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       /^(?:请选择|请选|未选择|选择\.\.\.|please\s+(?:select|choose))/iu.test(option.label.trim())));
     const asyncSelectBootstrap = fingerprintChanged && node.tagName === 'SELECT' && !current.hasValue
       && onlyPlaceholderOptions && scannedField !== undefined
-      && controlStructureFingerprint(node, current) === controlStructureFingerprint(node, scannedField);
+      && control.structureFingerprint !== undefined
+      && controlStructureFingerprint(node, current) === control.structureFingerprint;
     if (fingerprintChanged && !asyncSelectBootstrap) { skip('字段标签、选项、属性或当前内容已改变，请重新扫描'); continue; }
     try {
       const problem = candidateProblem(node, item.value, current);
