@@ -35,6 +35,8 @@ function blockedReason(node: FormControl, field: FieldDescriptor): string | unde
   if (field.readOnly) return '只读字段，需要人工处理';
   if (isMobileResume(node.ownerDocument) && node.matches('.resumeCon1 .secon input.inputStudy')) return '学校需要在移动网站目录中搜索并选择；请人工操作以确认学校代码和地区';
   if (field.kind === 'checkbox') {
+    if ((node as HTMLInputElement).indeterminate) return '复选框状态不明确，需要人工处理';
+    if (node.validity.customError) return '网页为复选框设置了校验错误，需要人工处理';
     // Machine ids and names are useful for matching ordinary fields, but they
     // are not evidence that a checkbox has a human-readable question. A bare
     // checkbox such as <input id="x" type="checkbox"> must stay manual.
@@ -203,6 +205,7 @@ export function controlFingerprint(node: FormControl, field: FieldDescriptor): s
     attributes: attributesFingerprint(node),
     value: node.value,
     checked: 'checked' in node ? node.checked : undefined,
+    indeterminate: 'indeterminate' in node ? node.indeterminate : undefined,
     selected: node.tagName === 'SELECT' ? Array.from((node as HTMLSelectElement).options).map((option) => ({
       attributes: attributesFingerprint(option), selected: option.selected, label: option.label, text: option.text,
     })) : undefined,

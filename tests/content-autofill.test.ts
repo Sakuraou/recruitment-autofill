@@ -9,6 +9,36 @@ function fill(state: ScanState, values: string[], confirmed = true) {
 }
 
 describe('安全填写原生 HTML 控件', () => {
+  it('明确“是”沿用复选框布尔语义通过整批核验，required 可正常满足', async () => {
+    const state = prepare('<label>是否学生干部<input type="checkbox" required></label>');
+    expect((await fill(state, ['是']))[0]?.status).toBe('filled');
+    expect(document.querySelector('input')!.checked).toBe(true);
+    expect(document.querySelector('input')!.validity.valid).toBe(true);
+  });
+
+  it.each(['mixed', 'custom-error'])('勾选后异步出现异常复选状态时不能误报完成：%s', async mode => {
+    const state = prepare('<label>是否学生干部<input type="checkbox"></label>');
+    const checkbox = document.querySelector('input')!;
+    let clicks = 0;
+    checkbox.addEventListener('click', () => {
+      clicks++;
+      setTimeout(() => {
+        if (mode === 'mixed') checkbox.indeterminate = true;
+        else checkbox.setCustomValidity('网页验证失败');
+      }, 25);
+    });
+    expect((await fill(state, ['true']))[0]?.status).toBe('error');
+    expect(clicks).toBe(1);
+  });
+
+  it('扫描后原生复选框进入不确定状态时跳过，不把它当作“否”', async () => {
+    const state = prepare('<label>是否学生干部<input type="checkbox"></label>');
+    const checkbox = document.querySelector('input')!;
+    checkbox.indeterminate = true;
+    expect((await fill(state, ['true']))[0]?.status).toBe('skipped');
+    expect(checkbox.indeterminate).toBe(true);
+    expect(checkbox.checked).toBe(false);
+  });
   it('整批核对发现后填字段清空前面答案时不再假报成功', async () => {
     const state = prepare('<input><input>');
     const [first, second] = document.querySelectorAll('input');

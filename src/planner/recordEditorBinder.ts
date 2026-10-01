@@ -1,5 +1,7 @@
 import { fillScan } from '../content/autofill';
 import { belongsToDocument, hasValue } from '../content/domUtils';
+import { booleanValue, createControlAdapter } from '../content/controlAdapter';
+import { controlFingerprint, describeControl, describeRadioGroup } from '../content/scanner';
 import type { ScanState, ScannedControl } from '../content/scanner';
 import {
   isRecordPlanCurrentForSnapshot,
@@ -74,6 +76,7 @@ interface Binding {
   readonly preserved: boolean;
   readonly originalValue: string;
   readonly originalChecked: readonly boolean[];
+  readonly rollbackIdentity: string;
 }
 
 const reservedSnapshots = new WeakSet<object>();
@@ -106,8 +109,7 @@ function currentValueMatches(control: ScannedControl, value: string): boolean {
     return Number.isInteger(index) && index >= 0 && control.members[index]?.checked === true;
   }
   if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
-    const checked = (control.node as HTMLInputElement).checked;
-    return value === 'true' ? checked : value === 'false' ? !checked : false;
+    return createControlAdapter(control.node).verify(value);
   }
   return control.node.value === value && control.node.validity.valid;
 }
@@ -127,15 +129,66 @@ function failure(reason: RecordEditorBindReason, writtenFieldCount = 0, rollback
     ...(plannerResult ? { plannerResult } : {}) });
 }
 
-function rollbackBindings(state: ScanState, bindings: readonly Binding[]): boolean {
+function nativeControl(control: ScannedControl): control is Extract<ScannedControl, { adapter?: undefined }> | Extract<ScannedControl, { adapter: 'radio-group' }> {
+  return control.adapter === undefined || control.adapter === 'radio-group';
+}
+
+function bindingIdentity(control: ScannedControl): string {
+  if (!nativeControl(control)) return '';
+  const field = control.adapter === 'radio-group' ? describeRadioGroup(control.members, '') : describeControl(control.node, '');
+  const identity = { kind: field.kind, type: field.type, label: field.label, name: field.name,
+    htmlId: field.htmlId, ariaLabel: field.ariaLabel, placeholder: field.placeholder, title: field.title,
+    tableHeader: field.tableHeader, required: field.required, disabled: field.disabled, readOnly: field.readOnly };
+  // Controlled React inputs may update value/checked attributes as part of
+  // their normal event chain. Those are state, not control identity.
+  const attributes = Array.from(control.node.attributes).filter(attribute => !['value', 'checked', 'aria-invalid'].includes(attribute.name))
+    .map(attribute => [attribute.name, attribute.value]).sort(([a], [b]) => (a ?? '').localeCompare(b ?? ''));
+  return JSON.stringify({ identity, attributes });
+}
+
+function valueEquals(control: ScannedControl, value: string): boolean {
+  if (!nativeControl(control)) return false;
+  if (control.adapter === 'radio-group') {
+    const index = Number(value.replace('__radio_option_', ''));
+    return Number.isInteger(index) && control.members.filter(member => member.checked).length === 1
+      && control.members[index]?.checked === true;
+  }
+  if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
+    const node = control.node as HTMLInputElement;
+    const desired = booleanValue(value);
+    return desired !== undefined && !node.indeterminate && node.checked === desired;
+  }
+  return control.node.value === value;
+}
+
+function originalValueRestored(binding: Binding): boolean {
+  const control = binding.control;
+  if (!nativeControl(control)) return false;
+  if (control.adapter === 'radio-group') return control.members.length === binding.originalChecked.length
+    && control.members.every((member, index) => member.checked === binding.originalChecked[index]);
+  if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
+    const node = control.node as HTMLInputElement;
+    return !node.indeterminate && node.checked === binding.originalChecked[0];
+  }
+  return control.node.value === binding.originalValue;
+}
+
+async function rollbackBindings(state: ScanState, bindings: readonly Binding[]): Promise<boolean> {
   let complete = true;
+  const restored: Binding[] = [];
   for (const binding of [...bindings].reverse()) {
     const control = state.controls.get(binding.scanFieldId);
-    if (!control || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
-      || !belongsToDocument(control.node, state.document)) {
+    if (state.document.URL !== state.result.url || !control || control !== binding.control || !nativeControl(control)
+      || !belongsToDocument(control.node, state.document) || bindingIdentity(control) !== binding.rollbackIdentity) {
       complete = false;
       continue;
     }
+    if (originalValueRestored(binding)) { restored.push(binding); continue; }
+    const descriptor = control.adapter === 'radio-group' ? describeRadioGroup(control.members, binding.scanFieldId)
+      : describeControl(control.node, binding.scanFieldId);
+    // A user or the website can change a value between writing and rollback.
+    // Only undo a still-identifiable value written by this transaction.
+    if (descriptor.blockedReason || !valueEquals(control, binding.value)) { complete = false; continue; }
     try {
       const view = control.node.ownerDocument.defaultView;
       if (!view) throw new Error('document unavailable');
@@ -164,9 +217,16 @@ function rollbackBindings(state: ScanState, bindings: readonly Binding[]): boole
         node.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
         node.dispatchEvent(new view.Event('change', { bubbles: true, composed: true }));
       }
+      restored.push(binding);
     } catch {
       complete = false;
     }
+  }
+  if (restored.length) {
+    await new Promise<void>(resolve => setTimeout(resolve, 200));
+    if (state.document.URL !== state.result.url || restored.some(binding => state.controls.get(binding.scanFieldId) !== binding.control
+      || !belongsToDocument(binding.control.node, state.document)
+      || bindingIdentity(binding.control) !== binding.rollbackIdentity || !originalValueRestored(binding))) complete = false;
   }
   return complete;
 }
@@ -210,6 +270,11 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       && control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox';
     if (!descriptor || descriptor.blockedReason || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
       || (descriptor.kind === 'checkbox' && !nativeCheckbox)) return failure('field-unsupported');
+    if (nativeCheckbox && control.adapter === undefined) {
+      const current = describeControl(control.node, fieldNode.fieldId);
+      if (current.blockedReason) return failure('field-unsupported');
+      if (controlFingerprint(control.node, current) !== control.fingerprint) return failure('field-target-replaced');
+    }
     let supplied: unknown;
     try {
       supplied = input.provideValue(Object.freeze({ fieldNodeId, scanFieldId: fieldNode.fieldId }));
@@ -218,13 +283,20 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       return failure('profile-value-missing');
     }
     if (typeof supplied !== 'string' || supplied.trim() === '') return failure('profile-value-missing');
-    const preserved = controlHasValue(control);
+    if (nativeCheckbox) {
+      const node = control.node as HTMLInputElement;
+      const desired = booleanValue(supplied);
+      if (createControlAdapter(node).inspect().blockedReason || desired === undefined) return failure('field-unsupported');
+      if (node.required && !desired) return failure('field-write-failed');
+    }
+    const preserved = controlHasValue(control) || (nativeCheckbox && currentValueMatches(control, supplied));
     if (preserved && !currentValueMatches(control, supplied)) return failure('existing-value-conflict');
     bindings.push({
       fieldNodeId, scanFieldId: fieldNode.fieldId, value: supplied, control, preserved,
       originalValue: 'value' in control.node ? control.node.value : '',
       originalChecked: control.adapter === 'radio-group' ? control.members.map(member => member.checked)
         : nativeCheckbox ? [(control.node as HTMLInputElement).checked] : [],
+      rollbackIdentity: bindingIdentity(control),
     });
   }
 
@@ -245,16 +317,17 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   if (signal.aborted || outcomes.length !== items.length || outcomes.some(outcome => outcome.status !== 'filled')) {
     const wasAborted = signal.aborted;
     runContext.cancelStep();
-    const rollbackComplete = rollbackBindings(scanState, bindings.filter(binding => (
-      !binding.preserved && currentValueMatches(binding.control, binding.value)
+    const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => (
+      !binding.preserved && valueEquals(binding.control, binding.value)
     )));
     return failure(rollbackComplete ? (wasAborted ? 'step-aborted' : 'field-write-failed') : 'rollback-incomplete',
       outcomes.filter(outcome => outcome.status === 'filled').length, rollbackComplete);
   }
-  if (signal.aborted || bindings.some(binding => !currentValueMatches(binding.control, binding.value))) {
+  if (signal.aborted || bindings.some(binding => bindingIdentity(binding.control) !== binding.rollbackIdentity
+    || !currentValueMatches(binding.control, binding.value))) {
     const wasAborted = signal.aborted;
     runContext.cancelStep();
-    const rollbackComplete = rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+    const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
     return failure(rollbackComplete ? (wasAborted ? 'step-aborted' : 'field-readback-failed') : 'rollback-incomplete',
       items.length, rollbackComplete);
   }
@@ -269,23 +342,24 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   if (next.status !== 'ready' || !isIssuedRecordRunCapture(next)
     || next.runToken !== capture.runToken || next.snapshotVersion !== capture.snapshotVersion + 1
     || next.profileRevision !== capture.profileRevision) {
-    const rollbackComplete = rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+    const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
     return failure(rollbackComplete ? 'rescan-failed' : 'rollback-incomplete', items.length, rollbackComplete);
   }
   const byNodeId = new Map(bindings.map(binding => [binding.fieldNodeId, binding]));
   const receipt = issueFieldsVerifiedReceipt(plan, activeTransaction, next, fieldNodeId => {
     const binding = byNodeId.get(fieldNodeId);
     return Boolean(binding && matchesIssuedRecordRunTarget(next, fieldNodeId, binding.control.node)
+      && bindingIdentity(binding.control) === binding.rollbackIdentity
       && currentValueMatches(binding.control, binding.value));
   });
   if (receipt.status !== 'ready') {
-    const rollbackComplete = rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+    const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
     return failure(rollbackComplete ? 'receipt-rejected' : 'rollback-incomplete', items.length, rollbackComplete,
       receipt);
   }
   const advanced = recordFieldsVerified(plan, activeTransaction, receipt.receipt);
   if ('status' in advanced) {
-    const rollbackComplete = rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+    const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
     return failure(rollbackComplete ? 'receipt-rejected' : 'rollback-incomplete', items.length, rollbackComplete,
       advanced);
   }

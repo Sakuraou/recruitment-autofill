@@ -7,6 +7,20 @@ describe('control adapters', () => {
     vi.restoreAllMocks();
   });
 
+  it.each(['mixed', 'required-false', 'custom-error'])('rejects invalid native checkbox states without clicking: %s', async mode => {
+    document.body.innerHTML = '<label>是否学生干部<input type="checkbox"></label>';
+    const checkbox = document.querySelector('input')!;
+    if (mode === 'mixed') checkbox.indeterminate = true;
+    if (mode === 'required-false') checkbox.required = true;
+    if (mode === 'custom-error') checkbox.setCustomValidity('测试校验错误');
+    const adapter = createControlAdapter(checkbox);
+    const click = vi.spyOn(checkbox, 'click');
+    const value = mode === 'required-false' ? 'false' : 'true';
+    expect(await adapter.write(value)).toMatchObject({ status: 'request-human' });
+    expect(adapter.verify(value)).toBe(false);
+    expect(click).not.toHaveBeenCalled();
+  });
+
   it('writes an empty native input and verifies the browser value', async () => {
     document.body.innerHTML = '<label>姓名<input id="name"></label>';
     const input = document.querySelector<HTMLInputElement>('#name')!;

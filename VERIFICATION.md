@@ -2,9 +2,11 @@
 
 ## 当前通用控件回归（2026-10-01）
 
-当前本地分支 `codex/semantic-engine` 的完整检查通过：29 个测试文件、540 项测试、ESLint、TypeScript strict 和生产构建均通过。`npm run test:e2e` 在隔离 Chrome/153 中通过 9 项 DOM、5 项真实受控控件、12 项生产扩展、7 项连续工作流和 6 项 Record v2 检查。
+当前本地分支 `codex/semantic-engine` 的完整检查通过：29 个测试文件、557 项测试、ESLint、TypeScript strict 和生产构建均通过。`npm run test:e2e` 在隔离 Chrome/153 中通过 9 项 DOM、8 项真实受控控件、12 项生产扩展、7 项连续工作流和 6 项 Record v2 检查。
 
-新增组合框选中状态的限时等待、打开和点击前的原值保护、隐藏/禁用祖先检查、多重选中冲突检查，以及原生异步 select 的冻结属性快照。`tests/fixtures/controlled-browser.tsx` 在真实浏览器运行 React：下拉选项延迟到达、选中状态延迟回写，重新渲染后答案仍保留；用户中途选择和原节点替换时停止，选项点击为 0；同源 iframe 的组合框事件使用所属页面的构造器。5 项检查已纳入完整 E2E，报告位于忽略的 `artifacts/control-adapters-e2e.json`。
+本轮补齐记录编辑器的原生 checkbox 无操作核验和失败回滚：档案明确“否”且未勾选时零点击推进；indeterminate、required 与明确“否”冲突、自定义校验错误不能被当作成功；中文布尔别名也通过统一回读核验。回滚检查控件身份、原值和页面归属，用户改值或协议标签变化时不再写入，动作后等待 200ms 检查原值确实恢复。真实 React 浏览器验证 checkbox 回滚后重新渲染仍恢复原值；网页取消回滚点击时明确返回 rollback-incomplete，保存与最终提交计数均为 0。受控 radio 的框架状态恢复仍待单独验证。
+
+组合框回归保留选中状态的限时等待、打开和点击前的原值保护、隐藏/禁用祖先检查、多重选中冲突检查，以及原生异步 select 的冻结属性快照。`tests/fixtures/controlled-browser.tsx` 在真实浏览器运行 React：下拉选项延迟到达、选中状态延迟回写，重新渲染后答案仍保留；用户中途选择和原节点替换时停止，选项点击为 0；同源 iframe 的组合框事件使用所属页面的构造器。与本轮 3 项 checkbox 检查合计 8 项，已纳入完整 E2E，报告位于忽略的 `artifacts/control-adapters-e2e.json`。
 
 本轮补齐了明确事实标签的原生 checkbox、原生 radio 组和异步原生 select：checkbox/radio 使用浏览器语义事件链，React 受控状态会同步；扫描时只有可验证标签、唯一选项和非协议语义才自动处理；已有选择不会被取消。原生 select 在初始只有占位项时最多等待 500ms 的异步 option，节点结构、用户中途选择、重复/禁用/不存在选项不满足时停止。
 

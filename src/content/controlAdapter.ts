@@ -170,7 +170,9 @@ function nativeCheckboxAdapter(node: HTMLInputElement): ControlAdapter {
   const inspect = (): ControlInspection => ({
     kind: 'native-checkbox', value: node.checked ? 'true' : 'false', hasValue: node.checked,
     options: [{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }],
-    ...(unavailableReason(node, '复选框') ? { blockedReason: unavailableReason(node, '复选框') } : {}),
+    ...(unavailableReason(node, '复选框') ? { blockedReason: unavailableReason(node, '复选框') }
+      : node.indeterminate ? { blockedReason: '复选框状态不明确，需要人工处理' }
+        : node.validity.customError ? { blockedReason: '网页为复选框设置了校验错误，需要人工处理' } : {}),
   });
   return {
     node, kind: 'native-checkbox', inspect,
@@ -181,6 +183,7 @@ function nativeCheckboxAdapter(node: HTMLInputElement): ControlAdapter {
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       const desired = booleanValue(value);
       if (desired === undefined) return { status: 'request-human', reason: '复选框答案不是明确的“是/否”，需要人工确认' };
+      if (node.required && !desired) return { status: 'request-human', reason: '必选复选框不能保留未勾选状态，需要人工处理' };
       if (node.checked && desired === false) return { status: 'request-human', reason: '复选框已有选择，不自动取消已有内容' };
       if (node.checked === desired) return { status: 'preserved', reason: '复选框已有相同答案，保留原值' };
       try {
@@ -191,11 +194,13 @@ function nativeCheckboxAdapter(node: HTMLInputElement): ControlAdapter {
         // not a broad click search.
         node.click();
       } catch { return { status: 'request-human', reason: '复选框未能安全选择' }; }
-      return node.checked ? { status: 'written', reason: '复选框选择后已核验' } : { status: 'request-human', reason: '网页未保留预期复选框答案' };
+      return node.checked && !node.indeterminate && node.validity.valid && !unavailableReason(node, '复选框')
+        ? { status: 'written', reason: '复选框选择后已核验' } : { status: 'request-human', reason: '网页未保留有效的复选框答案' };
     },
     verify: (value: string) => {
       const desired = booleanValue(value);
-      return desired !== undefined && !unavailableReason(node, '复选框') && node.checked === desired;
+      return desired !== undefined && !node.indeterminate && node.validity.valid
+        && !unavailableReason(node, '复选框') && node.checked === desired;
     },
   };
 }
@@ -298,7 +303,7 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
   };
 }
 
-function booleanValue(value: string): boolean | undefined {
+export function booleanValue(value: string): boolean | undefined {
   const normalized = clean(value).toLocaleLowerCase();
   if (/^(?:true|yes|y|on|checked|是|有|同意|已完成|具备)$/iu.test(normalized)) return true;
   if (/^(?:false|no|n|off|unchecked|否|无|不同意|未完成|不具备)$/iu.test(normalized)) return false;

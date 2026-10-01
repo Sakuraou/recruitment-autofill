@@ -207,8 +207,7 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
         } else if (control.adapter === 'aria-checkbox') {
           retained = control.controller.verify(value ?? '');
         } else if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
-          const checked = (control.node as HTMLInputElement).checked;
-          retained = value === 'true' ? checked : value === 'false' ? !checked : false;
+          retained = createControlAdapter(control.node).verify(value ?? '');
         } else retained = control.node.value === value && control.node.validity.valid;
       }
       if (!retained) {

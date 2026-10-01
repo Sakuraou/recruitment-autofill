@@ -4,6 +4,8 @@ import { flushSync } from 'react-dom';
 import { scanDocument } from '../../src/content/scanner';
 import { fillScan } from '../../src/content/autofill';
 import { createControlAdapter } from '../../src/content/controlAdapter';
+import { bindRecordEditor } from '../../src/planner/recordEditorBinder';
+import { lifecycle } from './record-editor-context';
 
 type Mode = 'commit' | 'user-choice' | 'replace';
 
@@ -56,6 +58,56 @@ function ControlledSelect({ events }: { events: { changes: number } }) {
   </form>;
 }
 
+type CheckboxMode = 'false-noop' | 'rollback' | 'rollback-refused';
+function ControlledRecord({ mode, actions }: { mode: CheckboxMode; actions: { clicks: number; submits: number } }) {
+  const [checked, setChecked] = useState(false);
+  const [renders, setRenders] = useState(0);
+  return <form onSubmit={event => { event.preventDefault(); actions.submits++; }}>
+    <section data-record-list>
+      <input aria-label="是否学生干部" type="checkbox" checked={checked}
+        onClick={event => { actions.clicks++; if (mode === 'rollback-refused' && actions.clicks > 1) event.preventDefault(); }}
+        onChange={event => { if (!event.nativeEvent.defaultPrevented) setChecked(event.target.checked); }} />
+      {mode !== 'false-noop' && <input aria-label="项目名称" maxLength={1} />}
+    </section>
+    <output data-checked>{String(checked)}</output>
+    <button type="button" data-rerender onClick={() => setRenders(count => count + 1)}>重绘</button>
+    <output data-renders>{renders}</output>
+    <button type="submit">最终提交</button>
+  </form>;
+}
+
+async function recordCheckboxChecks() {
+  const checks = [];
+  for (const mode of ['false-noop', 'rollback', 'rollback-refused'] as const) {
+    document.body.innerHTML = '<main id="fixture"></main>';
+    const root = createRoot(document.querySelector('#fixture')!);
+    const actions = { clicks: 0, submits: 0 };
+    flushSync(() => root.render(<ControlledRecord mode={mode} actions={actions} />));
+    const list = document.querySelector<HTMLElement>('[data-record-list]')!;
+    const elements = [...list.querySelectorAll('input')];
+    const state = lifecycle(elements, undefined, list);
+    let saves = 0;
+    state.fixture.editor.querySelector('button')!.addEventListener('click', () => { saves++; });
+    const result = await bindRecordEditor({
+      plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: ({ fieldNodeId }) => fieldNodeId === 'field:0' ? (mode === 'false-noop' ? '否' : 'true') : '超长值',
+      rescan: () => state.context.capture(state.fixture.source),
+    });
+    (document.querySelector('[data-rerender]') as HTMLButtonElement).click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const expectedChecked = mode === 'rollback-refused';
+    checks.push({ mode, status: result.status, reason: result.status === 'request-human' ? result.reason : '',
+      rollbackComplete: result.status === 'request-human' ? result.rollbackComplete : true,
+      written: result.writtenFieldCount, clicks: actions.clicks, submits: actions.submits, saves,
+      retained: elements[0]!.checked === expectedChecked
+        && document.querySelector('[data-checked]')!.textContent === String(expectedChecked) });
+    state.context.stop();
+    flushSync(() => root.unmount());
+  }
+  return checks;
+}
+
 export async function runChecks() {
   const checks: Array<{ mode: string; status: string; optionClicks: number; submits: number; retained: boolean }> = [];
   for (const mode of ['commit', 'user-choice', 'replace'] as const) {
@@ -97,5 +149,5 @@ export async function runChecks() {
     combo.value = '硕士';
   });
   const frameResult = await createControlAdapter(combo).write('硕士');
-  return { checks, nativeSelect, frame: { status: frameResult.status, realmCorrect } };
+  return { checks, nativeSelect, frame: { status: frameResult.status, realmCorrect }, recordCheckboxes: await recordCheckboxChecks() };
 }
