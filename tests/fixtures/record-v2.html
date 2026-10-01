@@ -18,7 +18,7 @@
   <script>
     (() => {
       const list = document.querySelector('#record-list');
-      const state = window.fixture = { add: 0, save: 0, delete: 0, upload: 0, next: 0, submit: 0, cards: [0, 1] };
+      const state = window.fixture = { add: 0, save: 0, delete: 0, upload: 0, next: 0, submit: 0, cards: [0, 1], savedFields: [] };
       const elements = new Map();
       const add = document.createElement('button');
       add.type = 'button';
@@ -62,14 +62,26 @@
         const form = document.createElement('form');
         form.setAttribute('aria-label', '新增项目经历编辑器');
         form.dataset.raV2Editor = 'v1';
-        form.innerHTML = '<label>项目名称<input name="fixture-project-name"></label>'
-          + '<label>项目描述<textarea name="fixture-project-description"></textarea></label>'
-          + '<button type="button" data-save>保存</button><button type="button">取消</button>';
+        const name = '<input name="fixture-project-name">';
+        const description = '<textarea name="fixture-project-description"></textarea>';
+        let fields = window.fixtureEditorLayout === 'english' ? '<label>Project name' + name + '</label><label>Project description' + description + '</label>'
+          : window.fixtureEditorLayout === 'definitions' ? '<dl><dt>名称</dt><dd>' + name + '</dd><dt>简介</dt><dd>' + description + '</dd></dl>'
+            : window.fixtureEditorLayout === 'table' ? '<table><tr><th>课题名称</th><td>' + name + '</td></tr><tr><th>项目介绍</th><td>' + description + '</td></tr></table>'
+              : '<label>项目名称' + name + '</label><label>项目描述' + description + '</label>';
+        if (window.fixtureEditorLayout === 'unknown') fields += '<label>未知接口参数 X<input></label>';
+        if (window.fixtureEditorLayout === 'rich') fields += '<label>所在公司<input name="organization"></label>'
+          + '<label>项目角色<select name="role"><option value="">请选择</option><option value="opaque-17">开发成员</option></select></label>'
+          + '<label>开始日期<input type="date" name="startDate"></label><label>结束日期<input type="date" name="endDate"></label>'
+          + '<label>项目职责<textarea name="responsibilities"></textarea></label><label>项目成果<textarea name="achievements"></textarea></label>'
+          + '<label>技术栈<input name="technologies"></label>';
+        form.innerHTML = fields + '<button type="button" data-save>保存</button><button type="button">取消</button>';
         form.querySelector('[data-save]').addEventListener('click', () => {
           state.save++;
           const match = /^虚构测试项目 (\d)$/.exec(form.querySelector('input').value);
           if (!match) return;
           const index = Number(match[1]) - 1;
+          state.savedFields.push({ index, values: Object.fromEntries([...form.querySelectorAll('input, textarea, select')]
+            .filter(field => field.name).map(field => [field.name, field.value])) });
           state.cards.splice(1, 0, index);
           renderClosed();
         });

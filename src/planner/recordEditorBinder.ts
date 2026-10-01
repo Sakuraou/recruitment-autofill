@@ -1,4 +1,5 @@
 import { fillScan } from '../content/autofill';
+import type { ProjectFieldReason } from '../matching/projectFieldResolver';
 import { belongsToDocument, hasValue } from '../content/domUtils';
 import { booleanValue, createControlAdapter, verifyNativeRadioGroup } from '../content/controlAdapter';
 import { controlFingerprint, describeControl, describeRadioGroup } from '../content/scanner';
@@ -28,6 +29,7 @@ export interface EditorFieldValueRequest {
 export type EditorFieldValueProvider = (request: EditorFieldValueRequest) => string | undefined;
 
 export type RecordEditorBindReason =
+  | ProjectFieldReason
   | 'invalid-bind-input'
   | 'duplicate-step'
   | 'field-map-mismatch'

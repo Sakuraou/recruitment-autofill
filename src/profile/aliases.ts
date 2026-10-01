@@ -39,6 +39,9 @@ export const fieldAliases: readonly FieldAlias[] = [
   { scope: 'research', key: 'papers', aliases: ['论文', '论文成果', '发表论文', '学术论文', '学术专著', '学术成果', 'publications', 'papers'] },
   { scope: 'research', key: 'patents', aliases: ['专利', '专利成果', '申请专利', 'patents'] },
   { scope: 'projects', key: 'name', aliases: ['项目名称', '课题名称', 'project name'] },
+  { scope: 'projects', key: 'organization', aliases: ['项目单位', '项目所属单位', '项目公司', 'project organization'] },
+  { scope: 'projects', key: 'startDate', aliases: ['项目开始日期', '项目开始时间'] },
+  { scope: 'projects', key: 'endDate', aliases: ['项目结束日期', '项目结束时间'] },
   { scope: 'projects', key: 'role', aliases: ['项目角色', '项目职务', '担任角色', 'project role'] },
   { scope: 'projects', key: 'description', aliases: ['项目经历', '项目简介', '项目描述', '项目介绍', 'project description', 'project experience'] },
   { scope: 'projects', key: 'responsibilities', aliases: ['项目职责', '负责内容', '承担工作', 'project responsibilities'] },
@@ -98,5 +101,6 @@ export const contextualAliases: readonly FieldAlias[] = [
   { scope: 'internships', key: 'hasProof', aliases: ['是否有证明', '有无证明', '是否有实习证明', 'has proof', 'proof'] },
   { scope: 'projects', key: 'description', aliases: ['描述', '简介', 'description'] },
   { scope: 'projects', key: 'role', aliases: ['角色', '职务', 'role'] },
+  { scope: 'projects', key: 'organization', aliases: ['所在公司', '单位名称', '单位', '组织名称', 'company', 'organization'] },
   { scope: 'awards', key: 'level', aliases: ['级别', '等级', 'level'] },
 ];

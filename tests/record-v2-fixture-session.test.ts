@@ -18,7 +18,8 @@ interface FixtureCounters {
   submit: number;
 }
 
-function installFixture(existing: readonly number[] = [0, 1], layout: 'heading' | 'definitions' | 'table' = 'heading') {
+function installFixture(existing: readonly number[] = [0, 1], layout: 'heading' | 'definitions' | 'table' = 'heading',
+  editorLayout: 'labels' | 'english' | 'definitions' | 'table' | 'unknown' = 'labels') {
   window.history.replaceState({}, '', '/repeatable-records?case=happy');
   document.documentElement.dataset.raRecordV2Fixture = 'v1';
   document.head.innerHTML = `<meta name="ra-record-v2-fixture" content="${marker}">`;
@@ -63,11 +64,12 @@ function installFixture(existing: readonly number[] = [0, 1], layout: 'heading' 
     const form = document.createElement('form');
     form.setAttribute('aria-label', '新增项目经历编辑器');
     form.dataset.raV2Editor = 'v1';
-    form.innerHTML = `
-      <label>项目名称<input name="fixture-project-name"></label>
-      <label>项目描述<textarea name="fixture-project-description"></textarea></label>
-      <button type="button" data-save>保存</button>
-      <button type="button">取消</button>`;
+    const fields = editorLayout === 'definitions' ? '<dl><dt>名称</dt><dd><input name="opaque-name"></dd><dt>简介</dt><dd><textarea name="opaque-description"></textarea></dd></dl>'
+      : editorLayout === 'table' ? '<table><tr><th>课题名称</th><td><input name="opaque-name"></td></tr><tr><th>项目介绍</th><td><textarea name="opaque-description"></textarea></td></tr></table>'
+        : editorLayout === 'english' ? '<label>Project name<input name="opaque-name"></label><label>Project description<textarea name="opaque-description"></textarea></label>'
+          : '<label>项目名称<input name="fixture-project-name"></label><label>项目描述<textarea name="fixture-project-description"></textarea></label>';
+    form.innerHTML = fields + (editorLayout === 'unknown' ? '<label>未知接口参数 X<input></label>' : '')
+      + '<button type="button" data-save>保存</button><button type="button">取消</button>';
     form.querySelector<HTMLButtonElement>('[data-save]')!.addEventListener('click', () => {
       counters.save++;
       const name = form.querySelector<HTMLInputElement>('input')!.value;
@@ -138,6 +140,27 @@ describe('Record v2 固定虚构会话', () => {
     expect(session.state).toBe('complete');
     expect(counters).toEqual({ add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0 });
   }, 10_000);
+
+  it.each(['english', 'definitions', 'table'] as const)('跨编辑器标签和布局连续填写全部项目：%s', async editorLayout => {
+    const { counters } = installFixture([0, 1], 'heading', editorLayout);
+    const session = createRecordV2FixtureSession(document, projection);
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const result = await session.advance();
+      if (result.status === 'complete') break;
+      expect(result.status).toBe('advanced');
+    }
+    expect(session.state).toBe('complete');
+    expect(counters).toEqual({ add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0 });
+  }, 10_000);
+
+  it('新编辑器含未知字段时明确语义缺口，已知字段也保持零写入', async () => {
+    const { counters, list } = installFixture([0, 1], 'heading', 'unknown');
+    const session = createRecordV2FixtureSession(document, projection);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'field-semantic-unknown' });
+    expect(Array.from(list.querySelectorAll<HTMLInputElement>('input, textarea')).every(node => node.value === '')).toBe(true);
+    expect(counters.add).toBe(1); expect(counters.save).toBe(0);
+  });
 
   it('已有重复卡片时停止，不再添加或保存', async () => {
     const { counters } = installFixture([0, 0]);

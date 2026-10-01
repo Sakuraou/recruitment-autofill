@@ -1,0 +1,70 @@
+import type { ProjectProjectionEntry } from '../profile/projection';
+import type { FieldDescriptor, MatchResult } from '../shared/types';
+import { detectField } from './fieldMatcher';
+import { matchOption } from './optionMatcher';
+import { effectiveMaxLength } from './profileResolver';
+import { AUTO_CONFIDENCE, normalize } from './confidence';
+
+export type ProjectFieldReason = 'field-semantic-unknown' | 'field-semantic-ambiguous' | 'profile-value-missing'
+  | 'profile-date-precision' | 'profile-value-invalid' | 'field-options-unresolved' | 'profile-value-too-long'
+  | 'field-unsupported';
+export type ProjectFieldResolution = Readonly<{
+  status: 'known'; key: string; value: string; confidence: number;
+}> | Readonly<{ status: 'request-human'; reason: ProjectFieldReason }>;
+
+const keys: ReadonlySet<string> = new Set(['name', 'description', 'responsibilities', 'role', 'organization',
+  'startDate', 'endDate', 'achievements', 'technologies']);
+const ownershipCaptions = new Set(['项目经历', '项目', '课题', 'project', 'projects', 'project experience', 'project experiences'].map(normalize));
+
+function dateValue(value: string, field: FieldDescriptor): string | ProjectFieldReason {
+  if (!/^\d{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?$/u.test(value)) return 'profile-value-invalid';
+  if (value.length === 10) {
+    const date = new Date(`${value}T00:00:00Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return 'profile-value-invalid';
+  }
+  if (field.type === 'date' && value.length !== 10) return 'profile-date-precision';
+  return field.type === 'month' ? value.slice(0, 7) : value;
+}
+
+/** Call only for a field owned by an already-verified project editor. */
+export function resolveProjectField(field: FieldDescriptor, record: ProjectProjectionEntry): ProjectFieldResolution {
+  const reject = (reason: ProjectFieldReason): ProjectFieldResolution => Object.freeze({ status: 'request-human', reason });
+  if (field.blockedReason || field.kind === 'checkbox') return reject('field-unsupported');
+  if (/隐私协议|用户协议|我同意|授权|承诺|声明|consent|signature|i\s+agree/iu.test([
+    field.label, field.ariaLabel, field.tableHeader, field.title, field.placeholder,
+  ].join(' '))) return reject('field-unsupported');
+  // Editor ownership supplies collection context; it does not turn personal,
+  // education, authorization or unknown labels into project fields.
+  // Section headings and enclosing editor text provide ownership, never an
+  // answer label. In particular, “项目经历” above an unknown input must not
+  // turn that input into the project's description.
+  const withoutCaption = (text: string): string => ownershipCaptions.has(normalize(text)) ? '' : text;
+  const scoped = { ...field, label: withoutCaption(field.label), ariaLabel: withoutCaption(field.ariaLabel),
+    tableHeader: withoutCaption(field.tableHeader), title: withoutCaption(field.title), placeholder: withoutCaption(field.placeholder) };
+  const hasPrimaryLabel = [scoped.label, scoped.ariaLabel, scoped.tableHeader].some(text => text.trim());
+  const detected = detectField({ ...scoped, sectionText: '项目经历', previousText: '', parentText: '',
+    ...(hasPrimaryLabel ? { name: '', htmlId: '', title: '', placeholder: '' } : {}) });
+  if (!detected || detected.alias.scope !== 'projects' || !keys.has(detected.alias.key)) return reject('field-semantic-unknown');
+  if (detected.ambiguous || detected.confidence < AUTO_CONFIDENCE) return reject('field-semantic-ambiguous');
+  const key = detected.alias.key as Exclude<keyof ProjectProjectionEntry, 'id'>;
+  const raw = record[key];
+  let value = Array.isArray(raw) ? raw.join('、') : raw;
+  if (typeof value !== 'string' || !value.trim()) return reject('profile-value-missing');
+  if (key === 'startDate' || key === 'endDate') {
+    if (record.startDate && record.endDate && record.startDate.length === record.endDate.length
+      && record.startDate > record.endDate) return reject('profile-value-invalid');
+    const date = dateValue(value, field);
+    if (date === 'profile-value-invalid' || date === 'profile-date-precision') return reject(date);
+    value = date;
+  }
+  const limit = effectiveMaxLength(field);
+  if (limit !== null && value.length > limit) return reject('profile-value-too-long');
+  if (field.kind === 'select' || field.kind === 'radio') {
+    const candidate: MatchResult = { fieldId: field.id, fieldName: '', matchedProfileKey: `projects.${key}`,
+      value, confidence: detected.confidence, source: detected.source, status: 'auto', sensitive: false, reason: '' };
+    const matched = matchOption(field, candidate);
+    if (matched.status !== 'auto' || matched.value === undefined) return reject('field-options-unresolved');
+    value = matched.value;
+  }
+  return Object.freeze({ status: 'known', key: `projects.${key}`, value, confidence: detected.confidence });
+}

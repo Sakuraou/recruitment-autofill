@@ -18,6 +18,8 @@ profile.projects = Array.from({ length: 6 }, (_, index) => ({
   name: `虚构测试项目 ${index + 1}`,
   description: `仅用于本地浏览器扩展验证的虚构项目 ${index + 1}。`,
   responsibilities: `完成虚构项目 ${index + 1} 的测试职责。`,
+  role: '开发成员', organization: '无', startDate: '2026-01-01', endDate: '2026-06-30',
+  achievements: `完成虚构项目 ${index + 1} 的验收。`,
   technologies: ['TypeScript'],
 }));
 let context;
@@ -255,6 +257,54 @@ try {
     await stale.close();
     report.checks.push(`Fresh observation stops ${mode} before another write or click, preserving manual data and zero unsafe actions`);
   }
+
+  for (const editor of ['english', 'definitions', 'table', 'rich']) {
+    const variant = await context.newPage();
+    await variant.addInitScript(value => { window.fixtureEditorLayout = value; }, editor);
+    await variant.goto(url);
+    await grant(variant);
+    const variantPopup = await popupFor(variant);
+    assert.equal((await message(variantPopup, { type: 'RA_RECORD_V2_START' })).ok, true);
+    let finished = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const response = await message(variantPopup, { type: 'RA_RECORD_V2_ADVANCE' });
+      assert.equal(response.ok, true);
+      if (response.data.status === 'complete') { finished = true; break; }
+      assert.equal(response.data.status, 'advanced');
+    }
+    assert.equal(finished, true);
+    const result = await variant.evaluate(() => ({ add: window.fixture.add, save: window.fixture.save,
+      delete: window.fixture.delete, upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit,
+      savedFields: window.fixture.savedFields }));
+    assert.deepEqual({ add: result.add, save: result.save, delete: result.delete, upload: result.upload,
+      next: result.next, submit: result.submit }, { add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0 });
+    assert.deepEqual(result.savedFields.map(item => item.index), [2, 3, 4, 5]);
+    if (editor === 'rich') for (const item of result.savedFields) {
+      const expected = profile.projects[item.index];
+      assert.deepEqual(item.values, { 'fixture-project-name': expected.name, 'fixture-project-description': expected.description,
+        organization: expected.organization, role: 'opaque-17', startDate: expected.startDate, endDate: expected.endDate,
+        responsibilities: expected.responsibilities, achievements: expected.achievements, technologies: 'TypeScript' });
+    }
+    await variantPopup.close();
+    await variant.close();
+    report.checks.push(`Project projection fills ${editor} editor through the real MV3 session, in profile order and exactly once per record`);
+  }
+
+  const unknown = await context.newPage();
+  await unknown.addInitScript(() => { window.fixtureEditorLayout = 'unknown'; });
+  await unknown.goto(url);
+  await grant(unknown);
+  const unknownPopup = await popupFor(unknown);
+  assert.equal((await message(unknownPopup, { type: 'RA_RECORD_V2_START' })).ok, true);
+  assert.equal((await message(unknownPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data.status, 'advanced');
+  assert.deepEqual((await message(unknownPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data,
+    { status: 'request-human', snapshotVersion: 2, reason: 'field-semantic-unknown' });
+  assert.deepEqual(await unknown.evaluate(() => ({ save: window.fixture.save,
+    values: [...document.querySelectorAll('input, textarea')].map(field => field.value), submit: window.fixture.submit })),
+  { save: 0, values: ['', '', ''], submit: 0 });
+  report.checks.push('Unknown editor field is reported as a semantic gap before writing any known field or saving');
+  await unknownPopup.close();
+  await unknown.close();
 
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);

@@ -1,4 +1,5 @@
-import { bindRecordEditor } from '../planner/recordEditorBinder';
+import { bindRecordEditor, type RecordEditorBindResult } from '../planner/recordEditorBinder';
+import { resolveProjectField } from '../matching/projectFieldResolver';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
   type RecordRunCaptureSource } from '../planner/recordRunContext';
@@ -155,24 +156,28 @@ class FixtureDriver implements RecordOrchestratorDriver {
     });
   }
 
-  bindEditor(plan: ReadyRecordPlan, capture: RecordRunCapture, active: ActiveRecordTransaction) {
+  async bindEditor(plan: ReadyRecordPlan, capture: RecordRunCapture, active: ActiveRecordTransaction): Promise<RecordEditorBindResult> {
     const observation = this.#observations.get(capture);
     if (!observation) throw new Error('fixture observation missing');
+    if (plan.nextStep.kind !== 'populate-editor') throw new Error('editor plan missing');
+    const record = this.#records[active.intentIndex];
+    if (!record) return { status: 'request-human', reason: 'profile-value-missing', writtenFieldCount: 0, rollbackComplete: true };
+    const values = new Map<string, string>();
+    for (const nodeId of plan.nextStep.fieldNodeIds) {
+      const node = observation.scan.result.semanticGraph?.nodes.find(candidate => candidate.id === nodeId);
+      const field = node?.kind === 'field' ? observation.scan.result.fields.find(candidate => candidate.id === node.fieldId) : undefined;
+      if (!field) return { status: 'request-human', reason: 'field-map-mismatch', writtenFieldCount: 0, rollbackComplete: true };
+      const resolved = resolveProjectField(field, record);
+      if (resolved.status !== 'known') return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
+      values.set(field.id, resolved.value);
+    }
     return bindRecordEditor({
       plan,
       capture,
       activeTransaction: active,
       runContext: this.#context,
       scanState: observation.scan,
-      provideValue: ({ scanFieldId }) => {
-        const field = observation.scan.result.fields.find(candidate => candidate.id === scanFieldId);
-        const record = this.#records[active.intentIndex];
-        if (!field || !record) return undefined;
-        const identity = `${field.label} ${field.ariaLabel} ${field.name} ${field.placeholder}`;
-        if (/项目名称/u.test(identity)) return record.name;
-        if (/项目描述/u.test(identity)) return record.description;
-        return undefined;
-      },
+      provideValue: ({ scanFieldId }) => values.get(scanFieldId),
       rescan: () => this.capture(),
     });
   }
