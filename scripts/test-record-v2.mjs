@@ -101,6 +101,10 @@ try {
   const page = await context.newPage();
   await page.goto(url);
   await page.locator('#record-list').waitFor();
+  await page.locator('[data-ra-v2-card="v1"]').evaluateAll(cards => {
+    for (const card of cards) card.removeAttribute('data-ra-v2-intent');
+    cards[0].before(cards[1]);
+  });
   await grant(page);
   let popup = await popupFor(page);
 
@@ -136,13 +140,13 @@ try {
   }
   assert.equal(complete, true);
   const completed = await page.evaluate(() => ({ ...window.fixture,
-    cardIds: [...document.querySelectorAll('[data-ra-v2-card="v1"]')].map(card => Number(card.dataset.raV2Intent)).sort() }));
+    cardIds: [...document.querySelectorAll('[data-ra-v2-card="v1"] h3')].map(heading => Number(heading.textContent.match(/(\d)$/)[1]) - 1).sort() }));
   assert.deepEqual(completed.cardIds, [0, 1, 2, 3, 4, 5]);
   assert.deepEqual({ add: completed.add, save: completed.save }, { add: 4, save: 4 });
   assert.deepEqual({ delete: completed.delete, upload: completed.upload, next: completed.next, submit: completed.submit },
     { delete: 0, upload: 0, next: 0, submit: 0 });
   report.completed = completed;
-  report.checks.push('Two existing fictional projects plus four missing projects complete in 12 one-step actions; unsafe actions stay at zero');
+  report.checks.push('Visible name and description identify reordered existing cards without fixture IDs; four missing projects complete in 12 actions; unsafe actions stay at zero');
 
   await page.evaluate(() => history.pushState({}, '', '/repeatable-records?case=changed'));
   const changed = await message(popup, { type: 'RA_RECORD_V2_STATUS' });
@@ -153,7 +157,7 @@ try {
 
   const broken = await context.newPage();
   await broken.goto(url);
-  await broken.locator('[data-ra-v2-card="v1"]').first().evaluate(card => { card.dataset.raV2Intent = 'unknown'; });
+  await broken.locator('[data-ra-v2-card="v1"] h3').first().evaluate(heading => { heading.textContent = ''; });
   await grant(broken);
   const brokenPopup = await popupFor(broken);
   assert.equal((await message(brokenPopup, { type: 'RA_RECORD_V2_START' })).ok, true);
@@ -163,6 +167,59 @@ try {
     delete: window.fixture.delete, upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit }));
   assert.deepEqual(brokenCounts, { add: 0, save: 0, delete: 0, upload: 0, next: 0, submit: 0 });
   report.checks.push('Corrupt identity evidence requests human review before any page action');
+  await brokenPopup.close();
+  await broken.close();
+
+  for (const layout of ['definitions', 'table']) {
+    const variant = await context.newPage();
+    await variant.addInitScript(value => { window.fixtureLayout = value; }, layout);
+    await variant.goto(url);
+    await variant.locator('[data-ra-v2-card="v1"]').evaluateAll(cards => {
+      for (const card of cards) card.removeAttribute('data-ra-v2-intent');
+      cards[0].before(cards[1]);
+    });
+    await grant(variant);
+    const variantPopup = await popupFor(variant);
+    assert.equal((await message(variantPopup, { type: 'RA_RECORD_V2_START' })).ok, true);
+    let finished = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const response = await message(variantPopup, { type: 'RA_RECORD_V2_ADVANCE' });
+      assert.equal(response.ok, true);
+      if (response.data.status === 'complete') { finished = true; break; }
+      assert.equal(response.data.status, 'advanced');
+    }
+    assert.equal(finished, true);
+    assert.deepEqual(await variant.evaluate(() => ({ add: window.fixture.add, save: window.fixture.save,
+      delete: window.fixture.delete, upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit,
+      cards: document.querySelectorAll('[data-ra-v2-card="v1"]').length })),
+    { add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0, cards: 6 });
+    await variantPopup.close();
+    await variant.close();
+    report.checks.push(`Visible ${layout} layout completes all six projects without fixture identity attributes`);
+  }
+
+  const wrong = await context.newPage();
+  await wrong.goto(url);
+  await grant(wrong);
+  const wrongPopup = await popupFor(wrong);
+  assert.equal((await message(wrongPopup, { type: 'RA_RECORD_V2_START' })).ok, true);
+  for (let step = 0; step < 2; step++) assert.equal((await message(wrongPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data.status, 'advanced');
+  await wrong.locator('[data-save]').evaluate(button => {
+    button.addEventListener('click', () => {
+      const created = [...document.querySelectorAll('[data-ra-v2-card="v1"]')].find(card => card.querySelector('h3')?.textContent === '虚构测试项目 3');
+      created.querySelector('h3').textContent = '虚构测试项目 5';
+      created.querySelector('p').textContent = '项目描述：仅用于本地浏览器扩展验证的虚构项目 5。';
+    });
+  });
+  assert.equal((await message(wrongPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data.status, 'advanced');
+  assert.deepEqual((await message(wrongPopup, { type: 'RA_RECORD_V2_ADVANCE' })).data,
+    { status: 'request-human', snapshotVersion: 5, reason: 'save-result-uncertain' });
+  assert.deepEqual(await wrong.evaluate(() => ({ add: window.fixture.add, save: window.fixture.save,
+    delete: window.fixture.delete, upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit })),
+  { add: 1, save: 1, delete: 0, upload: 0, next: 0, submit: 0 });
+  report.checks.push('Wrong visible identity after save stops the run after one add/save without trying another record');
+  await wrongPopup.close();
+  await wrong.close();
 
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);

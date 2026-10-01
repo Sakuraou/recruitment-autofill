@@ -7,6 +7,8 @@ import { RecordTransactionOrchestrator, type RecordOrchestratorDriver } from '..
 import type { RecordV2Session } from './recordV2Gateway';
 import { scanDocument, type ScanState } from './scanner';
 import { projectProjectionResponseSchema, type ProjectProjectionResponse } from '../profile/projection';
+import { projectCardComparator } from './projectRecordIdentity';
+import { hiddenReason } from './domUtils';
 
 const FIXTURE_ORIGIN = 'http://localhost:3000';
 const FIXTURE_PATH = '/repeatable-records';
@@ -53,13 +55,6 @@ function observe(doc: Document): FixtureObservation | undefined {
   };
 }
 
-function fixtureIntentIndex(element: Element | undefined, recordCount: number): number | undefined {
-  const raw = element?.getAttribute('data-ra-v2-intent');
-  if (raw === null || raw === undefined || !/^\d$/u.test(raw)) return undefined;
-  const index = Number(raw);
-  return index >= 0 && index < recordCount ? index : undefined;
-}
-
 class FixtureDriver implements RecordOrchestratorDriver {
   readonly #doc: Document;
   readonly #context: RecordRunContext;
@@ -83,28 +78,25 @@ class FixtureDriver implements RecordOrchestratorDriver {
   plannerInput(capture: RecordRunCapture, active?: ActiveRecordTransaction): RepeatableRecordPlannerInput {
     const observation = this.#observations.get(capture);
     if (!observation) throw new Error('fixture observation missing');
+    const comparisons = new Map(capture.candidates.map(candidate => [candidate.recordNodeId,
+      projectCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId))]));
     const candidates = capture.candidates.map((candidate) => {
-      const target = observation.scan.semanticTargets.get(candidate.recordNodeId);
-      return { ...candidate, identityReady: fixtureIntentIndex(target, this.#records.length) !== undefined };
+      return { ...candidate, identityReady: comparisons.get(candidate.recordNodeId)!.ready };
     });
     return {
       snapshot: capture.snapshot,
       profileRevision: capture.profileRevision,
-      intents: this.#records.map((_, intentIndex) => ({ intentIndex, recordType: 'project', identityReady: true })),
+      intents: this.#records.map((record, intentIndex) => ({ intentIndex, recordType: 'project', identityReady: Boolean(record.name?.trim()) })),
       candidates,
       editorCandidate: capture.editorCandidate,
       identityComparisons: candidates.flatMap((candidate) => {
-        const target = observation.scan.semanticTargets.get(candidate.recordNodeId);
-        const actual = fixtureIntentIndex(target, this.#records.length);
-        return this.#records.map((_, intentIndex) => ({
+        const comparison = comparisons.get(candidate.recordNodeId)!;
+        return this.#records.map((record, intentIndex) => ({
           runToken: capture.runToken,
           snapshotToken: capture.snapshotToken,
           intentIndex,
           recordNodeId: candidate.recordNodeId,
-          verdict: actual === undefined ? 'insufficient' as const
-            : actual === intentIndex ? 'same' as const : 'different' as const,
-          signals: actual === intentIndex ? ['primary' as const, 'secondary' as const] : ['primary' as const],
-          provenance: 'site-recipe' as const,
+          ...comparison.compare(record),
         }));
       }),
       ...(active ? { activeTransaction: active } : {}),
@@ -123,12 +115,16 @@ class FixtureDriver implements RecordOrchestratorDriver {
       semanticTargets: observation.scan.semanticTargets,
       observePostcondition: () => {
         if (!list?.isConnected) return false;
-        const editorOpen = list.querySelector('[data-ra-v2-editor="v1"]') !== null;
+        // This is only a cheap structural hint. The executor always performs
+        // a fresh semantic capture and verifies the full topology afterwards.
+        const editorOpen = Array.from(list.querySelectorAll('form, fieldset, [role="dialog"]'))
+          .some(editor => !hiddenReason(editor) && editor.querySelector('input, textarea, select'));
         if (plan.nextStep.kind === 'open-create') return editorOpen;
         if (plan.nextStep.kind !== 'save-created') return false;
-        return !editorOpen
-          && list.querySelectorAll('[data-ra-v2-card="v1"]').length
-            === plan.nextStep.postcondition.expectedExistingRecordCount;
+        const cards = Array.from(list.querySelectorAll('[role="listitem"], article, li, tr'));
+        const outerCards = cards.filter(card => !hiddenReason(card)
+          && !cards.some(other => other !== card && other.contains(card)));
+        return !editorOpen && outerCards.length === plan.nextStep.postcondition.expectedExistingRecordCount;
       },
       rescan: () => this.capture(),
       quietWindowMs: 10,

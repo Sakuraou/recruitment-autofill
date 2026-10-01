@@ -18,7 +18,7 @@ interface FixtureCounters {
   submit: number;
 }
 
-function installFixture(existing: readonly number[] = [0, 1]) {
+function installFixture(existing: readonly number[] = [0, 1], layout: 'heading' | 'definitions' | 'table' = 'heading') {
   window.history.replaceState({}, '', '/repeatable-records?case=happy');
   document.documentElement.dataset.raRecordV2Fixture = 'v1';
   document.head.innerHTML = `<meta name="ra-record-v2-fixture" content="${marker}">`;
@@ -42,6 +42,8 @@ function installFixture(existing: readonly number[] = [0, 1]) {
     card.dataset.raV2Intent = String(index);
     const heading = document.createElement('h3');
     heading.textContent = `虚构测试项目 ${index + 1}`;
+    const description = document.createElement('p');
+    description.textContent = `项目描述：${projection.projects[index]?.description ?? ''}`;
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.textContent = '编辑项目经历';
@@ -49,7 +51,10 @@ function installFixture(existing: readonly number[] = [0, 1]) {
     remove.type = 'button';
     remove.textContent = '删除这段经历';
     remove.addEventListener('click', () => { counters.delete++; });
-    card.append(heading, edit, remove);
+    if (layout === 'heading') card.append(heading, description);
+    if (layout === 'definitions') card.innerHTML = `<dl><dt>项目名称</dt><dd>${heading.textContent}</dd><dt>项目简介</dt><dd>${projection.projects[index]?.description ?? ''}</dd></dl>`;
+    if (layout === 'table') card.innerHTML = `<table><tr><th>项目名称</th><td>${heading.textContent}</td></tr><tr><th>项目描述</th><td>${projection.projects[index]?.description ?? ''}</td></tr></table>`;
+    card.append(edit, remove);
     return card;
   }
 
@@ -121,9 +126,56 @@ describe('Record v2 固定虚构会话', () => {
       .map(card => Number(card.dataset.raV2Intent)).sort()).toEqual([0, 1, 2, 3, 4, 5]);
   }, 10_000);
 
-  it('已有卡片身份标记损坏时停止，不点击添加或保存', async () => {
+  it.each(['heading', 'definitions', 'table'] as const)('卡片没有夹具编号且顺序改变时，仍按可见内容去重：%s', async layout => {
+    const { counters, list } = installFixture([1, 0], layout);
+    for (const card of list.querySelectorAll('[data-ra-v2-card]')) card.removeAttribute('data-ra-v2-intent');
+    const session = createRecordV2FixtureSession(document, projection);
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const result = await session.advance();
+      if (result.status === 'complete') break;
+      expect(result.status).toBe('advanced');
+    }
+    expect(session.state).toBe('complete');
+    expect(counters).toEqual({ add: 4, save: 4, delete: 0, upload: 0, next: 0, submit: 0 });
+  }, 10_000);
+
+  it('已有重复卡片时停止，不再添加或保存', async () => {
+    const { counters } = installFixture([0, 0]);
+    const session = createRecordV2FixtureSession(document, projection);
+    const result = await session.advance();
+    expect(result.status).toBe('request-human');
+    expect(counters.add).toBe(0);
+    expect(counters.save).toBe(0);
+  });
+
+  it('同名卡片描述不一致时停止，不把原卡当作不存在而重新添加', async () => {
     const { counters, list } = installFixture();
-    list.querySelector<HTMLElement>('[data-ra-v2-card="v1"]')!.dataset.raV2Intent = 'unknown';
+    list.querySelector('p')!.textContent = '项目描述：原网页保存的不同描述内容，需要用户核对。';
+    const session = createRecordV2FixtureSession(document, projection);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'identity-insufficient' });
+    expect(counters.add).toBe(0);
+    expect(counters.save).toBe(0);
+  });
+
+  it('保存生成其它项目的卡片时只保存一次，并停止后续新增', async () => {
+    const { counters, list } = installFixture();
+    const session = createRecordV2FixtureSession(document, projection);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    list.querySelector('[data-save]')!.addEventListener('click', () => {
+      const created = Array.from(list.querySelectorAll('[data-ra-v2-card]')).find(card => card.querySelector('h3')?.textContent === '虚构测试项目 3')!;
+      created.querySelector('h3')!.textContent = '虚构测试项目 5';
+      created.querySelector('p')!.textContent = `项目描述：${projection.projects[4]!.description}`;
+    });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'save-result-uncertain' });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human' });
+    expect(counters).toEqual({ add: 1, save: 1, delete: 0, upload: 0, next: 0, submit: 0 });
+  });
+
+  it('已有卡片缺少可见身份时停止，不点击添加或保存', async () => {
+    const { counters, list } = installFixture();
+    list.querySelector('[data-ra-v2-card="v1"] h3')!.textContent = '';
     const session = createRecordV2FixtureSession(document, projection);
 
     await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'identity-insufficient' });

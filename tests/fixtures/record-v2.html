@@ -32,12 +32,27 @@
         article.dataset.raV2Intent = String(index);
         const heading = document.createElement('h3');
         heading.textContent = `虚构测试项目 ${index + 1}`;
+        const description = document.createElement('p');
+        description.textContent = `项目描述：仅用于本地浏览器扩展验证的虚构项目 ${index + 1}。`;
         const edit = document.createElement('button');
         edit.type = 'button'; edit.textContent = '编辑项目经历';
         const remove = document.createElement('button');
         remove.type = 'button'; remove.textContent = '删除这段经历';
         remove.addEventListener('click', () => { state.delete++; });
-        article.append(heading, edit, remove);
+        if (window.fixtureLayout === 'definitions') {
+          const dl = document.createElement('dl');
+          dl.innerHTML = '<dt>项目名称</dt><dd></dd><dt>项目简介</dt><dd></dd>';
+          dl.querySelectorAll('dd')[0].textContent = heading.textContent;
+          dl.querySelectorAll('dd')[1].textContent = description.textContent.slice('项目描述：'.length);
+          article.append(dl);
+        } else if (window.fixtureLayout === 'table') {
+          const table = document.createElement('table');
+          table.innerHTML = '<tr><th>项目名称</th><td></td></tr><tr><th>项目描述</th><td></td></tr>';
+          table.querySelectorAll('td')[0].textContent = heading.textContent;
+          table.querySelectorAll('td')[1].textContent = description.textContent.slice('项目描述：'.length);
+          article.append(table);
+        } else article.append(heading, description);
+        article.append(edit, remove);
         elements.set(index, article);
         return article;
       }
