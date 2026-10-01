@@ -277,9 +277,20 @@ try {
   await factsOptions.getByLabel('是否有实习经历', { exact: true }).selectOption('none');
   await factsOptions.getByRole('button', { name: '保存档案' }).click();
   await factsOptions.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
+  await factsOptions.getByRole('button', { name: /03 项目经历/ }).click();
+  await factsOptions.getByLabel('结束时间状态', { exact: true }).selectOption('ongoing');
+  assert.equal(await factsOptions.getByLabel('结束时间', { exact: true }).inputValue(), profile.projects[0].endDate);
+  await factsOptions.getByRole('button', { name: '保存档案' }).click();
+  await factsOptions.getByText('结束时间状态与已填写日期冲突', { exact: false }).waitFor();
+  await factsOptions.getByLabel('结束时间', { exact: true }).fill('');
+  await factsOptions.getByRole('button', { name: '保存档案' }).click();
+  await factsOptions.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
   await factsOptions.reload();
   await factsOptions.getByRole('button', { name: /04 实习经历/ }).click();
   assert.equal(await factsOptions.getByLabel('是否有实习经历', { exact: true }).inputValue(), 'none');
+  await factsOptions.getByRole('button', { name: /03 项目经历/ }).click();
+  assert.equal(await factsOptions.getByLabel('结束时间状态', { exact: true }).inputValue(), 'ongoing');
+  assert.equal(await factsOptions.getByLabel('结束时间', { exact: true }).inputValue(), '');
   await factsOptions.close();
   const factsUrl = 'http://127.0.0.1:4173/collection-facts-form.html';
   const factsPage = await context.newPage();
@@ -304,9 +315,12 @@ try {
   assert.equal(await factsPage.locator('#certificates-present').inputValue(), '');
   assert.equal(await factsPage.locator('#combined').inputValue(), '');
   assert.equal(await factsPage.locator('#project-name').inputValue(), profile.projects[0].name);
+  assert.equal(await factsPage.locator('#project-end').inputValue(), 'opaque-present');
+  assert.equal(await factsPage.locator('#project-end-date').inputValue(), '');
   assert.equal(await factsPage.locator('#submit-count').textContent(), '0');
   assert.match(await factsPopup.getByRole('status').textContent(), /自动重扫 1 次/);
   report.checks.push('Explicit No edited in the production options persists; ordinary collection questions use unique visible Yes/No, keep unknown empty and combined questions unanswered, and rescan/fill the project field revealed by Yes without submitting');
+  report.checks.push('Ongoing end-date state edited in production options preserves conflicting old dates for correction, persists without inventing a day, selects the unique visible Present option after dynamic reveal, and leaves an unsupported native date input empty');
   await factsPopup.close();
   await factsPage.close();
   await worker.evaluate(async value => {

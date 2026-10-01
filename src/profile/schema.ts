@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { checkDateRange, profileDateSchema as date } from './calendarDates';
-import { collectionFactConflicts, collectionFactsSchema } from './facts';
+import { collectionFactConflicts, collectionFactsSchema, endDateFactSchema } from './facts';
 
 const text = z.string().max(20000).optional();
 const list = z.array(z.string().max(2000)).max(100).default([]);
@@ -14,7 +14,7 @@ export const educationSchema = z.object({
   id: z.string().min(1),
   level: z.enum(['专科', '本科', '硕士研究生', '博士研究生', '其他']),
   school: text, college: text, major: text, majorCategory: text,
-  degree: text, startDate: date, endDate: date,
+  degree: text, startDate: date, endDate: date, endDateFact: endDateFactSchema.optional(),
   studyMode: text, gpa: text, gpaScale: text, ranking: text,
   researchDirection: text, courses: text,
   educationType: text, schoolProperty: text, country: text, durationYears: text,
@@ -23,6 +23,7 @@ export type EducationExperience = z.infer<typeof educationSchema>;
 
 export const projectSchema = z.object({
   id: z.string().min(1), name: text, role: text, startDate: date, endDate: date,
+  endDateFact: endDateFactSchema.optional(),
   organization: text,
   description: text, responsibilities: text, achievements: text, technologies: list,
 }).strict().superRefine(checkDateRange);
@@ -30,6 +31,7 @@ export type ProjectExperience = z.infer<typeof projectSchema>;
 export const experienceSchema = z.object({
   id: z.string().min(1), organization: text, department: text, role: text,
   startDate: date, endDate: date, description: text, achievements: text,
+  endDateFact: endDateFactSchema.optional(),
   experienceType: text, workType: text, companyProperty: text, monthlySalary: text,
   hasProof: z.enum(['', '是', '否']).optional(),
   certifierName: text, certifierRelation: text, certifierDuty: text, certifierCompany: text, certifierContact: text,

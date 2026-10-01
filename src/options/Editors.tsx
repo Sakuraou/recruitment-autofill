@@ -36,6 +36,19 @@ export function CollectionFactEditor({ profile, onChange, factKey, title }: Edit
     <small>空列表不会自动视为没有。选择“没有”或“不适用”时，已有资料须先核对；记录会保留。</small>
   </div>;
 }
+export function EndDateFactEditor({ profile, onChange, base }: EditorProps & { base: string }) {
+  const path = `${base}.endDateFact`;
+  const storedState = getPath(profile, `${path}.state`);
+  const end = getPath(profile, `${base}.endDate`);
+  const state = typeof storedState === 'string' ? storedState : typeof end === 'string' && end.trim() ? 'known' : 'unknown';
+  return <div className="editor-field"><label htmlFor={path}>结束时间状态</label>
+    <select id={path} value={state} onChange={event => onChange(path, {
+      state: event.target.value, source: 'user', confirmed: event.target.value !== 'unknown', updatedAt: new Date().toISOString(),
+    })}><option value="unknown">未确认</option><option value="known">明确结束日期</option><option value="ongoing">进行中 / 至今</option>
+      <option value="none">未提供结束日期</option><option value="not_applicable">不适用</option></select>
+    <small>进行中请选择“至今”，结束日期留空；已结束请选择明确日期并填写原日期。切换状态不会删除日期，冲突时保存会提示核对。</small>
+  </div>;
+}
 export function CollectionEditor({ profile, onChange, spec }: EditorProps & { spec: CollectionSpec }) {
   const raw = getPath(profile, spec.path);
   const items: unknown[] = Array.isArray(raw) ? raw : [];
@@ -54,6 +67,7 @@ export function CollectionEditor({ profile, onChange, spec }: EditorProps & { sp
     {items.map((item, index) => <article className="record-card" key={String(getPath(item, 'id') ?? index)}>
       <div className="row record-heading"><h3>{spec.title} {String(index + 1).padStart(2, '0')}</h3>
         <button type="button" className="text-button danger" onClick={() => onChange(spec.path, items.filter((_, i) => i !== index))}>移除</button></div>
+      {spec.fields.some(field => field.key === 'endDate') && <EndDateFactEditor profile={profile} onChange={onChange} base={`${spec.path}.${index}`} />}
       <Fields profile={profile} onChange={onChange} base={`${spec.path}.${index}`} fields={spec.fields} />
     </article>)}
   </section>;

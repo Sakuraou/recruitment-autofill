@@ -5,6 +5,7 @@ import { matchOption } from './optionMatcher';
 import { effectiveMaxLength } from './profileResolver';
 import { AUTO_CONFIDENCE, normalize } from './confidence';
 import { calendarDateBounds, dateRangePossible } from '../profile/calendarDates';
+import { resolveEndDate } from './endDate';
 
 export type ProjectFieldReason = 'field-semantic-unknown' | 'field-semantic-ambiguous' | 'profile-value-missing'
   | 'profile-date-precision' | 'profile-value-invalid' | 'field-options-unresolved' | 'profile-value-too-long'
@@ -44,8 +45,18 @@ export function resolveProjectField(field: FieldDescriptor, record: ProjectProje
   if (!detected || detected.alias.scope !== 'projects' || !keys.has(detected.alias.key)) return reject('field-semantic-unknown');
   if (detected.ambiguous || detected.confidence < AUTO_CONFIDENCE) return reject('field-semantic-ambiguous');
   const key = detected.alias.key as Exclude<keyof ProjectProjectionEntry, 'id'>;
+  if (key === 'endDate') {
+    const resolved = resolveEndDate(record, field);
+    if (resolved.ongoing) {
+      if (!resolved.value) return reject('field-options-unresolved');
+      const option = field.options.find(item => item.label === resolved.value && !item.disabled);
+      return option ? Object.freeze({ status: 'known', key: 'projects.endDate', value: option.value, confidence: detected.confidence }) : reject('field-options-unresolved');
+    }
+    if (!resolved.value) return reject('profile-value-missing');
+  }
   const raw = record[key];
   let value = Array.isArray(raw) ? raw.join('、') : raw;
+  if (typeof value !== 'string') value = undefined;
   if (typeof value !== 'string' || !value.trim()) return reject('profile-value-missing');
   if (key === 'startDate' || key === 'endDate') {
     if (!dateRangePossible(record.startDate, record.endDate)) return reject('profile-value-invalid');

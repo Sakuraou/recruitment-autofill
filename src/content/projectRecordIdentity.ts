@@ -1,6 +1,8 @@
 import type { ProjectProjectionEntry } from '../profile/projection';
 import type { RecordIdentitySignal, RecordIdentityVerdict } from '../planner/recordPlanner';
 import { hiddenReason } from './domUtils';
+import { endDateState, ongoingCaption } from '../profile/facts';
+import { calendarDateBounds } from '../profile/calendarDates';
 
 /** Only this value-free result may leave the identity reader. */
 export interface ProjectIdentityResult {
@@ -27,9 +29,8 @@ function complete(value: string | undefined): value is string {
 function date(value: string | undefined): string | undefined {
   const match = /^(\d{4})[-/.](\d{2})[-/.](\d{2})$/u.exec(normalized(value));
   if (!match) return undefined;
-  const parsed = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`);
-  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === `${match[1]}-${match[2]}-${match[3]}`
-    ? parsed.toISOString().slice(0, 10) : undefined;
+  const valueDate = `${match[1]}-${match[2]}-${match[3]}`;
+  return calendarDateBounds(valueDate) ? valueDate : undefined;
 }
 
 /** Read only visible summary text, never control values or hidden alternate cards. */
@@ -103,9 +104,13 @@ function compareEvidence(observed: Evidence, project: ProjectProjectionEntry): P
     Object.freeze({ verdict, signals: Object.freeze(signals), provenance: 'rule' });
   if (observed.conflict || !complete(observed.name) || !complete(expectedName)) return result('insufficient', []);
   if (observed.name !== expectedName) return result('different', ['primary']);
-  const start = date(project.startDate); const end = date(project.endDate);
+  const endState = endDateState(project);
+  const expectedOngoing = endState === 'ongoing';
+  const actualOngoing = !!observed.endDate && ongoingCaption(observed.endDate);
+  if (expectedOngoing !== actualOngoing && (expectedOngoing || actualOngoing)) return result('insufficient', ['primary']);
+  const start = date(project.startDate); const end = endState === 'known' ? date(project.endDate) : undefined;
   const actualStart = date(observed.startDate); const actualEnd = date(observed.endDate);
-  if ((observed.startDate && !actualStart) || (observed.endDate && !actualEnd)
+  if ((observed.startDate && !actualStart) || (observed.endDate && !actualEnd && !actualOngoing)
     || (actualStart && actualEnd && actualStart > actualEnd)) return result('insufficient', ['primary']);
   const fullRange = start && end && actualStart && actualEnd && start <= end && actualStart <= actualEnd;
   if (fullRange && (start !== actualStart || end !== actualEnd)) return result('different', ['primary', 'start-date', 'end-date']);
@@ -113,6 +118,7 @@ function compareEvidence(observed: Evidence, project: ProjectProjectionEntry): P
   const description = normalized(project.description);
   const descriptionReady = complete(observed.description) && complete(description) && description.length >= 12;
   if (descriptionReady && observed.description !== description) return result('insufficient', ['primary']);
+  if (expectedOngoing && actualOngoing && start && actualStart && start === actualStart) return result('same', ['primary', 'start-date', 'end-date']);
   if (fullRange) return result('same', ['primary', 'start-date', 'end-date']);
   if (descriptionReady && observed.description === description) return result('same', ['primary', 'secondary']);
   return result('insufficient', ['primary']);

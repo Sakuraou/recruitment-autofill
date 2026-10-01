@@ -2,7 +2,9 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><title>经历事实与动态表单 · 虚构测试</title><script src="collection-facts-form.js" defer></script></head>
 <body><main><h1>经历事实与动态表单</h1><form id="facts-form">
 <section><h2>项目经历</h2><label>是否有项目经历<select id="projects-present"><option value="">请选择</option><option value="opaque-a">有</option><option value="opaque-b">没有</option></select></label>
-<div id="project-details" hidden><label>项目名称<input id="project-name"></label></div></section>
+<div id="project-details" hidden><label>项目名称<input id="project-name"></label>
+<label>项目结束日期<select id="project-end"><option value="">请选择</option><option value="opaque-present">至今</option></select></label>
+<label>项目结束日期<input id="project-end-date" type="date"></label></div></section>
 <section><h2>实习经历</h2><label>是否有实习经历<select id="internships-present"><option value="">请选择</option><option value="opaque-c">是</option><option value="opaque-d">否</option></select></label></section>
 <section><h2>证书</h2><label>是否有证书<select id="certificates-present"><option value="">请选择</option><option value="opaque-e">是</option><option value="opaque-f">否</option></select></label></section>
 <section><h2>专业论著</h2><label>是否有专业论著<select id="papers-present"><option value="">请选择</option><option value="opaque-g">是</option><option value="opaque-h">否</option></select></label></section>

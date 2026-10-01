@@ -1,4 +1,5 @@
 import { fullDate, type WorkflowField, type WorkflowRecord, type WorkflowRequest } from './model';
+import { confirmedEndDate } from '../profile/facts';
 
 export const sectionConfig: Record<WorkflowRecord['section'], { label: string; save: string; radio?: string; max?: number; identity: string[]; dates: string[] }> = {
   educationInfo: { label: '教育经历', save: 'saveEducationInfo', max: 5, identity: ['educationSchool'], dates: ['sltTime', 'sltTime_t'] },
@@ -26,26 +27,26 @@ export function additionalRecords(request: WorkflowRequest): WorkflowRecord[] {
   return [
     ...(request.studentWork ?? []).map((entry): WorkflowRecord => ({
       id: `studentWork:${entry.id}`, section: 'schoolPostInfo', title: `${entry.organization ?? ''} · ${entry.role ?? '校内职务'}`,
-      name: entry.organization ?? '', identity: [entry.organization ?? '', entry.role ?? ''], verifyTargets: ['dutyAchievement'], replaceTargets: ['dutyAchievement'], startDate: entry.startDate, endDate: entry.endDate,
+      name: entry.organization ?? '', identity: [entry.organization ?? '', entry.role ?? ''], verifyTargets: ['dutyAchievement'], replaceTargets: ['dutyAchievement'], startDate: entry.startDate, endDate: confirmedEndDate(entry),
       fields: [field('organizationName', 'text', '组织团体名称', entry.organization), field('schoolJob', 'text', '担任职务', entry.role),
-        field('schoolPost_startTime', 'date', '任职开始时间', day(entry.startDate)), field('schoolPost_endTime', 'date', '任职结束时间', day(entry.endDate, true)),
+        field('schoolPost_startTime', 'date', '任职开始时间', day(entry.startDate)), field('schoolPost_endTime', 'date', '任职结束时间', day(confirmedEndDate(entry), true)),
         field('cadreLevel', 'text', '干部级别', entry.cadreLevel), field('dutyAchievement', 'text', '职责和成就', entry.shortDuties || [entry.description, entry.achievements].filter(Boolean).join('；'))],
     })),
     ...(request.internships ?? []).map((entry): WorkflowRecord => entry.experienceType === '社会实践' ? ({
       id: `internships:${entry.id}`, section: 'workInfo', title: `${entry.organization ?? ''} · ${entry.role ?? '社会实践'}`, tab: '校内活动/社会实践',
       name: entry.organization ?? '', identity: [entry.organization ?? '', entry.role ?? '社会实践'], identityTargets: ['activityName', 'activityType'], dateTargets: ['startTime', 'endTime'], verifyTargets: ['activityDesc'], replaceTargets: ['activityDesc'],
-      startDate: entry.startDate, endDate: entry.endDate,
+      startDate: entry.startDate, endDate: confirmedEndDate(entry),
       fields: [field('activityName', 'text', '活动/实践名称', entry.organization), field('activityType', 'text', '活动/实践类型', entry.role || '社会实践'),
-        field('startTime', 'date', '开始日期', day(entry.startDate)), field('endTime', 'date', '结束日期', day(entry.endDate, true)),
+        field('startTime', 'date', '开始日期', day(entry.startDate)), field('endTime', 'date', '结束日期', day(confirmedEndDate(entry), true)),
         field('activityDesc', 'text', '活动描述', [entry.description, entry.achievements].filter(Boolean).join('\n'))],
     }) : ({
       id: `internships:${entry.id}`, section: 'workInfo', title: `${entry.organization ?? '待补单位'} · ${entry.role ?? '实习'}`, tab: '实习经历',
-      name: entry.organization ?? '', identity: [entry.organization ?? '', entry.role ?? ''], verifyTargets: ['workDescription'], replaceTargets: ['workDescription'], startDate: entry.startDate, endDate: entry.endDate,
+      name: entry.organization ?? '', identity: [entry.organization ?? '', entry.role ?? ''], verifyTargets: ['workDescription'], replaceTargets: ['workDescription'], startDate: entry.startDate, endDate: confirmedEndDate(entry),
       fields: [field('experienceType', 'select', '活动经历类型', entry.experienceType || '实习经历'),
         field('companyName', 'text', '工作单位', entry.organization), field('companyProperty', 'select', '企业性质', entry.companyProperty),
         field('department', 'text', '所在部门', entry.department), field('job', 'text', '职务', entry.role),
         field('workType', 'select', '工作类型', entry.workType || '实习'), field('workPay', 'select', '税前月薪', entry.monthlySalary),
-        field('workTime', 'date', '入职日期', day(entry.startDate)), field('workTime_t', 'date', '离职日期', day(entry.endDate, true)),
+        field('workTime', 'date', '入职日期', day(entry.startDate)), field('workTime_t', 'date', '离职日期', day(confirmedEndDate(entry), true)),
         field('workDescription', 'text', '工作描述', [entry.description, entry.achievements].filter(Boolean).join('\n')),
         field('isHasCertifier', 'radio', '是否有证明', entry.hasProof === '是' ? 'Y' : entry.hasProof === '否' ? 'N' : undefined),
         ...(['certifierName', 'certifierRelation', 'certifierDuty', 'certifierCompany', 'certifierContact'] as const).map((key, i) =>

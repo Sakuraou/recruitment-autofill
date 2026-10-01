@@ -45,6 +45,7 @@ try {
   async function pageFor(mode, editor = 'rich') {
     const page = await context.newPage();
     await page.addInitScript(value => { window.fixtureEditorLayout = value.editor;
+      window.fixtureOngoing = value.mode === 'ongoing';
       window.fixtureActionDelayMs = value.mode === 'paused' || value.mode === 'stopping' ? 600 : 0;
       if (value.mode === 'empty' || value.mode === 'one') {
         window.fixtureInitialCards = value.mode === 'empty' ? [] : [0];
@@ -117,6 +118,27 @@ try {
     report.checks.push(`Production popup starts from ${6 - missing} existing projects with an explicit list relation, adds/saves exactly ${missing}, and restart adds none`);
     await popup.close(); await page.close();
   }
+
+  const originalProfile = await worker.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']);
+  const ongoingProfile = { ...profile, projects: profile.projects.map(project => ({ ...project, endDate: '',
+    endDateFact: { state: 'ongoing', source: 'user', confirmed: true, updatedAt: '2026-10-01T00:00:00Z' } })) };
+  const ongoingOptions = await context.newPage(); await ongoingOptions.goto(`chrome-extension://${extensionId}/options.html`);
+  await ongoingOptions.getByRole('button', { name: /11 导入与备份/ }).click();
+  await ongoingOptions.getByLabel('或粘贴 JSON').fill(JSON.stringify(ongoingProfile));
+  await ongoingOptions.getByRole('button', { name: '校验并载入预览' }).click();
+  await ongoingOptions.getByRole('button', { name: '保存档案' }).click();
+  await ongoingOptions.getByText('档案已保存在此浏览器。', { exact: false }).waitFor(); await ongoingOptions.close();
+  const ongoing = await pageFor('ongoing'); popup = await popupFor(ongoing);
+  await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();
+  await popup.getByText(completion).waitFor();
+  assert.deepEqual(await counts(ongoing), expected);
+  assert.deepEqual(await ongoing.evaluate(() => window.fixture.savedFields.map(item => item.values.endDate)), Array(4).fill('opaque-present'));
+  await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();
+  await popup.getByText(completion).waitFor();
+  assert.deepEqual(await counts(ongoing), expected);
+  report.checks.push('Production project pilot consumes confirmed ongoing metadata from the minimum background projection, selects unique Present for all missing projects, verifies visible ongoing cards, and restarts without another add/save or invented date');
+  await popup.close(); await ongoing.close();
+  await worker.evaluate(async value => { await chrome.storage.local.set({ 'recruitment.profile.v1': value }); }, originalProfile);
 
   const paused = await pageFor('paused'); popup = await popupFor(paused);
   await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();

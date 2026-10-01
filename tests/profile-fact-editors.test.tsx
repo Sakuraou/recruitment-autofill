@@ -43,3 +43,14 @@ it('主动新增解除旧的没有状态，删除空草稿不能推测没有', (
   expect(shown().projects).toEqual([]);
   expect((screen.getByLabelText('是否有项目经历') as HTMLSelectElement).value).toBe('unknown');
 });
+it('至今状态保留已输入日期供核对，清除冲突日期后可保存，不能生成今天', () => {
+  const initial = createEmptyProfile(); initial.projects = [{ id: 'p', name: '虚构项目', endDate: '2026-06-30', technologies: [] }];
+  render(<Editor initial={initial} />);
+  fireEvent.change(screen.getByLabelText('结束时间状态'), { target: { value: 'ongoing' } });
+  expect(shown().projects[0]!.endDate).toBe('2026-06-30');
+  expect(screen.getByTestId('valid').textContent).toBe('false');
+  fireEvent.change(screen.getByLabelText('结束时间'), { target: { value: '' } });
+  expect(shown().projects[0]!.endDate).toBe('');
+  expect(shown().projects[0]!.endDateFact).toMatchObject({ state: 'ongoing', source: 'user', confirmed: true });
+  expect(screen.getByTestId('valid').textContent).toBe('true');
+});

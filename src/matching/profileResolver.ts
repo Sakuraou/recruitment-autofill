@@ -3,6 +3,8 @@ import type { EducationExperience, TextVariants, UserProfile } from '../profile/
 import type { FieldDescriptor } from '../shared/types';
 import { directTexts } from './fieldMatcher';
 import { normalize } from './confidence';
+import { resolveEndDate } from './endDate';
+import { confirmedEndDate } from '../profile/facts';
 
 export interface Resolution {
   key: string;
@@ -60,7 +62,7 @@ function aggregateValue(key: string, detailed: string[], compact: string[], limi
 
 function sameEducationValue(profile: UserProfile, alias: FieldAlias): string | undefined {
   if (profile.education.length < 2) return undefined;
-  const values = profile.education.map((entry) => readString(entry, alias.key));
+  const values = profile.education.map((entry) => alias.key === 'endDate' ? confirmedEndDate(entry) : readString(entry, alias.key));
   if (!values.length || values.some((value) => value === undefined)) return undefined;
   return values.every((value) => value === values[0]) ? values[0] : undefined;
 }
@@ -98,6 +100,7 @@ function educationValue(field: FieldDescriptor, profile: UserProfile, alias: Fie
   const entry = entries[0];
   if (!entry) return { key: genericKey, reason: '未找到可靠信息，需要人工填写。' };
   const key = `education.${entry.index}.${alias.key}`;
+  if (alias.key === 'endDate') return { key, ...resolveEndDate(entry.education, field) };
   const value = readString(entry.education, alias.key);
   if (alias.key === 'majorCategory' && !value && /^(软件工程|计算机科学与技术|计算机技术)$/.test(entry.education.major ?? '')) {
     return { key: `education.${entry.index}.major`, value: '计算机类', confidence: 0.78, review: true, fuzzy: true,
@@ -140,6 +143,8 @@ function collectionValue(field: FieldDescriptor, profile: UserProfile, alias: Fi
   if (candidates.length !== 1) return { key: genericKey, review: true, confidence: 0.65, reason: '档案有多条相关经历，页面未唯一指明哪条；请人工选择，不能默认第一条。' };
   const candidate = candidates[0];
   if (!candidate) return { key: genericKey, reason: '未找到可靠信息，需要人工填写。' };
+  if (alias.key === 'endDate') return { key: `${alias.scope}.${candidate.index}.${alias.key}`, ...resolveEndDate(
+    'endDate' in candidate.entry || 'endDateFact' in candidate.entry ? candidate.entry : {}, field) };
   const value = readString(candidate.entry, alias.key);
   return { key: `${alias.scope}.${candidate.index}.${alias.key}`, value,
     reason: value ? '读取唯一对应经历中已保存的原始资料。' : '该经历尚未填写此项资料；不会补造。' };

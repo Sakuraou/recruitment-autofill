@@ -8,6 +8,23 @@ export const collectionFactSchema = z.object({
   confirmed: z.boolean(),
   updatedAt: z.iso.datetime({ offset: true }).optional(),
 }).strict();
+export const endDateFactSchema = z.object({ ...collectionFactSchema.shape,
+  state: z.enum(['unknown', 'known', 'none', 'not_applicable', 'ongoing']),
+}).strict();
+export type EndDateFact = z.infer<typeof endDateFactSchema>;
+export interface EndDateRecord { endDate?: string; endDateFact?: EndDateFact }
+export function endDateState(record: EndDateRecord): EndDateFact['state'] {
+  const fact = record.endDateFact;
+  if (!fact) return record.endDate?.trim() ? 'known' : 'unknown';
+  if (!fact.confirmed || fact.source === 'legacy') return 'unknown';
+  return fact.state;
+}
+export function confirmedEndDate(record: EndDateRecord): string | undefined {
+  return endDateState(record) === 'known' ? record.endDate : undefined;
+}
+export function ongoingCaption(value: string): boolean {
+  return ['至今', 'present', 'ongoing', 'to date'].includes(value.normalize('NFKC').trim().toLowerCase());
+}
 export const collectionFactsSchema = z.object({
   projects: collectionFactSchema.optional(), internships: collectionFactSchema.optional(),
   studentWork: collectionFactSchema.optional(), awards: collectionFactSchema.optional(),

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { awardSchema, basicSchema, educationSchema, projectSchema, experienceSchema, certificateSchema, paperSchema, profileSchema, type UserProfile } from '../profile/schema';
 import { additionalRecords } from './sections';
 import { daysInMonth } from '../profile/calendarDates';
+import { confirmedEndDate } from '../profile/facts';
 
 export const workflowRequestSchema = z.object({
   education: z.array(educationSchema).max(30), projects: z.array(projectSchema).max(100),
@@ -61,7 +62,7 @@ export function buildWorkflowRecords(request: WorkflowRequest): WorkflowRecord[]
   const records: WorkflowRecord[] = [
     ...education.map(({ entry }): WorkflowRecord => ({
       id: `education:${entry.id}`, section: 'educationInfo', title: `${entry.level} · ${entry.school ?? '未填写学校'}`,
-      name: entry.school ?? '', stage: entry.level, startDate: entry.startDate, endDate: entry.endDate,
+      name: entry.school ?? '', stage: entry.level, startDate: entry.startDate, endDate: confirmedEndDate(entry),
       fields: [
         field('education', 'select', '学历', entry.level), field('educationType', 'select', '教育类型', entry.educationType),
         field('schoolProperty', 'select', '院校性质', entry.schoolProperty), field('degree1', 'select', '学位', entry.degree),
@@ -73,7 +74,7 @@ export function buildWorkflowRecords(request: WorkflowRequest): WorkflowRecord[]
         field('isMainStudy1', 'radio', '是否主学习经历', education.find(item => item.entry.level === entry.level)?.entry.id === entry.id ? 'Y' : 'N'),
         field('isHigestAcademic1', 'radio', '是否最高学位', highestAcademic ? entry.id === highestAcademic ? 'Y' : 'N' : undefined),
         field('sltTime', 'date', '入学日期', fullDate(entry.startDate, false, request.monthBoundaryDates)),
-        field('sltTime_t', 'date', '毕业日期', fullDate(entry.endDate, true, request.monthBoundaryDates)),
+        field('sltTime_t', 'date', '毕业日期', fullDate(confirmedEndDate(entry), true, request.monthBoundaryDates)),
         field('college1', 'text', '院系', entry.college), field('specialty1', 'text', '专业名称', entry.major),
         field('researchArea1', 'text', '研究方向', entry.researchDirection), field('course1', 'text', '专业课程', entry.courses),
         field('rank', 'select', '年级排名', entry.ranking),
@@ -81,13 +82,13 @@ export function buildWorkflowRecords(request: WorkflowRequest): WorkflowRecord[]
     })),
     ...request.projects.map((entry): WorkflowRecord => ({
       id: `projects:${entry.id}`, section: 'projectInfo', title: entry.name ?? '未填写项目名称', name: entry.name ?? '',
-      startDate: entry.startDate, endDate: entry.endDate,
+      startDate: entry.startDate, endDate: confirmedEndDate(entry),
       verifyTargets: ['projectName', 'projectJob', 'projectDuty', 'projectDesc', 'projectArchievement'],
       replaceTargets: ['projectName', 'projectJob', 'projectDuty', 'projectDesc', 'projectArchievement'],
       fields: [field('projectName', 'text', '项目名称', entry.name), field('projectCompany', 'text', '所在单位', entry.organization),
         field('projectJob', 'text', '职务', entry.role),
         field('projectTime', 'date', '项目开始日期', fullDate(entry.startDate, false, request.monthBoundaryDates)),
-        field('projectTime_t', 'date', '项目结束日期', fullDate(entry.endDate, true, request.monthBoundaryDates)),
+        field('projectTime_t', 'date', '项目结束日期', fullDate(confirmedEndDate(entry), true, request.monthBoundaryDates)),
         field('projectDuty', 'text', '项目职责', entry.responsibilities), field('projectDesc', 'text', '项目简述', entry.description),
         field('projectArchievement', 'text', '项目业绩', entry.achievements)],
     })),

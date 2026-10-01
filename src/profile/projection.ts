@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ProjectExperience, UserProfile } from './schema';
 import { checkDateRange, profileDateSchema } from './calendarDates';
+import { endDateFactSchema } from './facts';
 
 /** Fixed, payload-free request. The caller cannot choose a profile path or selector. */
 export const projectProjectionRequestSchema = z.object({ type: z.literal('RA_PROFILE_PROJECT') }).strict();
@@ -14,6 +15,7 @@ export const projectProjectionEntrySchema = z.object({
   organization: optionalText,
   startDate: profileDateSchema,
   endDate: profileDateSchema,
+  endDateFact: endDateFactSchema.optional(),
   description: optionalText,
   responsibilities: optionalText,
   achievements: optionalText,
@@ -40,6 +42,7 @@ function projectEntry(project: ProjectExperience): ProjectProjectionEntry {
     ...(project.organization === undefined ? {} : { organization: project.organization }),
     ...(project.startDate === undefined ? {} : { startDate: project.startDate }),
     ...(project.endDate === undefined ? {} : { endDate: project.endDate }),
+    ...(project.endDateFact === undefined ? {} : { endDateFact: Object.freeze({ ...project.endDateFact }) }),
     ...(project.description === undefined ? {} : { description: project.description }),
     ...(project.responsibilities === undefined ? {} : { responsibilities: project.responsibilities }),
     ...(project.achievements === undefined ? {} : { achievements: project.achievements }),

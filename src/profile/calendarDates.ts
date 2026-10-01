@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EndDateRecord } from './facts';
 
 export function daysInMonth(year: number, month: number): number {
   if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
@@ -24,7 +25,11 @@ export function dateRangePossible(start?: string, end?: string): boolean {
   return calendarDateBounds(start)!.earliest <= calendarDateBounds(end)!.latest;
 }
 
-export function checkDateRange(record: { startDate?: string; endDate?: string }, context: z.RefinementCtx): void {
+export function checkDateRange(record: EndDateRecord & { startDate?: string }, context: z.RefinementCtx): void {
+  const state = record.endDateFact?.state;
+  if (state === 'known' && !record.endDate?.trim()) context.addIssue({ code: 'custom', path: ['endDate'], message: '明确结束日期须填写实际日期；不能推算今天。' });
+  if (state && ['ongoing', 'none', 'not_applicable'].includes(state) && record.endDate?.trim()) context.addIssue({ code: 'custom', path: ['endDate'],
+    message: '结束时间状态与已填写日期冲突，请核对；已有日期不会被删除。' });
   // Single-field validators report invalid dates; this check only adds range errors.
   if (!record.startDate || !record.endDate || !calendarDateBounds(record.startDate) || !calendarDateBounds(record.endDate)) return;
   if (!dateRangePossible(record.startDate, record.endDate)) {
