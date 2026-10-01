@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ContentResponse } from '../shared/types';
 import { fillScan } from './autofill';
 import { scanDocument, type ScanState } from './scanner';
+import { verifyScanObservation } from './scanFreshness';
 import { MobileWorkflow } from './mobileWorkflow';
 import { workflowRequestSchema } from '../workflow/model';
 import { EXTENSION_VERSION } from '../shared/version';
@@ -17,6 +18,7 @@ declare global {
 
 const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_SCAN') }).strict(),
+  z.object({ type: z.literal('RA_VERIFY_SCAN'), payload: z.object({ scanId: z.string().min(1).max(100) }).strict() }).strict(),
   z.object({ type: z.literal('RA_SELECTION') }).strict(),
   z.object({ type: z.literal('RA_WORKFLOW_START'), payload: workflowRequestSchema }).strict(),
   z.object({ type: z.literal('RA_WORKFLOW_STATUS') }).strict(),
@@ -158,6 +160,11 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return false;
     }
     if (!currentScan) { sendResponse({ ok: false, error: '请先扫描当前页面' }); return false; }
+    if (request.type === 'RA_VERIFY_SCAN') {
+      const valid = currentScan.result.scanId === request.payload.scanId && verifyScanObservation(currentScan);
+      sendResponse(valid ? { ok: true, data: valid } : { ok: false, error: '网页内容已变化，已丢弃旧的 AI 结果。请重新扫描。' });
+      return false;
+    }
     filling = true;
     void fillScan(currentScan, request.payload)
       .then((outcomes) => sendResponse({ ok: true, data: outcomes }))

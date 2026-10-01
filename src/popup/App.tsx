@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { recordCandidates, relatedRecordChoices } from '../matching/recordCandidates';
 import { matchFields } from '../matching/ruleMatcher';
 import { isExtensionContext, PROFILE_STORAGE_KEY } from '../profile/storage';
 import { errorMessage } from '../shared/errors';
 import type { FillOutcome } from '../shared/types';
-import { fillAutoUntilStable, fillPlan, readSelection, scanPage, type PagePlan } from './bridge';
+import { fillAutoUntilStable, fillPlan, fillWithAi, readSelection, scanPage, type PagePlan } from './bridge';
+import { AI_CONNECTION_KEY } from '../ai/connection';
 import { createDebugReport, downloadDebugReport } from './debug';
 import { EXTENSION_VERSION } from '../shared/version';
 import { Results } from './Results';
@@ -20,6 +21,7 @@ export function PopupApp() {
   const [reveal, setReveal] = useState(false);
   const [outcomes, setOutcomes] = useState<FillOutcome[]>([]);
   const [jd, setJd] = useState('');
+  const aiPending = useRef<AbortController | undefined>(undefined);
   const candidates = useMemo(() => new Map(plan?.scan.fields.map(field => [field.id, recordCandidates(field, plan.profile)]) ?? []), [plan?.scan, plan?.profile]);
   function chooseRecord(fieldId: string, profileKey: string) {
     if (!plan || busy) return;
@@ -34,12 +36,15 @@ export function PopupApp() {
   useEffect(() => {
     if (!isExtensionContext()) return;
     const changed = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-      if (area === 'local' && changes[PROFILE_STORAGE_KEY]) {
-        setPlan(undefined); setSelected(new Set()); setOutcomes([]); setMessage('档案已更新，请重新扫描页面。');
+      if (area === 'local' && (changes[PROFILE_STORAGE_KEY] || changes[AI_CONNECTION_KEY])) {
+        aiPending.current?.abort();
+        setPlan(undefined); setSelected(new Set()); setOutcomes([]); setMessage('档案或 AI 连接已更新，请重新扫描页面。');
       }
     };
     chrome.storage.onChanged.addListener(changed);
-    return () => chrome.storage.onChanged.removeListener(changed);
+    const cancel = () => aiPending.current?.abort();
+    window.addEventListener('pagehide', cancel);
+    return () => { chrome.storage.onChanged.removeListener(changed); window.removeEventListener('pagehide', cancel); cancel(); };
   }, []);
   async function scan() {
     setBusy(true); setMessage(''); setOutcomes([]); setSelected(new Set()); setPlan(undefined);
@@ -70,6 +75,23 @@ export function PopupApp() {
     } catch (error) { setMessage(errorMessage(error)); setPlan(undefined); }
     finally { setBusy(false); }
   }
+  async function fillAi() {
+    const controller = new AbortController(); aiPending.current = controller;
+    setBusy(true); setSelected(new Set()); setOutcomes([]); setMessage('正在填写已知字段，并识别本页的未知字段…');
+    try {
+      const result = await fillWithAi(controller.signal);
+      if (controller.signal.aborted) return;
+      setPlan(result.plan); setShowResults(true);
+      const filled = result.outcomes.filter(item => item.status === 'filled').length;
+      const stateMessage = {
+        ready: 'AI 识别已处理', disabled: 'AI 未启用，请在“我的档案 → AI 识别连接”配置',
+        'no-candidates': '没有可交给 AI 的未知字段', rejected: 'AI 结果未通过核验，未用于填写',
+        unavailable: 'AI 服务不可用或页面已变化，未知字段未填', timeout: 'AI 识别超时，未知字段未填', cancelled: 'AI 识别已停止',
+      }[result.state];
+      setMessage(`本次已填写 ${filled} 项。${stateMessage}。剩余字段请查看匹配结果并检查网页。`);
+    } catch (error) { setPlan(undefined); setMessage(controller.signal.aborted ? '已停止后续 AI 填写，请检查网页中已经填入的内容。' : errorMessage(error)); }
+    finally { if (aiPending.current === controller) { aiPending.current = undefined; setBusy(false); } }
+  }
   const matches = plan?.matches ?? [];
   function chooseRecordGroup(fieldId: string, profileKey: string) {
     if (!plan || busy) return;
@@ -98,6 +120,8 @@ export function PopupApp() {
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>
       <button type="button" className="primary" disabled={busy || !autoCount} onClick={() => void fill('auto')}>一键填写高置信度字段</button></div>
+    <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void fillAi()}>AI 识别并填写本页</button>
+      {aiPending.current && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 AI 填写</button>}</div>
     {message && <div className="notice" role="status">{message}</div>}
     {plan?.scan.warnings.map(warning => <div className="notice" key={warning}>{warning}</div>)}
     {!plan && !message && <div className="popup-profile-empty"><strong>从一份真实档案开始</strong>先在「我的档案」保存信息，再扫描当前网申页面。</div>}

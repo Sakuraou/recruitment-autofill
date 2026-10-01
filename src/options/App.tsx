@@ -7,6 +7,7 @@ import { Fields, CollectionEditor, CollectionFactEditor } from './Editors';
 import { answerFields, basicFields, collections, sections } from './fields';
 import { AnswerEditor } from './AnswerEditor';
 import { BackupEditor } from './BackupEditor';
+import { AiConnectionEditor } from './AiConnectionEditor';
 
 export function OptionsApp() {
   const [profile, setProfile] = useState<UserProfile>(createEmptyProfile);
@@ -60,6 +61,7 @@ export function OptionsApp() {
           {section === 'awards' && <>{collection('awards')}{collection('certificates')}</>}
           {section === 'skills' && <><h2>专业技能</h2><CollectionFactEditor {...editorProps} factKey="computerSkills" title="计算机技能" /><p className="muted">每行一项，仅填写你实际掌握的技能。</p><Fields {...editorProps} base="skills" fields={[{ key: 'programmingLanguages', label: '编程语言', kind: 'list' }, { key: 'frameworks', label: '框架', kind: 'list' }, { key: 'tools', label: '工具', kind: 'list' }, { key: 'other', label: '其他技能', kind: 'list' }]} /></>}
           {section === 'answers' && <AnswerEditor {...editorProps} />}
+          {section === 'ai' && <AiConnectionEditor />}
           {section === 'preferences' && <><h2>求职意向</h2><Fields {...editorProps} base="jobPreferences" fields={[
             { key: 'positions', label: '期望岗位', kind: 'list', hint: '每行一项' }, { key: 'cities', label: '意向城市', kind: 'list', hint: '每行一项' },
             { key: 'expectedSalary', label: '期望薪资', hint: '包含实际币种和周期，例如元/月；未知可留空' }, { key: 'earliestStartDate', label: '最早到岗日期', kind: 'date' },

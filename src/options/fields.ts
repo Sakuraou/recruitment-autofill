@@ -109,4 +109,5 @@ export const sections = [
   ['awards', '奖项与证书', '06'], ['skills', '专业技能', '07'], ['studentWork', '学生工作', '08'],
   ['answers', '常用回答', '09'], ['family', '家庭信息', '10'], ['backup', '导入与备份', '11'],
   ['preferences', '求职意向与作品', '12'],
+  ['ai', 'AI 识别连接', '13'],
 ] as const;
