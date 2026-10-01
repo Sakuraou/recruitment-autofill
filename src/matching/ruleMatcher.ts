@@ -6,9 +6,11 @@ import { matchOption } from './optionMatcher';
 import { effectiveMaxLength, resolveProfileValue } from './profileResolver';
 import { matchCollectionPresence } from './collectionPresence';
 
+export const UNKNOWN_FIELD_REASON = '未找到可靠信息，需要人工填写。';
+
 function blankResult(field: FieldDescriptor): MatchResult {
   return { fieldId: field.id, fieldName: bestFieldName(field),
-    value: undefined, confidence: 0, source: 'rule', status: 'missing', reason: '未找到可靠信息，需要人工填写。', sensitive: false };
+    value: undefined, confidence: 0, source: 'rule', status: 'missing', reason: UNKNOWN_FIELD_REASON, sensitive: false };
 }
 
 /** All uncertainty is an explicit review state; no yellow-warning write-through. */
