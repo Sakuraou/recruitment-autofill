@@ -46,6 +46,10 @@ try {
     const page = await context.newPage();
     await page.addInitScript(value => { window.fixtureEditorLayout = value.editor;
       window.fixtureActionDelayMs = value.mode === 'paused' || value.mode === 'stopping' ? 600 : 0;
+      if (value.mode === 'empty' || value.mode === 'one') {
+        window.fixtureInitialCards = value.mode === 'empty' ? [] : [0];
+        window.fixtureAddRelation = value.mode === 'empty' ? 'aria-controls' : 'aria-owns';
+      }
     }, { mode, editor });
     await page.goto(`${origin}/projects?case=${mode}`);
     const targets = (await browser.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
@@ -98,6 +102,21 @@ try {
   await popup.getByText(completion).waitFor(); assert.deepEqual(await counts(happy), expected);
   report.checks.push('Restart verifies six existing projects with zero additional add/save');
   await popup.close(); await happy.close();
+
+  for (const [mode, missing] of [['empty', 6], ['one', 5]]) {
+    const page = await pageFor(mode); popup = await popupFor(page);
+    await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();
+    await popup.getByText(completion).waitFor();
+    assert.deepEqual(await counts(page), { ...expected, add: missing, save: missing });
+    assert.deepEqual(await page.evaluate(() => window.fixture.savedFields.map(item => item.index)),
+      Array.from({ length: missing }, (_, index) => index + (6 - missing)));
+    assert.equal(await page.locator('article').count(), 6);
+    await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();
+    await popup.getByText(completion).waitFor();
+    assert.deepEqual(await counts(page), { ...expected, add: missing, save: missing });
+    report.checks.push(`Production popup starts from ${6 - missing} existing projects with an explicit list relation, adds/saves exactly ${missing}, and restart adds none`);
+    await popup.close(); await page.close();
+  }
 
   const paused = await pageFor('paused'); popup = await popupFor(paused);
   await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();

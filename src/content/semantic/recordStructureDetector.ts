@@ -213,7 +213,10 @@ function transientReferencedElements(element: Element, attributeNames: readonly 
   if (root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return [];
   const candidates = Array.from((root as Document | ShadowRoot).querySelectorAll<Element>('[id]'));
   const resolved = references
-    .map(reference => candidates.find(candidate => candidate.id === reference))
+    .map(reference => {
+      const matches = candidates.filter(candidate => candidate.id === reference);
+      return matches.length === 1 ? matches[0] : undefined;
+    })
     .filter((candidate): candidate is Element => Boolean(candidate));
   if (resolved.length !== references.length) return [];
   return uniqueElements(resolved);
@@ -519,7 +522,10 @@ function detectCandidate(input: RecordStructureDetectionInput, recordType: Repea
     .filter((intent): intent is AddIntent => Boolean(intent))
     .filter((intent) => {
       const inside = listRoot.contains(intent.action.element);
-      if (!inside && !intent.explicit) return false;
+      if (!inside && !intent.explicit) {
+        const relation = controlRelation(intent.action);
+        if (!relation.valid || relation.target !== listRoot) return false;
+      }
       if (inside) {
         return !containingCard(intent.action.element, cards)
           && !nearestEditor(intent.action.element, listRoot);
@@ -534,6 +540,9 @@ function detectCandidate(input: RecordStructureDetectionInput, recordType: Repea
   const framePath = addIntentResult.action.framePath;
   const addRelation = controlRelation(addIntentResult.action);
   if (!addRelation.valid) return undefined;
+  // An explicit, unique ARIA edge can prove a bare plus belongs to this list.
+  // It does not prove emptiness, editor intent, or any summary card identity.
+  const provenAddOwner = addIntentResult.explicit || addRelation.target === listRoot;
   if (addRelation.present && addRelation.target !== listRoot
     && (!addRelation.target || !isScopedElement(addRelation.target, input)
       || !addRelation.target.matches(EDITOR_SELECTOR))) return undefined;
@@ -564,7 +573,7 @@ function detectCandidate(input: RecordStructureDetectionInput, recordType: Repea
         || !editRelation.target.matches(EDITOR_SELECTOR)))) return undefined;
     summaries.push({ root: card, index, editActions, deleteActions });
   }
-  if (summaries.length === 1 && (summaries[0]!.deleteActions.length !== 1 || !addIntentResult.explicit)) return undefined;
+  if (summaries.length === 1 && (summaries[0]!.deleteActions.length !== 1 || !provenAddOwner)) return undefined;
   if (summaries.length >= 2 && !addIntentResult.explicit && !listRoot.matches(EXPLICIT_LIST_SELECTOR)) return undefined;
 
   const validEditors: DetectedEditorRecord[] = [];
@@ -597,7 +606,7 @@ function detectCandidate(input: RecordStructureDetectionInput, recordType: Repea
   if (validEditors.length > 1 || unverifiedEditorShellCount > 1) return undefined;
   const editor = validEditors[0];
   if (!summaries.length) {
-    const explicitlyEmpty = listRoot.matches(EXPLICIT_LIST_SELECTOR) && addIntentResult.explicit
+    const explicitlyEmpty = listRoot.matches(EXPLICIT_LIST_SELECTOR) && provenAddOwner
       && (hasExplicitEmptyState(listRoot, recordType) || editor?.state === 'creating');
     if (!explicitlyEmpty) return undefined;
   }

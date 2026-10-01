@@ -7,22 +7,25 @@ const projection: ProjectProjectionResponse = { recordType: 'project', profileRe
   projects: Array.from({ length: 6 }, (_, index) => ({ id: `fictional-${index}`,
     name: `虚构通用项目 ${index + 1}`, description: `仅用于普通页面驱动验证的虚构项目说明 ${index + 1}。`, technologies: [] })) };
 
-function installPage(addLabel = '+', english = false) {
+function installPage(addLabel = '+', english = false, initial = [1, 0], relation?: 'aria-controls' | 'aria-owns') {
   window.history.replaceState({}, '', '/careers/unfamiliar-projects?step=2');
   document.head.innerHTML = '';
   document.body.innerHTML = `<main><section aria-label="${english ? 'Project experience' : '项目经历'}"><h2>${english ? 'Project experience' : '项目经历'}</h2><div role="list"></div></section></main>`;
   const list = document.querySelector('[role="list"]')!;
+  list.id = 'project-items';
   const counts = { add: 0, save: 0, submit: 0, remove: 0 };
   const cards: Element[] = [];
   const add = document.createElement('button'); add.type = 'button'; add.textContent = addLabel;
+  if (relation) add.setAttribute(relation, list.id);
   function card(index: number) {
     const result = document.createElement('article'); result.setAttribute('role', 'listitem');
     result.innerHTML = `<h3>${projection.projects[index]!.name}</h3><p>项目描述：${projection.projects[index]!.description}</p><button type="button">编辑项目经历</button><button type="button">删除</button>`;
     result.querySelectorAll('button')[1]!.addEventListener('click', () => counts.remove++);
     return result;
   }
-  cards.push(card(1), card(0));
-  const closed = () => list.replaceChildren(...cards, add);
+  cards.push(...initial.map(card));
+  const empty = document.createElement('p'); empty.setAttribute('role', 'status'); empty.textContent = '暂无项目经历';
+  const closed = () => list.replaceChildren(...cards, ...(cards.length ? [] : [empty]), add);
   add.addEventListener('click', () => {
     counts.add++;
     const editor = document.createElement('form'); editor.setAttribute('aria-label', '新增项目经历');
@@ -43,6 +46,49 @@ function installPage(addLabel = '+', english = false) {
 }
 
 afterEach(() => { document.body.innerHTML = ''; document.head.innerHTML = ''; window.history.replaceState({}, '', '/'); });
+
+it.each([
+  [[], 'aria-controls', 6], [[], 'aria-owns', 6], [[0], 'aria-controls', 5], [[0], 'aria-owns', 5],
+] as const)('明确列表关系支持从 %s 开始，%s 每个缺少项目只新增一次', async (initial, relation, missing) => {
+  const { counts, list } = installPage('+', false, [...initial], relation);
+  for (let run = 0; run < 2; run++) {
+    const session = createProjectRecordSession(document, projection);
+    for (let step = 0; step < 20; step++) {
+      const result = await session.advance();
+      if (result.status === 'complete') break;
+      expect(result.status).toBe('advanced');
+    }
+    expect(session.state).toBe('complete');
+    expect(list.querySelectorAll('article')).toHaveLength(6);
+    expect(counts).toEqual({ add: missing, save: missing, submit: 0, remove: 0 });
+  }
+}, 15_000);
+
+it.each(['unlinked', 'hidden-empty', 'no-empty', 'wrong-target', 'multiple-targets', 'duplicate-id'] as const)(
+  '空项目列表不借不可靠证据执行添加：%s', mode => {
+    const { add, list, counts } = installPage('+', false, [], 'aria-controls');
+    if (mode === 'unlinked') add.removeAttribute('aria-controls');
+    if (mode === 'hidden-empty') list.querySelector('[role="status"]')!.setAttribute('hidden', '');
+    if (mode === 'no-empty') list.querySelector('[role="status"]')!.remove();
+    if (mode === 'wrong-target') {
+      const other = document.createElement('section'); other.id = 'education-items'; other.innerHTML = '<h2>教育经历</h2>';
+      document.querySelector('main')!.append(other); add.setAttribute('aria-controls', other.id);
+    }
+    if (mode === 'multiple-targets') add.setAttribute('aria-controls', `${list.id} missing`);
+    if (mode === 'duplicate-id') {
+      const other = document.createElement('div'); other.id = list.id; list.after(other);
+    }
+    expect(() => createProjectRecordSession(document, projection)).toThrow();
+    expect(counts).toEqual({ add: 0, save: 0, submit: 0, remove: 0 });
+  });
+
+it('唯一加号不能把身份未知的首张卡片当成空列表', async () => {
+  const { list, counts } = installPage('+', false, [0], 'aria-controls');
+  list.querySelector('h3')!.remove(); list.querySelector('p')!.remove();
+  const session = createProjectRecordSession(document, projection);
+  expect((await session.advance()).status).toBe('request-human');
+  expect(counts).toEqual({ add: 0, save: 0, submit: 0, remove: 0 });
+});
 
 it.each([['+', false], ['添加项目经历', false], ['Add project', true]] as const)(
   '无夹具标记的陌生页面按项目语义执行六项目闭环：%s', async (caption, english) => {

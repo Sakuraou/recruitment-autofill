@@ -540,7 +540,11 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
   const emittedTargetedElements = new Set<Element>();
   const topologyGroups = new Map<Element, { match: SectionMatch; framePath: number[]; actions: RecordTopologyActionDraft[] }>();
   for (const draft of collectedActions) {
-    if (!isTargetedAction(draft.classified.action)) continue;
+    // A bare plus may be the only action in an empty collection. Seed inspection
+    // without emitting a capability; the topology detector must prove ownership.
+    if (!isTargetedAction(draft.classified.action)
+      && (!(draft.element.hasAttribute('aria-controls') || draft.element.hasAttribute('aria-owns'))
+        || classifyAction({ ...draft.candidate, recordContext: true }).action !== 'add-record')) continue;
     const match = draft.sectionMatch;
     const sectionRoot = match?.container ?? match?.anchor;
     if (!match || !sectionRoot) continue;

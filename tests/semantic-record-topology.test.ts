@@ -388,6 +388,15 @@ describe('I-002C contextual record topology', () => {
     expect(bare.graph.nodes.filter(node => node.kind === 'record-list' || node.kind === 'record')).toHaveLength(0);
   });
 
+  it.each(['aria-controls', 'aria-owns'])('recognizes an external plus only with a unique %s relation to an explicit empty list', attribute => {
+    const { built } = buildFixture(`<section><h2>项目经历</h2><header><button type="button" ${attribute}="items">+</button></header>
+      <div id="items" role="list"><p role="status">暂无项目经历</p></div></section>`);
+    expect(built.graph.nodes.find(node => node.kind === 'record-list'))
+      .toMatchObject({ existingRecordCount: 0, editorState: 'closed' });
+    expect(built.graph.nodes.find(node => node.kind === 'action' && node.action === 'add-record'))
+      .toMatchObject({ targetId: expect.stringMatching(/^record-list:/u) });
+  });
+
   it('ignores a hidden editor template while retaining the proven closed list', () => {
     const { state, built } = buildFixture(`
       <section><h2>项目经历</h2><div role="list">
