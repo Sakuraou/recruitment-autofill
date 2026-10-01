@@ -1,10 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createAriaRadioGroupAdapter, createControlAdapter } from '../src/content/controlAdapter';
+import { createAriaRadioGroupAdapter, createControlAdapter, verifyNativeRadioGroup } from '../src/content/controlAdapter';
 
 describe('control adapters', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+  });
+
+  it.each(['removed', 'renamed', 'disabled', 'invalid', 'wrong-token'])('rejects stale native radio readback: %s', mode => {
+    document.body.innerHTML = '<input type="radio" name="gender"><input type="radio" name="gender">';
+    const members = Array.from(document.querySelectorAll('input'));
+    members[1]!.checked = true;
+    expect(verifyNativeRadioGroup(members, '__radio_option_1')).toBe(true);
+    if (mode === 'removed') members[0]!.remove();
+    if (mode === 'renamed') members[1]!.name = 'new-question';
+    if (mode === 'disabled') members[1]!.disabled = true;
+    if (mode === 'invalid') members[1]!.setCustomValidity('页面校验错误');
+    expect(verifyNativeRadioGroup(members, mode === 'wrong-token' ? '1' : '__radio_option_1')).toBe(false);
   });
 
   it.each(['mixed', 'required-false', 'custom-error'])('rejects invalid native checkbox states without clicking: %s', async mode => {

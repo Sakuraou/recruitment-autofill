@@ -81,6 +81,20 @@ function selectableOptions(select: HTMLSelectElement, value: string): HTMLOption
     && !option.disabled && !option.parentElement?.hasAttribute('disabled') && !isPlaceholderOption(option));
 }
 
+/** Native radio groups are scoped by tree root and form, including open shadows. */
+export function verifyNativeRadioGroup(members: readonly HTMLInputElement[], value: string): boolean {
+  if (!/^__radio_option_\d+$/u.test(value)) return false;
+  const first = members[0];
+  const target = members[Number(value.slice('__radio_option_'.length))];
+  if (!first || !target || new Set(members).size !== members.length) return false;
+  const root = first.getRootNode();
+  return members.every(member => member.isConnected && member.type === 'radio'
+    && member.ownerDocument === first.ownerDocument && member.getRootNode() === root
+    && member.form === first.form && member.name === first.name)
+    && members.filter(member => member.checked).length === 1 && target.checked
+    && !unavailableReason(target, '单选项') && target.validity.valid;
+}
+
 function waitForSelectableOption(select: HTMLSelectElement, value: string): Promise<boolean> {
   if (selectableOptions(select, value).length === 1) return Promise.resolve(true);
   const Observer = select.ownerDocument.defaultView?.MutationObserver;

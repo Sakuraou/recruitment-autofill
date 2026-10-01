@@ -253,6 +253,7 @@ export function scanDocument(doc: Document = document): ScanState {
       if (seenRadios.has(radio)) continue;
       const members = radio.name ? nodes.filter((candidate): candidate is HTMLInputElement => candidate.tagName === 'INPUT'
         && (candidate as HTMLInputElement).type === 'radio' && candidate.ownerDocument === radio.ownerDocument
+        && candidate.getRootNode() === radio.getRootNode()
         && (candidate as HTMLInputElement).name === radio.name && (candidate as HTMLInputElement).form === radio.form) : [radio];
       members.forEach((member) => seenRadios.add(member));
       const id = `${scanId}:${fields.length}`;

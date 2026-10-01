@@ -3,7 +3,7 @@ import { effectiveMaxLength } from '../matching/profileResolver';
 import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
 import { ariaCheckboxFingerprint, ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, controlStructureFingerprint, describeAriaCheckbox, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
-import { createControlAdapter } from './controlAdapter';
+import { createControlAdapter, verifyNativeRadioGroup } from './controlAdapter';
 
 function nativeSet(node: FormControl, value: string): void {
   const view = node.ownerDocument.defaultView;
@@ -146,8 +146,9 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
         // click/change sequence. No selector search or broad click is used.
         target.click();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        outcomes.push({ fieldId: item.fieldId, status: target.checked ? 'filled' : 'error',
-          reason: target.checked ? '已选择唯一匹配的单选项；请在提交前复核' : '网页未保留预期单选答案，请人工检查' });
+        const verified = verifyNativeRadioGroup(members, item.value);
+        outcomes.push({ fieldId: item.fieldId, status: verified ? 'filled' : 'error',
+          reason: verified ? '已选择唯一匹配的单选项；请在提交前复核' : '网页未保留预期单选答案，请人工检查' });
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '单选控件未能安全完成填写，请人工检查' }); }
       continue;
     }
@@ -198,8 +199,7 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
           const expected = field.options.find(option => option.value === value);
           retained = Boolean(expected && !expected.disabled && cleanText(control.node.querySelector(':scope > span')?.textContent) === expected.label);
         } else if (control.adapter === 'radio-group') {
-          const index = Number(value?.replace('__radio_option_', ''));
-          retained = Number.isInteger(index) && control.members[index]?.checked === true;
+          retained = verifyNativeRadioGroup(control.members, value ?? '');
         } else if (control.adapter === 'aria-combobox') {
           retained = control.controller.verify(value ?? '');
         } else if (control.adapter === 'aria-radio-group') {

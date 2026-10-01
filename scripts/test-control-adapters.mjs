@@ -35,9 +35,15 @@ try {
     { mode: 'rollback', status: 'request-human', reason: 'field-write-failed', rollbackComplete: true, written: 1, clicks: 2, submits: 0, saves: 0, retained: true },
     { mode: 'rollback-refused', status: 'request-human', reason: 'rollback-incomplete', rollbackComplete: false, written: 1, clicks: 2, submits: 0, saves: 0, retained: true },
   ]);
+  assert.deepEqual(result.recordRadios, [
+    { controlled: false, status: 'request-human', reason: 'rollback-incomplete', rollbackComplete: false,
+      retained: true, frameworkRetained: true, clicks: 1 },
+    { controlled: true, status: 'request-human', reason: 'rollback-incomplete', rollbackComplete: false,
+      retained: true, frameworkRetained: true, clicks: 1 },
+  ]);
   assert.equal(externalRequests, 0);
   assert.deepEqual(errors, []);
-  const report = { browser: browser.version(), checks: 8, externalRequests, pageErrors: errors.length, result };
+  const report = { browser: browser.version(), checks: 10, externalRequests, pageErrors: errors.length, result };
   await mkdir(resolve(root, 'artifacts'), { recursive: true });
   await writeFile(resolve(root, 'artifacts/control-adapters-e2e.json'), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));

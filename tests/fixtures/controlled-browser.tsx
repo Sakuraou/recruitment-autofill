@@ -108,6 +108,55 @@ async function recordCheckboxChecks() {
   return checks;
 }
 
+function ControlledRadioRecord({ clicks }: { clicks: { count: number } }) {
+  const [gender, setGender] = useState('');
+  const [renders, setRenders] = useState(0);
+  return <form>
+    <section data-record-list>
+      <input type="radio" name="gender" value="M" aria-label="男" checked={gender === 'M'}
+        onClick={() => { clicks.count++; }} onChange={event => setGender(event.target.value)} />
+      <input type="radio" name="gender" value="F" aria-label="女" checked={gender === 'F'}
+        onClick={() => { clicks.count++; }} onChange={event => setGender(event.target.value)} />
+      <input aria-label="项目名称" maxLength={1} />
+    </section>
+    <output data-gender>{gender}</output>
+    <button type="button" data-rerender onClick={() => setRenders(count => count + 1)}>重绘</button>
+    <output>{renders}</output>
+  </form>;
+}
+
+async function recordRadioChecks() {
+  const checks = [];
+  for (const controlled of [false, true]) {
+    document.body.innerHTML = '<main id="fixture"></main>';
+    const clicks = { count: 0 };
+    const root = controlled ? createRoot(document.querySelector('#fixture')!) : undefined;
+    if (root) flushSync(() => root.render(<ControlledRadioRecord clicks={clicks} />));
+    else {
+      document.querySelector('#fixture')!.innerHTML = '<section data-record-list><input type="radio" name="gender" value="M" aria-label="男"><input type="radio" name="gender" value="F" aria-label="女"><input aria-label="项目名称" maxlength="1"></section>';
+      document.querySelector('#fixture')!.addEventListener('click', () => { clicks.count++; });
+    }
+    const list = document.querySelector<HTMLElement>('[data-record-list]')!;
+    const [male, female, broken] = list.querySelectorAll('input');
+    const state = lifecycle([male!, broken!], new Map([[male!, [male!, female!]]]), list);
+    const result = await bindRecordEditor({
+      plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: ({ fieldNodeId }) => fieldNodeId === 'field:0' ? '__radio_option_1' : '超长值',
+      rescan: () => state.context.capture(state.fixture.source),
+    });
+    if (root) (document.querySelector('[data-rerender]') as HTMLButtonElement).click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    checks.push({ controlled, status: result.status, reason: result.status === 'request-human' ? result.reason : '',
+      rollbackComplete: result.status === 'request-human' ? result.rollbackComplete : true,
+      retained: !male!.checked && female!.checked,
+      frameworkRetained: !controlled || document.querySelector('[data-gender]')!.textContent === 'F', clicks: clicks.count });
+    state.context.stop();
+    if (root) flushSync(() => root.unmount());
+  }
+  return checks;
+}
+
 export async function runChecks() {
   const checks: Array<{ mode: string; status: string; optionClicks: number; submits: number; retained: boolean }> = [];
   for (const mode of ['commit', 'user-choice', 'replace'] as const) {
@@ -149,5 +198,6 @@ export async function runChecks() {
     combo.value = '硕士';
   });
   const frameResult = await createControlAdapter(combo).write('硕士');
-  return { checks, nativeSelect, frame: { status: frameResult.status, realmCorrect }, recordCheckboxes: await recordCheckboxChecks() };
+  return { checks, nativeSelect, frame: { status: frameResult.status, realmCorrect },
+    recordCheckboxes: await recordCheckboxChecks(), recordRadios: await recordRadioChecks() };
 }

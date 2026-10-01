@@ -248,4 +248,40 @@ describe('记录编辑器脱敏绑定器', () => {
     expect(checkbox.checked).toBe(false);
     expect(broken.value).toBe('网页保留值');
   });
+
+  it('单选后其它字段失败时保留选择，明确回滚不完整且不重试点击', async () => {
+    const male = document.createElement('input');
+    male.type = 'radio'; male.name = 'gender';
+    const female = document.createElement('input');
+    female.type = 'radio'; female.name = 'gender';
+    const broken = document.createElement('input'); broken.maxLength = 1;
+    const state = lifecycle([male, broken], new Map([[male, [male, female]]]));
+    let clicks = 0;
+    female.addEventListener('click', () => { clicks++; });
+    const result = await bindRecordEditor({
+      plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: ({ fieldNodeId }) => fieldNodeId === 'field:0' ? '__radio_option_1' : '超长答案',
+      rescan: () => state.context.capture(state.fixture.source),
+    });
+    expect(result).toMatchObject({ status: 'request-human', reason: 'rollback-incomplete', rollbackComplete: false });
+    expect(female.checked).toBe(true);
+    expect(clicks).toBe(1);
+  });
+
+  it('回扫时字段移出原编辑器，不清空已属于另一表单的答案', async () => {
+    const input = document.createElement('input');
+    const state = lifecycle([input]);
+    const result = await bindRecordEditor({
+      plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: () => '插件答案', rescan: () => {
+        const otherForm = document.createElement('form'); document.body.append(otherForm);
+        otherForm.append(input);
+        throw new Error('字段已移动');
+      },
+    });
+    expect(result).toMatchObject({ status: 'request-human', reason: 'rollback-incomplete', rollbackComplete: false });
+    expect(input.value).toBe('插件答案');
+  });
 });

@@ -5,6 +5,19 @@ beforeEach(() => { document.body.innerHTML = ''; });
 const scan = (html: string) => { document.body.innerHTML = html; return scanDocument(document); };
 
 describe('表单扫描与文本归属', () => {
+  it('不同 Shadow 根中的同名单选题独立分组', () => {
+    for (let index = 0; index < 2; index++) {
+      const host = document.createElement('div');
+      document.body.append(host);
+      host.attachShadow({ mode: 'open' }).innerHTML = '<label>是<input type="radio" name="answer" value="yes"></label><label>否<input type="radio" name="answer" value="no"></label>';
+    }
+    const state = scanDocument(document);
+    expect(state.result.fields).toHaveLength(2);
+    for (const control of state.controls.values()) {
+      expect(control.adapter).toBe('radio-group');
+      if (control.adapter === 'radio-group') expect(control.members).toHaveLength(2);
+    }
+  });
   it('读取 label、ARIA、placeholder、附近文字和单个字段父容器', () => {
     const { result } = scan('<div><label for="name">姓名</label><input id="name" name="applicant"></div><div><span id="phone-label">手机号</span><input aria-labelledby="phone-label"></div><div>专业类别<input></div><textarea placeholder="研究方向" title="学术研究"></textarea>');
     expect(result.fields[0]).toMatchObject({ label: '姓名', htmlId: 'name', name: 'applicant', parentText: '姓名' });

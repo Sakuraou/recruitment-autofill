@@ -1,6 +1,6 @@
 import { fillScan } from '../content/autofill';
 import { belongsToDocument, hasValue } from '../content/domUtils';
-import { booleanValue, createControlAdapter } from '../content/controlAdapter';
+import { booleanValue, createControlAdapter, verifyNativeRadioGroup } from '../content/controlAdapter';
 import { controlFingerprint, describeControl, describeRadioGroup } from '../content/scanner';
 import type { ScanState, ScannedControl } from '../content/scanner';
 import {
@@ -77,6 +77,7 @@ interface Binding {
   readonly originalValue: string;
   readonly originalChecked: readonly boolean[];
   readonly rollbackIdentity: string;
+  readonly editor: Element;
 }
 
 const reservedSnapshots = new WeakSet<object>();
@@ -105,8 +106,7 @@ function currentValueMatches(control: ScannedControl, value: string): boolean {
   if (control.adapter === 'aria-radio-group') return control.controller.verify(value);
   if (control.adapter === 'aria-checkbox') return control.controller.verify(value);
   if (control.adapter === 'radio-group') {
-    const index = Number(value.replace('__radio_option_', ''));
-    return Number.isInteger(index) && index >= 0 && control.members[index]?.checked === true;
+    return verifyNativeRadioGroup(control.members, value);
   }
   if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
     return createControlAdapter(control.node).verify(value);
@@ -143,7 +143,12 @@ function bindingIdentity(control: ScannedControl): string {
   // their normal event chain. Those are state, not control identity.
   const attributes = Array.from(control.node.attributes).filter(attribute => !['value', 'checked', 'aria-invalid'].includes(attribute.name))
     .map(attribute => [attribute.name, attribute.value]).sort(([a], [b]) => (a ?? '').localeCompare(b ?? ''));
-  return JSON.stringify({ identity, attributes });
+  const members = control.adapter === 'radio-group' ? control.members.map(member => ({
+    label: member.getAttribute('aria-label'),
+    attributes: Array.from(member.attributes).filter(attribute => !['checked', 'aria-invalid'].includes(attribute.name))
+      .map(attribute => [attribute.name, attribute.value]).sort(([a], [b]) => (a ?? '').localeCompare(b ?? '')),
+  })) : undefined;
+  return JSON.stringify({ identity, attributes, members });
 }
 
 function valueEquals(control: ScannedControl, value: string): boolean {
@@ -179,7 +184,8 @@ async function rollbackBindings(state: ScanState, bindings: readonly Binding[]):
   for (const binding of [...bindings].reverse()) {
     const control = state.controls.get(binding.scanFieldId);
     if (state.document.URL !== state.result.url || !control || control !== binding.control || !nativeControl(control)
-      || !belongsToDocument(control.node, state.document) || bindingIdentity(control) !== binding.rollbackIdentity) {
+      || !belongsToDocument(control.node, state.document) || !binding.editor.isConnected
+      || !composedContains(binding.editor, control.node) || bindingIdentity(control) !== binding.rollbackIdentity) {
       complete = false;
       continue;
     }
@@ -193,14 +199,12 @@ async function rollbackBindings(state: ScanState, bindings: readonly Binding[]):
       const view = control.node.ownerDocument.defaultView;
       if (!view) throw new Error('document unavailable');
       if (control.adapter === 'radio-group') {
-        const setter = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'checked')?.set;
-        if (!setter || control.members.length !== binding.originalChecked.length
-          || control.members.some(member => !belongsToDocument(member, state.document))) throw new Error('radio replaced');
-        control.members.forEach((member, index) => {
-          setter.call(member, binding.originalChecked[index] ?? false);
-          member.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
-          member.dispatchEvent(new view.Event('change', { bubbles: true, composed: true }));
-        });
+        // Native radios have no normal UI action for clearing a selection.
+        // checked setters can clear DOM while leaving framework state selected.
+        // Keep the answer visible and report incomplete rollback; never reset
+        // the form or choose another answer to manufacture a successful undo.
+        complete = false;
+        continue;
       } else if (control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox') {
         const node = control.node as HTMLInputElement;
         const original = binding.originalChecked[0];
@@ -226,6 +230,7 @@ async function rollbackBindings(state: ScanState, bindings: readonly Binding[]):
     await new Promise<void>(resolve => setTimeout(resolve, 200));
     if (state.document.URL !== state.result.url || restored.some(binding => state.controls.get(binding.scanFieldId) !== binding.control
       || !belongsToDocument(binding.control.node, state.document)
+      || !binding.editor.isConnected || !composedContains(binding.editor, binding.control.node)
       || bindingIdentity(binding.control) !== binding.rollbackIdentity || !originalValueRestored(binding))) complete = false;
   }
   return complete;
@@ -297,6 +302,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       originalChecked: control.adapter === 'radio-group' ? control.members.map(member => member.checked)
         : nativeCheckbox ? [(control.node as HTMLInputElement).checked] : [],
       rollbackIdentity: bindingIdentity(control),
+      editor,
     });
   }
 
