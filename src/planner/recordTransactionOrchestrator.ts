@@ -20,6 +20,8 @@ export type RecordOrchestratorStep = ReadyRecordPlan['nextStep']['kind'];
 export interface RecordOrchestratorDriver {
   /** Always performs a fresh scan/capture; it must not return a cached capture. */
   capture(): RecordRunCapture | RecordRunCaptureFailure;
+  /** Synchronous fresh observation without issuing a new transaction version. */
+  validateCapture(capture: RecordRunCapture): boolean;
   plannerInput(capture: RecordRunCapture, active?: ActiveRecordTransaction): RepeatableRecordPlannerInput;
   executeAction(plan: ReadyRecordPlan, capture: RecordRunCapture,
     active?: ActiveRecordTransaction): Promise<RecordActionExecutionResult>;
@@ -75,7 +77,7 @@ export class RecordTransactionOrchestrator {
   #generation = 0;
 
   constructor(context: RecordRunContext, driver: RecordOrchestratorDriver) {
-    if (!(context instanceof RecordRunContext) || !driver) throw new TypeError('无效的记录事务编排器参数');
+    if (!(context instanceof RecordRunContext) || !driver || typeof driver.validateCapture !== 'function') throw new TypeError('无效的记录事务编排器参数');
     this.#context = context;
     this.#driver = driver;
   }
@@ -125,6 +127,9 @@ export class RecordTransactionOrchestrator {
         return this.#requestHuman(current.snapshotVersion, 'capture-rejected');
       }
       this.#capture = current;
+      try {
+        if (this.#driver.validateCapture(current) !== true) return this.#requestHuman(current.snapshotVersion, 'snapshot-stale');
+      } catch { return this.#requestHuman(current.snapshotVersion, 'snapshot-validation-failed'); }
       let input: RepeatableRecordPlannerInput;
       try {
         input = this.#driver.plannerInput(current, this.#active);

@@ -9,6 +9,7 @@ import { scanDocument, type ScanState } from './scanner';
 import { projectProjectionResponseSchema, type ProjectProjectionResponse } from '../profile/projection';
 import { projectCardComparator } from './projectRecordIdentity';
 import { hiddenReason } from './domUtils';
+import { recordObservationMatches } from './recordObservation';
 
 const FIXTURE_ORIGIN = 'http://localhost:3000';
 const FIXTURE_PATH = '/repeatable-records';
@@ -60,6 +61,7 @@ class FixtureDriver implements RecordOrchestratorDriver {
   readonly #context: RecordRunContext;
   readonly #records: readonly ProjectProjectionResponse['projects'][number][];
   readonly #observations = new WeakMap<RecordRunCapture, FixtureObservation>();
+  readonly #identities = new WeakMap<RecordRunCapture, string>();
 
   constructor(doc: Document, context: RecordRunContext, projection: ProjectProjectionResponse) {
     this.#doc = doc;
@@ -71,8 +73,29 @@ class FixtureDriver implements RecordOrchestratorDriver {
     const observation = observe(this.#doc);
     if (!observation) return { status: 'request-human', snapshotVersion: 0, reason: 'record-list-unverified' };
     const capture = this.#context.capture(observation.source);
-    if (capture.status === 'ready') this.#observations.set(capture, observation);
+    if (capture.status === 'ready') {
+      this.#observations.set(capture, observation);
+      this.#identities.set(capture, this.identityEvidence(capture, observation));
+    }
     return capture;
+  }
+
+  validateCapture(capture: RecordRunCapture): boolean {
+    const previous = this.#observations.get(capture);
+    const current = observe(this.#doc);
+    if (!previous || !current || !recordObservationMatches(previous.scan, current.scan, capture.snapshot.recordListNodeId)) return false;
+    if (this.#identities.get(capture) !== this.identityEvidence(capture, current)) return false;
+    this.#observations.set(capture, current);
+    return true;
+  }
+
+  private identityEvidence(capture: RecordRunCapture, observation: FixtureObservation): string {
+    // Value-free comparison results detect renamed/changed cards between
+    // steps without storing their text or hashes of private values.
+    return JSON.stringify(capture.candidates.map(candidate => {
+      const comparison = projectCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId));
+      return { ready: comparison.ready, results: this.#records.map(record => comparison.compare(record)) };
+    }));
   }
 
   plannerInput(capture: RecordRunCapture, active?: ActiveRecordTransaction): RepeatableRecordPlannerInput {

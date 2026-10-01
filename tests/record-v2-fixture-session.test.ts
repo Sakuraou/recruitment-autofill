@@ -193,4 +193,55 @@ describe('Record v2 固定虚构会话', () => {
     expect(counters.add).toBe(1);
     expect(counters.save).toBe(0);
   });
+
+  it('步骤间手动新增缺少项目后，不使用旧快照再次点击添加', async () => {
+    const { counters, list } = installFixture();
+    const session = createRecordV2FixtureSession(document, projection);
+    for (let step = 0; step < 3; step++) await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    const manual = document.createElement('article'); manual.setAttribute('role', 'listitem');
+    manual.innerHTML = `<h3>虚构测试项目 4</h3><p>项目描述：${projection.projects[3]!.description}</p><button type="button">编辑项目经历</button><button type="button">删除</button>`;
+    list.prepend(manual);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'snapshot-stale' });
+    expect(counters.add).toBe(1);
+    expect(counters.save).toBe(1);
+  });
+
+  it('步骤间新增必填字段时，在写其它字段前停止', async () => {
+    const { counters, list } = installFixture();
+    const session = createRecordV2FixtureSession(document, projection);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    const label = document.createElement('label'); label.textContent = '未知必填项';
+    const input = document.createElement('input'); input.required = true; label.append(input);
+    list.querySelector('form')!.prepend(label);
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'snapshot-stale' });
+    expect(Array.from(list.querySelectorAll<HTMLInputElement>('input')).every(node => node.value === '')).toBe(true);
+    expect(counters.save).toBe(0);
+  });
+
+  it('步骤间新增按钮改为最终提交时不再点击', async () => {
+    const { counters, list } = installFixture();
+    const session = createRecordV2FixtureSession(document, projection);
+    for (let step = 0; step < 3; step++) await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    const add = Array.from(list.querySelectorAll('button')).find(button => button.textContent === '添加项目经历')!;
+    add.textContent = '最终提交';
+    add.addEventListener('click', () => { counters.submit++; });
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'snapshot-stale' });
+    expect(counters.add).toBe(1);
+    expect(counters.save).toBe(1);
+    expect(counters.submit).toBe(0);
+  });
+
+  it.each(['rename', 'reorder', 'remove', 'hidden'])('步骤间已有卡片变化时停止：%s', async mode => {
+    const { counters, list } = installFixture();
+    const session = createRecordV2FixtureSession(document, projection);
+    for (let step = 0; step < 3; step++) await expect(session.advance()).resolves.toMatchObject({ status: 'advanced' });
+    const card = list.querySelector<HTMLElement>('[data-ra-v2-card]')!;
+    if (mode === 'rename') card.querySelector('h3')!.textContent = '改名后的虚构项目';
+    if (mode === 'reorder') list.append(card);
+    if (mode === 'remove') card.remove();
+    if (mode === 'hidden') card.hidden = true;
+    await expect(session.advance()).resolves.toMatchObject({ status: 'request-human', reason: 'snapshot-stale' });
+    expect(counters.add).toBe(1);
+    expect(counters.save).toBe(1);
+  });
 });

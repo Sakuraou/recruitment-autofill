@@ -96,6 +96,7 @@ function setup(delayed = false) {
   const gate = delayed ? new Promise<void>(resolve => { release = resolve; }) : Promise.resolve();
   const driver: RecordOrchestratorDriver = {
     capture: () => { captureCalls++; return context.capture(current); },
+    validateCapture: () => true,
     plannerInput,
     executeAction: async (plan: ReadyRecordPlan) => {
       actionCalls++;
@@ -116,6 +117,16 @@ function setup(delayed = false) {
 }
 
 describe('记录事务编排器', () => {
+  it.each(['stale', 'throw'] as const)('观察核验失败时不调用规划器或动作：%s', mode => {
+    const state = setup();
+    state.driver.validateCapture = () => { if (mode === 'throw') throw new Error('观察失败'); return false; };
+    state.driver.plannerInput = () => { throw new Error('不应调用规划'); };
+    const orchestrator = new RecordTransactionOrchestrator(state.context, state.driver);
+    return expect(orchestrator.advance()).resolves.toMatchObject({ status: 'request-human',
+      reason: mode === 'throw' ? 'snapshot-validation-failed' : 'snapshot-stale' }).then(() => {
+      expect(state.counts()).toEqual({ captureCalls: 1, actionCalls: 0, bindCalls: 0 });
+    });
+  });
   it('一次 advance 只执行一个新增步骤，下一次才规划填写', async () => {
     const state = setup();
     const orchestrator = new RecordTransactionOrchestrator(state.context, state.driver);

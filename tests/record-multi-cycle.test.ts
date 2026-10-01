@@ -221,6 +221,7 @@ function plannerInput(page: MultiRecordPage, capture: RecordRunCapture,
 function driverFor(page: MultiRecordPage, context: RecordRunContext, timeoutMs = 2_000): RecordOrchestratorDriver {
   return {
     capture: () => context.capture(page.state.source),
+    validateCapture: () => true,
     plannerInput: (capture, active) => plannerInput(page, capture, active),
     executeAction: (plan: ReadyRecordPlan, capture: RecordRunCapture, active?: ActiveRecordTransaction) => (
       executeRecordAction({

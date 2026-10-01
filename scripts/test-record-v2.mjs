@@ -221,6 +221,41 @@ try {
   await wrongPopup.close();
   await wrong.close();
 
+  for (const mode of ['manual-add', 'changed-action', 'new-field', 'silent-value']) {
+    const stale = await context.newPage();
+    await stale.goto(url);
+    await grant(stale);
+    const stalePopup = await popupFor(stale);
+    assert.equal((await message(stalePopup, { type: 'RA_RECORD_V2_START' })).ok, true);
+    const steps = mode === 'manual-add' || mode === 'changed-action' ? 3 : 1;
+    for (let step = 0; step < steps; step++) assert.equal((await message(stalePopup, { type: 'RA_RECORD_V2_ADVANCE' })).data.status, 'advanced');
+    await stale.evaluate(value => {
+      const list = document.querySelector('#record-list');
+      if (value === 'manual-add') {
+        const card = document.createElement('article'); card.setAttribute('role', 'listitem');
+        card.innerHTML = '<h3>虚构测试项目 4</h3><p>项目描述：仅用于本地浏览器扩展验证的虚构项目 4。</p><button type="button">编辑项目经历</button><button type="button">删除</button>';
+        list.prepend(card);
+      } else if (value === 'changed-action') {
+        const add = [...list.querySelectorAll('button')].find(button => button.textContent === '添加项目经历');
+        add.textContent = '最终提交';
+        add.addEventListener('click', () => { window.fixture.submit++; });
+      } else if (value === 'new-field') {
+        const label = document.createElement('label'); label.textContent = '未知必填项';
+        const input = document.createElement('input'); input.required = true; label.append(input);
+        list.querySelector('form').prepend(label);
+      } else list.querySelector('input').value = '用户中途填写的虚构答案';
+    }, mode);
+    assert.deepEqual((await message(stalePopup, { type: 'RA_RECORD_V2_ADVANCE' })).data,
+      { status: 'request-human', snapshotVersion: steps === 3 ? 5 : 2, reason: 'snapshot-stale' });
+    assert.deepEqual(await stale.evaluate(() => ({ add: window.fixture.add, save: window.fixture.save,
+      delete: window.fixture.delete, upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit })),
+    { add: 1, save: steps === 3 ? 1 : 0, delete: 0, upload: 0, next: 0, submit: 0 });
+    if (mode === 'silent-value') assert.equal(await stale.locator('input').inputValue(), '用户中途填写的虚构答案');
+    await stalePopup.close();
+    await stale.close();
+    report.checks.push(`Fresh observation stops ${mode} before another write or click, preserving manual data and zero unsafe actions`);
+  }
+
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);
   report.passed = true;
