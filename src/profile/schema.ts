@@ -1,8 +1,8 @@
 import { z } from 'zod';
+import { checkDateRange, profileDateSchema as date } from './calendarDates';
 
 const text = z.string().max(20000).optional();
 const list = z.array(z.string().max(2000)).max(100).default([]);
-const date = z.string().regex(/^(?:|\d{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?)$/, '日期请使用 YYYY-MM 或 YYYY-MM-DD').optional();
 export const textVariantsSchema = z.object({
   short: text, medium: text, long: text,
   byLimit: z.record(z.string().regex(/^\d{1,4}$/), z.string().max(20000)).default({}),
@@ -17,14 +17,14 @@ export const educationSchema = z.object({
   studyMode: text, gpa: text, gpaScale: text, ranking: text,
   researchDirection: text, courses: text,
   educationType: text, schoolProperty: text, country: text, durationYears: text,
-}).strict();
+}).strict().superRefine(checkDateRange);
 export type EducationExperience = z.infer<typeof educationSchema>;
 
 export const projectSchema = z.object({
   id: z.string().min(1), name: text, role: text, startDate: date, endDate: date,
   organization: text,
   description: text, responsibilities: text, achievements: text, technologies: list,
-}).strict();
+}).strict().superRefine(checkDateRange);
 export type ProjectExperience = z.infer<typeof projectSchema>;
 export const experienceSchema = z.object({
   id: z.string().min(1), organization: text, department: text, role: text,
@@ -33,7 +33,7 @@ export const experienceSchema = z.object({
   hasProof: z.enum(['', '是', '否']).optional(),
   certifierName: text, certifierRelation: text, certifierDuty: text, certifierCompany: text, certifierContact: text,
   cadreLevel: text, shortDuties: text,
-}).strict();
+}).strict().superRefine(checkDateRange);
 export type Experience = z.infer<typeof experienceSchema>;
 export const paperSchema = z.object({
   id: z.string().min(1), title: text, authors: text, venue: text, date,

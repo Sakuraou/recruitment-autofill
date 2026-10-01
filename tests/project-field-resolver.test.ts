@@ -75,4 +75,11 @@ describe('已验证项目编辑器的字段投影', () => {
     expect(resolveProjectField(field('<label>开始日期<input type="date"></label>'), { ...record, startDate: '2026-07-01' }))
       .toEqual({ status: 'request-human', reason: 'profile-value-invalid' });
   });
+  it('不同精度的起止时间只拒绝必然倒置，不自动补日', () => {
+    const control = field('<label>结束日期<input type="month"></label>');
+    expect(resolveProjectField(control, { ...record, startDate: '2026-09-30', endDate: '2026-09' }))
+      .toMatchObject({ status: 'known', value: '2026-09' });
+    expect(resolveProjectField(control, { ...record, startDate: '2026-10-01', endDate: '2026-09' }))
+      .toEqual({ status: 'request-human', reason: 'profile-value-invalid' });
+  });
 });

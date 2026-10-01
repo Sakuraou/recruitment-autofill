@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { awardSchema, basicSchema, educationSchema, projectSchema, experienceSchema, certificateSchema, paperSchema, profileSchema, type UserProfile } from '../profile/schema';
 import { additionalRecords } from './sections';
+import { daysInMonth } from '../profile/calendarDates';
 
 export const workflowRequestSchema = z.object({
   education: z.array(educationSchema).max(30), projects: z.array(projectSchema).max(100),
@@ -29,7 +30,7 @@ const ranks = { '其他': 0, '专科': 1, '本科': 2, '硕士研究生': 3, '�
 export function fullDate(value: string | undefined, end: boolean, monthBoundaryDates: boolean): string | undefined {
   if (!value || !/^\d{4}-\d{2}$/.test(value) || !monthBoundaryDates) return value;
   const [year, month] = value.split('-').map(Number);
-  return `${value}-${end ? new Date(Date.UTC(year!, month!, 0)).getUTCDate() : '01'}`;
+  return `${value}-${end ? daysInMonth(year!, month!) : '01'}`;
 }
 export function workflowRequest(profile: UserProfile, monthBoundaryDates = false, scope: 'education-projects' | 'awards' | 'whole' = 'education-projects'): WorkflowRequest {
   if (scope === 'whole') return { education: profile.education, projects: profile.projects, awards: profile.awards,

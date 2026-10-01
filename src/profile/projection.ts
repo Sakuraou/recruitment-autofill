@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProjectExperience, UserProfile } from './schema';
+import { checkDateRange, profileDateSchema } from './calendarDates';
 
 /** Fixed, payload-free request. The caller cannot choose a profile path or selector. */
 export const projectProjectionRequestSchema = z.object({ type: z.literal('RA_PROFILE_PROJECT') }).strict();
@@ -11,13 +12,13 @@ export const projectProjectionEntrySchema = z.object({
   name: optionalText,
   role: optionalText,
   organization: optionalText,
-  startDate: optionalText,
-  endDate: optionalText,
+  startDate: profileDateSchema,
+  endDate: profileDateSchema,
   description: optionalText,
   responsibilities: optionalText,
   achievements: optionalText,
   technologies: z.array(z.string().max(2_000)).max(100),
-}).strict();
+}).strict().superRefine(checkDateRange);
 export type ProjectProjectionEntry = z.infer<typeof projectProjectionEntrySchema>;
 
 export const projectProjectionResponseSchema = z.object({

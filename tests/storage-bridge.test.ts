@@ -43,6 +43,14 @@ describe('local profile storage', () => {
     expect(saved.updatedAt).toBeTruthy();
     expect(local.set).toHaveBeenCalledWith({ [PROFILE_STORAGE_KEY]: saved });
   });
+  it('拒绝非法日期时不写存储，不擦除原档案', async () => {
+    const invalid = { ...profile, basic: { ...profile.basic, birthday: '2026-02-30' } };
+    await expect(saveProfile(invalid)).rejects.toThrow();
+    local.get.mockResolvedValueOnce({ [PROFILE_STORAGE_KEY]: invalid });
+    await expect(loadProfile()).rejects.toThrow();
+    expect(local.set).not.toHaveBeenCalled();
+    expect(await loadProfile()).toEqual(profile);
+  });
 });
 describe('popup execution gates', () => {
   it('拒绝旧页面脚本，明确告知刷新招聘网页而不是反复重装', async () => {

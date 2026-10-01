@@ -4,6 +4,7 @@ import { detectField } from './fieldMatcher';
 import { matchOption } from './optionMatcher';
 import { effectiveMaxLength } from './profileResolver';
 import { AUTO_CONFIDENCE, normalize } from './confidence';
+import { calendarDateBounds, dateRangePossible } from '../profile/calendarDates';
 
 export type ProjectFieldReason = 'field-semantic-unknown' | 'field-semantic-ambiguous' | 'profile-value-missing'
   | 'profile-date-precision' | 'profile-value-invalid' | 'field-options-unresolved' | 'profile-value-too-long'
@@ -17,11 +18,7 @@ const keys: ReadonlySet<string> = new Set(['name', 'description', 'responsibilit
 const ownershipCaptions = new Set(['项目经历', '项目', '课题', 'project', 'projects', 'project experience', 'project experiences'].map(normalize));
 
 function dateValue(value: string, field: FieldDescriptor): string | ProjectFieldReason {
-  if (!/^\d{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?$/u.test(value)) return 'profile-value-invalid';
-  if (value.length === 10) {
-    const date = new Date(`${value}T00:00:00Z`);
-    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return 'profile-value-invalid';
-  }
+  if (!calendarDateBounds(value)) return 'profile-value-invalid';
   if (field.type === 'date' && value.length !== 10) return 'profile-date-precision';
   return field.type === 'month' ? value.slice(0, 7) : value;
 }
@@ -51,8 +48,7 @@ export function resolveProjectField(field: FieldDescriptor, record: ProjectProje
   let value = Array.isArray(raw) ? raw.join('、') : raw;
   if (typeof value !== 'string' || !value.trim()) return reject('profile-value-missing');
   if (key === 'startDate' || key === 'endDate') {
-    if (record.startDate && record.endDate && record.startDate.length === record.endDate.length
-      && record.startDate > record.endDate) return reject('profile-value-invalid');
+    if (!dateRangePossible(record.startDate, record.endDate)) return reject('profile-value-invalid');
     const date = dateValue(value, field);
     if (date === 'profile-value-invalid' || date === 'profile-date-precision') return reject(date);
     value = date;

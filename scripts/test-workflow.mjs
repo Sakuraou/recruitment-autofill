@@ -143,6 +143,9 @@ try {
   await page.evaluate(() => { window.fixture.config.cadreDelay = 900; window.fixture.config.saveDelay = 200; });
   view = await popup();
   await view.getByRole('button', { name: '连续填写在校奖励', exact: true }).click();
+  // Popup-side profile loading is asynchronous. Close only after the page
+  // has accepted the task; a click alone is not a dispatch acknowledgement.
+  await page.waitForFunction(() => window.fixture.adds.awardInfo > 0);
   await view.close();
   await page.waitForFunction(() => window.fixture.records.awardInfo.length === 3);
   view = await popup();
@@ -198,6 +201,21 @@ try {
   report.passed = true;
 } catch (error) {
   report.passed = false; report.failure = error instanceof Error ? error.stack : String(error); process.exitCode = 1;
+  if (context) {
+    // Only the route-fulfilled fictional fixture is inspected; never a user tab.
+    report.failurePages = await Promise.all(context.pages().filter(page => page.url() === url)
+      .map(page => page.evaluate(() => ({ fixture: window.fixture,
+        task: document.querySelector('[data-ra-workflow]')?.textContent ?? null }))));
+    const worker = context.serviceWorkers()[0];
+    if (worker) {
+      const inspect = await context.newPage(); await inspect.goto(`chrome-extension://${new URL(worker.url()).host}/popup.html`);
+      report.failureWorkflow = await inspect.evaluate(async targetUrl => {
+        const tab = (await chrome.tabs.query({})).find(item => item.url === targetUrl);
+        return tab?.id ? chrome.tabs.sendMessage(tab.id, { type: 'RA_WORKFLOW_STATUS' }, { frameId: 0 }) : null;
+      }, url);
+      report.failurePopup = await inspect.locator('body').innerText();
+    }
+  }
 } finally {
   if (context) await context.close();
   report.finishedAt = new Date().toISOString();

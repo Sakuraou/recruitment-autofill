@@ -59,6 +59,17 @@ try {
   report.checks.push('Options JSON import, save to chrome.storage.local, reload and persistence');
 
   await options.getByRole('button', { name: /11 导入与备份/ }).click();
+  const originalStorage = await options.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']);
+  for (const invalid of [
+    { ...profile, basic: { ...profile.basic, birthday: '2026-02-30' } },
+    { ...profile, projects: [{ id: 'fictional-invalid-range', technologies: [], startDate: '2026-10-01', endDate: '2026-09' }] },
+  ]) {
+    await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(invalid));
+    await options.getByRole('button', { name: '校验并载入预览' }).click();
+    await options.getByText('档案格式有误：', { exact: false }).waitFor();
+    assert.deepEqual(await options.evaluate(async () => (await chrome.storage.local.get('recruitment.profile.v1'))['recruitment.profile.v1']), originalStorage);
+  }
+  report.checks.push('Invalid calendar date and necessarily reversed mixed-precision range reject import without replacing the current profile or stored data');
   const downloadPromise = options.waitForEvent('download');
   await options.getByRole('button', { name: /导出当前档案 JSON/ }).click();
   const download = await downloadPromise;
