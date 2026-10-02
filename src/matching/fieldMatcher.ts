@@ -105,14 +105,30 @@ function matchText(text: string, scope: AliasScope | undefined, fallback: boolea
     source: best.exact ? 'rule' : 'alias', ambiguous: tied.length > 0, evidence: text };
 }
 
+function educationModeFromChoices(field: FieldDescriptor): FieldAlias | undefined {
+  if (!['select', 'radio'].includes(field.kind)) return undefined;
+  const labels = [field.label, field.ariaLabel, field.tableHeader].map(normalize).filter(Boolean);
+  if (!labels.length || !labels.every(label => ['教育类型', 'educationtype'].includes(label))) return undefined;
+  const choices = field.options.filter(option => option.value !== ''
+    && !/^(?:请选择|选择|please select|select an option|--)/iu.test(option.label.trim()));
+  const options = choices.filter(option => !option.disabled).map(option => normalize(option.label));
+  const full = ['全日制', '普通全日制', 'fulltime']; const part = ['非全日制', 'parttime'];
+  if (!options.some(option => full.includes(option)) || !options.some(option => part.includes(option))
+    || choices.some(option => !full.includes(normalize(option.label)) && !part.includes(normalize(option.label)))) return undefined;
+  return fieldAliases.find(alias => alias.scope === 'education' && alias.key === 'studyMode');
+}
+
 export function detectField(field: FieldDescriptor): DetectedField | undefined {
   const scope = contextualScope(field);
+  const educationMode = educationModeFromChoices(field);
   const candidates: Array<DetectedField & { tier: number; order: number }> = [];
   let order = 0;
   // Compare every source. A precise visible row/header label must beat an earlier
   // framework key that merely contains an English alias.
   for (const text of directTexts(field)) {
-    const detected = matchText(text, scope, false);
+    const detected: DetectedField | undefined = educationMode && ['教育类型', 'educationtype'].includes(normalize(text))
+      ? { alias: educationMode, confidence: 1, source: 'rule', ambiguous: false, evidence: text }
+      : matchText(text, scope, false);
     if (detected) candidates.push({ ...detected, tier: 3, order: order++ });
   }
   for (const text of identifierTexts(field)) {

@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>虚构教育字段验证</title>
+<body><main><h1>教育经历测试 · 资料为虚构</h1><form>
+<fieldset><legend>本科教育经历</legend>
+<label>本科教育类型<select id="b-type"><option value="">请选择</option><option value="b-admission">统招</option></select></label>
+<label>本科院校性质<select id="b-property"><option value="">请选择</option><option value="b-school">国内普通院校</option></select></label>
+<label>本科学制<input id="b-duration" type="number"></label>
+<label>本科院校国家/地区<input id="b-country"></label>
+</fieldset><fieldset><legend>硕士教育经历</legend>
+<label>硕士教育类型<select id="m-type"><option value="">请选择</option><option value="m-admission">统招</option></select></label>
+<label>硕士院校性质<select id="m-property"><option value="">请选择</option><option value="m-school">211</option></select></label>
+<label>硕士学制<input id="m-duration" type="number"></label>
+<label>硕士院校国家/地区<input id="m-country"></label>
+</fieldset><label>是否最高学位<select id="highest"><option value="">请选择</option><option value="y">是</option><option value="n">否</option></select></label>
+<button type="submit">提交</button></form><output id="submits">0</output></main>
+<script>let count = 0; document.querySelector('form').addEventListener('submit', event => { event.preventDefault(); document.querySelector('#submits').textContent = String(++count); });</script>
+</body></html>

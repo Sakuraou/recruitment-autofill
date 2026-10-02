@@ -6,10 +6,9 @@ import { effectiveMaxLength } from './profileResolver';
 import { AUTO_CONFIDENCE, normalize } from './confidence';
 import { calendarDateBounds, dateRangePossible } from '../profile/calendarDates';
 import { resolveEndDate } from './endDate';
+import type { RecordFieldReason } from './recordFieldReason';
 
-export type ProjectFieldReason = 'field-semantic-unknown' | 'field-semantic-ambiguous' | 'profile-value-missing'
-  | 'profile-date-precision' | 'profile-value-invalid' | 'field-options-unresolved' | 'profile-value-too-long'
-  | 'field-unsupported';
+export type ProjectFieldReason = RecordFieldReason;
 export type ProjectFieldResolution = Readonly<{
   status: 'known'; key: string; value: string; confidence: number;
 }> | Readonly<{ status: 'request-human'; reason: ProjectFieldReason }>;

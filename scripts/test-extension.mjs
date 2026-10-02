@@ -12,6 +12,7 @@ const artifacts = resolve(root, 'artifacts');
 await mkdir(artifacts, { recursive: true });
 const sample = await readFile(resolve(root, 'examples/sample-profile.json'), 'utf8');
 const profile = JSON.parse(sample);
+const educationFields = await readFile(resolve(root, 'tests/fixtures/education-fields.html'), 'utf8');
 const report = { startedAt: new Date().toISOString(), checks: [], externalRequests: [], errors: [] };
 let context;
 const server = spawn(process.execPath, ['scripts/serve-example.mjs'], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -29,7 +30,9 @@ try {
   });
   context.setDefaultTimeout(10000);
   await context.route(/^https?:/, async route => {
-    if (new URL(route.request().url()).hostname !== '127.0.0.1') {
+    const url = new URL(route.request().url());
+    if (url.hostname === '127.0.0.1' && url.pathname === '/education-facts') await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: educationFields });
+    else if (url.hostname !== '127.0.0.1') {
       report.externalRequests.push(route.request().url()); await route.abort();
     } else await route.continue();
   });
@@ -454,6 +457,26 @@ try {
   report.extensionVersion = manifest.version;
   report.checks.push('Actual diagnostic download has current versions and fill outcomes, masks candidate names and project names');
   await mobilePopup.locator('.popup-app').screenshot({ path: resolve(artifacts, 'mobile-project-popup.png') });
+  await worker.evaluate(async () => {
+    const key = 'recruitment.profile.v1'; const saved = (await chrome.storage.local.get(key))[key];
+    saved.education = saved.education.map(entry => ({ ...entry, educationType: '统招', country: '中国',
+      schoolProperty: entry.level === '本科' ? '国内普通院校' : '211', durationYears: entry.level === '本科' ? '4' : '3' }));
+    saved.revision = crypto.randomUUID(); await chrome.storage.local.set({ [key]: saved });
+  });
+  const educationUrl = 'http://127.0.0.1:4173/education-facts'; const educationPage = await context.newPage(); await educationPage.goto(educationUrl);
+  const educationTargets = await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] });
+  await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: educationTargets.targetInfos.find(target => target.url === educationUrl).targetId });
+  const educationPopup = await context.newPage(); await educationPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await worker.evaluate(async url => { const tab = (await chrome.tabs.query({})).find(item => item.url === url); await chrome.tabs.update(tab.id, { active: true }); }, educationUrl);
+  await educationPopup.getByRole('button', { name: '扫描页面', exact: true }).click();
+  await educationPopup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+  await educationPopup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+  await educationPopup.getByRole('status').filter({ hasText: /已填写 8 项，跳过或未完成 0 项/ }).waitFor();
+  for (const [id, value] of Object.entries({ 'b-type': 'b-admission', 'm-type': 'm-admission', 'b-property': 'b-school', 'm-property': 'm-school',
+    'b-duration': '4', 'm-duration': '3', 'b-country': '中国', 'm-country': '中国', highest: '' }))
+    assert.equal(await educationPage.locator('#' + id).inputValue(), value);
+  assert.equal(await educationPage.locator('#submits').textContent(), '0');
+  report.checks.push('Known undergraduate/master admission, school category, duration and country fill eight distinct facts through the production popup; highest-degree boolean stays unresolved and Submit remains zero');
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);
   report.passed = true;
