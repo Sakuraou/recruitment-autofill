@@ -266,8 +266,61 @@ export function stableAriaComboboxListbox(node: Element): HTMLElement | null {
     .filter(candidate => candidate.id === refs[0]);
   if (targets.length !== 1) return null;
   const target = targets[0];
+  const owners = Array.from((root as Document | ShadowRoot).querySelectorAll('[role="combobox"], [aria-haspopup="listbox"]'))
+    .filter(candidate => comboRefs(candidate).includes(refs[0]!));
+  if (owners.length !== 1 || owners[0] !== node) return null;
   return target?.ownerDocument === node.ownerDocument && target.getAttribute('role') === 'listbox'
     ? target as HTMLElement : null;
+}
+
+/** Opaque, page-local provenance. Copies and serialized tokens carry no authority. */
+export interface StableAriaComboboxObservation { readonly kind: 'stable-aria-combobox' }
+interface ComboOptionObservation { readonly node: Element; readonly ancestors: readonly Element[]; readonly meaning: string }
+interface ComboObservation {
+  readonly node: Element; readonly list: Element; readonly root: Node; readonly url: string;
+  readonly identity: string; readonly options: readonly ComboOptionObservation[];
+}
+const comboObservations = new WeakMap<StableAriaComboboxObservation, ComboObservation>();
+const comboStateAttributes = new Set(['value', 'aria-valuetext', 'aria-expanded', 'aria-activedescendant', 'aria-invalid', 'class', 'style']);
+const listStateAttributes = new Set(['hidden', 'aria-hidden', 'class', 'style']);
+const optionStateAttributes = new Set(['aria-selected', 'aria-current', 'tabindex', 'class', 'style']);
+function comboStructureAttributes(node: Element, ignored: ReadonlySet<string>): string {
+  return JSON.stringify(Array.from(node.attributes).filter(attribute => !ignored.has(attribute.name))
+    .map(attribute => [attribute.name, attribute.value]).sort(([a], [b]) => (a ?? '').localeCompare(b ?? '')));
+}
+function observeComboStructure(node: Element): ComboObservation | undefined {
+  if (!node.isConnected || ariaActivationProblem(node)) return undefined;
+  const list = stableAriaComboboxListbox(node); if (!list?.isConnected) return undefined;
+  const optionNodes = Array.from(list.querySelectorAll('[role="option"]'));
+  if (!optionNodes.length || optionNodes.length > 1000 || optionNodes.some(option => option.closest('[role="listbox"]') !== list)) return undefined;
+  const options = optionNodes.map(option => {
+    const ancestors: Element[] = [];
+    for (let parent = option.parentElement; parent && parent !== list && ancestors.length < 256; parent = parent.parentElement) ancestors.push(parent);
+    return Object.freeze({ node: option, ancestors: Object.freeze(ancestors), meaning: JSON.stringify({
+      label: radioOptionLabel(option), attributes: comboStructureAttributes(option, optionStateAttributes),
+      ancestors: ancestors.map(parent => comboStructureAttributes(parent, optionStateAttributes)),
+      unsafeActivation: Boolean(ariaActivationProblem(option)),
+    }) });
+  });
+  if (options.some(option => option.ancestors.length === 256 && option.ancestors.at(-1)?.parentElement !== list)) return undefined;
+  return { node, list, root: node.getRootNode(), url: node.ownerDocument.URL,
+    identity: JSON.stringify([comboStructureAttributes(node, comboStateAttributes), comboStructureAttributes(list, listStateAttributes)]),
+    options: Object.freeze(options) };
+}
+export function observeStableAriaCombobox(node: Element): StableAriaComboboxObservation | undefined {
+  const data = observeComboStructure(node); if (!data) return undefined;
+  const observation = Object.freeze({ kind: 'stable-aria-combobox' as const }); comboObservations.set(observation, data); return observation;
+}
+export function stableAriaComboboxObservationMatches(node: Element, observation: StableAriaComboboxObservation): boolean {
+  const before = comboObservations.get(observation); if (!before || before.node !== node) return false;
+  const current = observeComboStructure(node);
+  return Boolean(current && current.root === before.root && current.url === before.url && current.list === before.list
+    && current.identity === before.identity && current.options.length === before.options.length
+    && current.options.every((option, index) => {
+      const original = before.options[index]!;
+      return option.node === original.node && option.meaning === original.meaning && option.ancestors.length === original.ancestors.length
+        && option.ancestors.every((parent, depth) => parent === original.ancestors[depth]);
+    }));
 }
 
 function comboListbox(node: Element): HTMLElement | null {
@@ -481,7 +534,8 @@ function verifyCombo(node: Element, value: string): boolean {
   return current === value || (!comboHasValue(current) && selected.length === 1 && selected[0]!.isConnected);
 }
 
-function comboAdapter(node: Element): ControlAdapter {
+function comboAdapter(node: Element, observation?: StableAriaComboboxObservation): ControlAdapter {
+  const structureCurrent = (): boolean => !observation || stableAriaComboboxObservationMatches(node, observation);
   const inspect = (): ControlInspection => ({
     kind: 'aria-combobox', value: comboValue(node), hasValue: comboHasValue(comboValue(node)), options: comboOptions(node),
     ...(unavailableReason(node, '组合框') || ariaActivationProblem(node)
@@ -491,10 +545,11 @@ function comboAdapter(node: Element): ControlAdapter {
     node,
     kind: 'aria-combobox',
     inspect,
-    open: signal => thisOpen(node, signal),
+    open: signal => structureCurrent() ? thisOpen(node, signal).then(opened => opened && structureCurrent()) : Promise.resolve(false),
     readOptions: () => comboOptions(node),
     write: async (value: string, signal?: AbortSignal): Promise<ControlAdapterResult> => {
       if (signal?.aborted) return { status: 'request-human', reason: '填写已停止' };
+      if (!structureCurrent()) return { status: 'request-human', reason: '组合框原列表或选项已改变，请重新扫描' };
       const originalUrl = node.ownerDocument.URL;
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
@@ -503,12 +558,12 @@ function comboAdapter(node: Element): ControlAdapter {
         : { status: 'request-human', reason: '组合框已有内容，不覆盖' };
       const originalRefs = comboRefs(node).join(' ');
       const originalList = comboListbox(node);
-      if (!await thisOpen(node, signal) || signal?.aborted || node.ownerDocument.URL !== originalUrl) return { status: 'request-human', reason: '组合框未能安全打开' };
+      if (!await thisOpen(node, signal) || signal?.aborted || node.ownerDocument.URL !== originalUrl || !structureCurrent()) return { status: 'request-human', reason: '组合框未能安全打开' };
       const list = comboListbox(node);
       const refs = comboRefs(node).join(' ');
       if (refs !== originalRefs || (originalList !== null && list !== originalList)) return { status: 'request-human', reason: '打开期间组合框绑定已改变，请重新扫描' };
       const stillAvailable = (): boolean => !signal?.aborted && node.ownerDocument.URL === originalUrl && !unavailableReason(node, '组合框')
-        && !ariaActivationProblem(node) && comboListbox(node) === list && comboRefs(node).join(' ') === refs;
+        && !ariaActivationProblem(node) && structureCurrent() && comboListbox(node) === list && comboRefs(node).join(' ') === refs;
       if (!await waitForComboState(() => {
         if (!stillAvailable() || comboHasValue(comboValue(node))) return 'stop';
         return visibleComboOptions(node, value).length === 1 ? 'ready' : 'wait';
@@ -523,18 +578,18 @@ function comboAdapter(node: Element): ControlAdapter {
       try { clickComboNode(target); }
       catch { return { status: 'request-human', reason: '组合框选项无法选择' }; }
       const verified = await waitForComboState(() => {
-        if (signal?.aborted || node.ownerDocument.URL !== originalUrl || unavailableReason(node, '组合框') || comboRefs(node).join(' ') !== refs) return 'stop';
+        if (signal?.aborted || node.ownerDocument.URL !== originalUrl || unavailableReason(node, '组合框') || comboRefs(node).join(' ') !== refs || !structureCurrent()) return 'stop';
         const currentValue = comboValue(node);
         if (comboHasValue(currentValue) && currentValue !== value) return 'stop';
         if (verifyCombo(node, value)) return 'ready';
         if (comboListbox(node) !== list || !target.isConnected) return 'stop';
         return 'wait';
       }, signal);
-      return verified && !signal?.aborted && node.ownerDocument.URL === originalUrl
+      return verified && !signal?.aborted && node.ownerDocument.URL === originalUrl && structureCurrent() && verifyCombo(node, value)
         ? { status: 'written', reason: '组合框选择后已核验' }
         : { status: 'request-human', reason: '网页未保留组合框选择' };
     },
-    verify: (value: string) => verifyCombo(node, value),
+    verify: (value: string) => structureCurrent() && verifyCombo(node, value),
   };
 }
 
@@ -549,8 +604,8 @@ async function thisOpen(node: Element, signal?: AbortSignal): Promise<boolean> {
     : comboListbox(node) !== null ? 'ready' : 'wait', signal);
 }
 
-export function createControlAdapter(node: Element): ControlAdapter {
-  if (node.getAttribute('role') === 'combobox') return comboAdapter(node);
+export function createControlAdapter(node: Element, observation?: StableAriaComboboxObservation): ControlAdapter {
+  if (node.getAttribute('role') === 'combobox') return comboAdapter(node, observation);
   if (node.getAttribute('role') === 'checkbox') return createAriaCheckboxAdapter(node);
   if (node.tagName === 'INPUT' && (node as HTMLInputElement).type === 'checkbox') return nativeCheckboxAdapter(node as HTMLInputElement);
   if (node.tagName === 'INPUT' && !['radio', 'checkbox', 'file', 'hidden', 'submit', 'button'].includes((node as HTMLInputElement).type)) return nativeAdapter(node as HTMLInputElement);

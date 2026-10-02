@@ -3,7 +3,7 @@ import { effectiveMaxLength } from '../matching/profileResolver';
 import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
 import { ariaCheckboxFingerprint, ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, controlStructureFingerprint, describeAriaCheckbox, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
-import { createControlAdapter, verifyNativeRadioGroup } from './controlAdapter';
+import { createControlAdapter, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from './controlAdapter';
 
 function nativeSet(node: FormControl, value: string): void {
   const view = node.ownerDocument.defaultView;
@@ -77,6 +77,9 @@ export async function fillScan(state: ScanState, request: FillRequest, signal?: 
     if (control.adapter === 'aria-combobox') {
       const { node, controller } = control;
       if (!belongsToDocument(node, state.document)) { skip('字段已被替换或移除，请重新扫描'); continue; }
+      if (control.observation && !stableAriaComboboxObservationMatches(node, control.observation)) {
+        skip('组合框原列表、选项或归属已改变，请重新扫描'); continue;
+      }
       const current = describeAriaCombobox(node, item.fieldId, controller);
       if (current.blockedReason) { skip(current.blockedReason); continue; }
       if (current.hasValue) { skip('组合框已有选择，不覆盖'); continue; }

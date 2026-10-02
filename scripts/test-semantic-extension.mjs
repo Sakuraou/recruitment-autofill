@@ -54,15 +54,28 @@ const cancellationHtml = `<!doctype html><html lang="zh"><meta charset="utf-8"><
 <button type="submit" onclick="window.submits++">最终提交</button><script>
 window.submits=0;window.opens=0;window.optionClicks=0;window.laterOpens=0;
 const gender=document.querySelector('#c1'), choices=document.querySelector('#list-one');
-gender.addEventListener('click',()=>{window.opens++;gender.setAttribute('aria-expanded','true');choices.hidden=false;choices.innerHTML='';
-setTimeout(()=>{choices.innerHTML='<div role="option">男性</div>';},400);});
+gender.addEventListener('click',()=>{window.opens++;gender.setAttribute('aria-expanded','true');choices.hidden=false;choices.firstElementChild.style.display='none';
+setTimeout(()=>{choices.firstElementChild.style.display='';},400);});
 choices.addEventListener('click',()=>{window.optionClicks++;gender.textContent='男性';gender.setAttribute('aria-valuetext','男性');gender.setAttribute('aria-expanded','false');choices.hidden=true;});
 const name=document.querySelector('#c2'), names=document.querySelector('#list-two');
 name.addEventListener('click',()=>{window.laterOpens++;name.setAttribute('aria-expanded','true');names.hidden=false;});
 names.addEventListener('click',()=>{window.optionClicks++;name.textContent='虚构用户乙';name.setAttribute('aria-valuetext','虚构用户乙');name.setAttribute('aria-expanded','false');names.hidden=true;});
 </script></body></html>`;
+const stableComboHtml = `<!doctype html><html lang="zh"><meta charset="utf-8"><title>虚构稳定选择表单</title><body>
+<section><h2>个人信息</h2><button type="button" id="s1" role="combobox" aria-label="您的身份称谓" aria-controls="stable-list" aria-expanded="false">请选择</button>
+<div id="stable-list" role="listbox" hidden><div role="option">男性</div><div role="option">女性</div></div></section>
+<button type="submit" onclick="window.submits++">最终提交</button><script>
+window.submits=0;window.opens=0;window.optionClicks=0;const behavior=new URL(location.href).searchParams.get('behavior');
+const combo=document.querySelector('#s1');
+combo.addEventListener('click',()=>{window.opens++;combo.setAttribute('aria-expanded','true');const list=document.querySelector('#stable-list');list.hidden=false;
+if(behavior==='rehydrate'){const markup=list.innerHTML;list.innerHTML=markup;}});
+document.addEventListener('click',event=>{if(!event.target.matches('[role="option"]'))return;window.optionClicks++;
+const commit=()=>{combo.textContent='男性';combo.setAttribute('aria-valuetext','男性');combo.setAttribute('aria-expanded','false');document.querySelector('#stable-list').hidden=true;};
+if(behavior==='post-read-replace'){commit();queueMicrotask(()=>{const list=document.querySelector('#stable-list');list.firstElementChild.replaceWith(list.firstElementChild.cloneNode(true));});}
+else setTimeout(commit,25);});
+</script></body></html>`;
 const fixture = createServer((request, response) => { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  response.end(request.url.startsWith('/cancel-controls') ? cancellationHtml : request.url.startsWith('/dynamic') ? dynamicHtml : html); });
+  response.end(request.url.startsWith('/stable-controls') ? stableComboHtml : request.url.startsWith('/cancel-controls') ? cancellationHtml : request.url.startsWith('/dynamic') ? dynamicHtml : html); });
 let context; let latestPopup;
 try {
   await new Promise((res, rej) => { service.once('error', rej); service.listen(43127, '127.0.0.1', res); });
@@ -272,13 +285,28 @@ try {
     else await options.evaluate(async () => { const key='recruitment.profile.v1'; const data=await chrome.storage.local.get(key);
       await chrome.storage.local.set({[key]:{...data[key],revision:crypto.randomUUID()}}); });
     if (cancellation !== 'close') await popup.getByText('已停止后续 AI 填写', { exact: false }).waitFor();
-    await form.waitForFunction(() => document.querySelector('#list-one [role="option"]'));
+    await form.waitForFunction(() => { const option = document.querySelector('#list-one [role="option"]'); return option && getComputedStyle(option).display !== 'none'; });
     await form.waitForTimeout(120);
     assert.deepEqual(await form.evaluate(() => ({opens:window.opens, clicks:window.optionClicks, later:window.laterOpens, submits:window.submits})),
       {opens:1,clicks:0,later:0,submits:0});
     assert.equal(await form.locator('#c1').textContent(), '请选择'); assert.equal(requests.length-previous,1);
     if (cancellation !== 'close') await popup.close();
     report.checks.push(`Production popup ${cancellation} disconnects the in-flight content batch: late options have zero clicks and subsequent combo has zero opens`);
+  }
+
+  for (const behavior of ['commit', 'rehydrate', 'post-read-replace', 'model-replace']) {
+    mode = behavior === 'model-replace' ? 'hold' : 'normal'; await clearRecipes();
+    await form.goto(`${url}stable-controls?behavior=${behavior}`); popup = await openPopup(); previous = requests.length; await clickAi(popup);
+    if (behavior === 'model-replace') {
+      await waitForRequest(previous); await form.evaluate(() => { const list=document.querySelector('#stable-list');list.replaceWith(list.cloneNode(true)); });
+      pending(); await popup.getByText('AI 服务不可用或页面已变化', { exact: false }).waitFor();
+    } else await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+    assert.deepEqual(await form.evaluate(() => ({opens:window.opens, clicks:window.optionClicks, submits:window.submits})),
+      {opens:behavior === 'model-replace' ? 0 : 1, clicks:['commit','post-read-replace'].includes(behavior) ? 1 : 0, submits:0});
+    assert.equal(await form.locator('#s1').textContent(), ['commit','post-read-replace'].includes(behavior) ? '男性' : '请选择');
+    await popup.getByText(`本次已填写 ${behavior === 'commit' ? 1 : 0} 项`, { exact: false }).waitFor();
+    assert.equal(requests.length-previous,1); await popup.close();
+    report.checks.push(`Production stable ARIA combo ${behavior} validates original list/options before action and after asynchronous readback, without submit`);
   }
 
   await options.getByRole('button', { name: '关闭 AI 连接', exact: true }).click();

@@ -2,7 +2,7 @@ import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { EXTENSION_VERSION } from '../shared/version';
 import { isMobileResume, mobileLabel, mobileMaxLength, mobilePlaceholder, mobileSection } from './mobilePage';
 import { describeMobileSelect, MOBILE_DATE_SELECTOR, MOBILE_SELECT_SELECTOR, mobileFingerprint } from './mobileSelect';
-import { createAriaCheckboxAdapter, createAriaRadioGroupAdapter, createControlAdapter, stableAriaComboboxListbox, type ControlAdapter } from './controlAdapter';
+import { createAriaCheckboxAdapter, createAriaRadioGroupAdapter, createControlAdapter, observeStableAriaCombobox, stableAriaComboboxListbox, type ControlAdapter, type StableAriaComboboxObservation } from './controlAdapter';
 import { buildPageSemanticGraph } from './semantic/graphBuilder';
 import {
   ariaLabel, attributesFingerprint, cleanText, collectControls, controlLabels, hasValue,
@@ -12,7 +12,7 @@ import {
 
 export type ScannedControl = { node: FormControl; fingerprint: string; structureFingerprint?: string; adapter?: undefined }
   | { node: HTMLElement; fingerprint: string; adapter: 'mobile-select' }
-  | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-combobox' }
+  | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-combobox'; observation?: StableAriaComboboxObservation }
   | { node: Element; members: Element[]; controller: ControlAdapter; fingerprint: string; adapter: 'aria-radio-group' }
   | { node: Element; controller: ControlAdapter; fingerprint: string; adapter: 'aria-checkbox' }
   | { node: HTMLInputElement; members: HTMLInputElement[]; fingerprint: string; adapter: 'radio-group' };
@@ -272,11 +272,13 @@ export function scanDocument(doc: Document = document): ScanState {
   }
   for (const node of ariaComboboxes.slice(0, 500 - fields.length)) {
     const id = `${scanId}:${fields.length}`;
-    const controller = createControlAdapter(node);
+    const observation = observeStableAriaCombobox(node);
+    const controller = createControlAdapter(node, observation);
     const field = describeAriaCombobox(node, id, controller);
     field.groupId = groupId(node);
     fields.push(field);
-    controls.set(id, { node, controller, fingerprint: ariaComboboxFingerprint(node, field, controller), adapter: 'aria-combobox' });
+    controls.set(id, { node, controller, fingerprint: ariaComboboxFingerprint(node, field, controller), adapter: 'aria-combobox',
+      ...(observation ? { observation } : {}) });
   }
   for (const { group, members } of ariaRadioGroups.slice(0, 500 - fields.length)) {
     const id = `${scanId}:${fields.length}`;

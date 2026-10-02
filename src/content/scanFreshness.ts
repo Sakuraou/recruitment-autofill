@@ -1,5 +1,6 @@
 import type { ScanResult } from '../shared/types';
 import { scanDocument, type ScanState } from './scanner';
+import { stableAriaComboboxObservationMatches } from './controlAdapter';
 
 function observation(result: ScanResult): string {
   const ids = new Map(result.fields.map((field, index) => [field.id, `field-${index}`]));
@@ -25,6 +26,8 @@ export function verifyScanObservation(state: ScanState): ScanResult | undefined 
   const previous = [...state.controls.entries()];
   for (const [index, [id, control]] of [...fresh.controls.entries()].entries()) {
     const [originalId, original] = previous[index]!;
+    if (original.adapter === 'aria-combobox' && original.observation
+      && !stableAriaComboboxObservationMatches(original.node, original.observation)) return undefined;
     if (control.node !== original.node || control.adapter !== original.adapter
       || fingerprint(control.fingerprint, id) !== fingerprint(original.fingerprint, originalId)) return undefined;
     if ('members' in control) {

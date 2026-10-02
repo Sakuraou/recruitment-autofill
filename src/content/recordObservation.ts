@@ -1,6 +1,7 @@
 import type { SemanticNode } from '../shared/semanticGraph';
 import type { ScanState, ScannedControl } from './scanner';
 import { belongsToDocument } from './domUtils';
+import { stableAriaComboboxObservationMatches } from './controlAdapter';
 
 function subtree(scan: ScanState, listId: string): readonly SemanticNode[] | undefined {
   const graph = scan.result.semanticGraph;
@@ -50,6 +51,8 @@ export function recordObservationMatches(previous: ScanState, current: ScanState
     if (node.kind === 'field' && actual.kind === 'field') {
       const oldControl = previous.controls.get(node.fieldId); const control = current.controls.get(actual.fieldId);
       if (!oldControl || !control || control.node !== oldControl.node || control.adapter !== oldControl.adapter) return false;
+      if (oldControl.adapter === 'aria-combobox' && control.adapter === 'aria-combobox' && oldControl.observation
+        && (!control.observation || !stableAriaComboboxObservationMatches(control.node, oldControl.observation))) return false;
       if (oldControl.adapter === 'radio-group' && control.adapter === 'radio-group'
         && (oldControl.members.length !== control.members.length
           || oldControl.members.some((member, index) => member !== control.members[index]))) return false;
