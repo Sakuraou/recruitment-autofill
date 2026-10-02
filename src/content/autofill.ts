@@ -60,8 +60,11 @@ function candidateProblem(node: FormControl, value: string, field: FieldDescript
   return undefined;
 }
 
+/** Internal execution evidence only; never include DOM references in messages or reports. */
+export interface FillScanInteractionTrace { readonly ariaComboboxAttempts: Set<Element> }
+
 /** Only explicit requests from the extension UI are executed; the page is never submitted. */
-export async function fillScan(state: ScanState, request: FillRequest, signal?: AbortSignal): Promise<FillOutcome[]> {
+export async function fillScan(state: ScanState, request: FillRequest, signal?: AbortSignal, trace?: FillScanInteractionTrace): Promise<FillOutcome[]> {
   const outcomes: FillOutcome[] = [];
   const seen = new Set<string>();
   for (const item of request.items) {
@@ -84,7 +87,9 @@ export async function fillScan(state: ScanState, request: FillRequest, signal?: 
       if (current.blockedReason) { skip(current.blockedReason); continue; }
       if (current.hasValue) { skip('组合框已有选择，不覆盖'); continue; }
       if (ariaComboboxFingerprint(node, current, controller) !== control.fingerprint) { skip('组合框标签、选项或内容已改变，请重新扫描'); continue; }
+      if (signal?.aborted) { skip('填写已停止'); continue; }
       try {
+        trace?.ariaComboboxAttempts.add(node);
         const pending = controller.write(item.value, signal);
         const result = isPromiseLike(pending) ? await pending : pending;
         outcomes.push({ fieldId: item.fieldId, status: !signal?.aborted && result.status === 'written' ? 'filled' : 'error', reason: result.reason });

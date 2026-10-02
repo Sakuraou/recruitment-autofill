@@ -1,8 +1,8 @@
-import { fillScan } from '../content/autofill';
+import { fillScan, type FillScanInteractionTrace } from '../content/autofill';
 import type { ProjectFieldReason } from '../matching/projectFieldResolver';
 import { belongsToDocument, hasValue } from '../content/domUtils';
-import { booleanValue, createControlAdapter, verifyNativeRadioGroup } from '../content/controlAdapter';
-import { controlFingerprint, describeControl, describeRadioGroup } from '../content/scanner';
+import { booleanValue, createControlAdapter, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from '../content/controlAdapter';
+import { ariaComboboxFingerprint, controlFingerprint, describeAriaCombobox, describeControl, describeRadioGroup } from '../content/scanner';
 import { waitForDomStability } from '../content/domStability';
 import type { ScanState, ScannedControl } from '../content/scanner';
 import {
@@ -142,6 +142,13 @@ function nativeControl(control: ScannedControl): control is Extract<ScannedContr
 }
 
 function bindingIdentity(control: ScannedControl): string {
+  if (control.adapter === 'aria-combobox') {
+    if (!control.observation || !stableAriaComboboxObservationMatches(control.node, control.observation)) return '';
+    const field = describeAriaCombobox(control.node, '', control.controller); if (field.blockedReason) return '';
+    return JSON.stringify({ kind: field.kind, type: field.type, label: field.label, name: field.name, htmlId: field.htmlId,
+      ariaLabel: field.ariaLabel, placeholder: field.placeholder, title: field.title, required: field.required,
+      disabled: field.disabled, readOnly: field.readOnly, options: field.options });
+  }
   if (!nativeControl(control)) return '';
   const field = control.adapter === 'radio-group' ? describeRadioGroup(control.members, '') : describeControl(control.node, '');
   const identity = { kind: field.kind, type: field.type, label: field.label, name: field.name,
@@ -282,8 +289,16 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     const descriptor = scanState.result.fields.find(field => field.id === fieldNode.fieldId);
     const nativeCheckbox = descriptor?.kind === 'checkbox' && control.adapter === undefined
       && control.node.tagName === 'INPUT' && (control.node as HTMLInputElement).type === 'checkbox';
-    if (!descriptor || descriptor.blockedReason || control.adapter === 'mobile-select' || control.adapter === 'aria-combobox' || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
+    const stableCombo = control.adapter === 'aria-combobox' && control.observation
+      && stableAriaComboboxObservationMatches(control.node, control.observation);
+    if (!descriptor || descriptor.blockedReason || control.adapter === 'mobile-select'
+      || (control.adapter === 'aria-combobox' && !stableCombo) || control.adapter === 'aria-radio-group' || control.adapter === 'aria-checkbox'
       || (descriptor.kind === 'checkbox' && !nativeCheckbox)) return failure('field-unsupported');
+    if (control.adapter === 'aria-combobox') {
+      const current = describeAriaCombobox(control.node, fieldNode.fieldId, control.controller);
+      if (current.blockedReason || ariaComboboxFingerprint(control.node, current, control.controller) !== control.fingerprint)
+        return failure('field-target-replaced');
+    }
     if (nativeCheckbox && control.adapter === undefined) {
       const current = describeControl(control.node, fieldNode.fieldId);
       if (current.blockedReason) return failure('field-unsupported');
@@ -297,6 +312,8 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       return failure('profile-value-missing');
     }
     if (typeof supplied !== 'string' || supplied.trim() === '') return failure('profile-value-missing');
+    if (control.adapter === 'aria-combobox'
+      && descriptor.options.filter(option => option.label === supplied && !option.disabled).length !== 1) return failure('field-unsupported');
     if (nativeCheckbox) {
       const node = control.node as HTMLInputElement;
       const desired = booleanValue(supplied);
@@ -324,8 +341,9 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   const items = bindings.filter(binding => !binding.preserved)
     .map(binding => ({ fieldId: binding.scanFieldId, value: binding.value, confirmed: true }));
   let outcomes: Awaited<ReturnType<typeof fillScan>>;
+  const trace: FillScanInteractionTrace = { ariaComboboxAttempts: new Set() };
   try {
-    outcomes = signal.aborted ? [] : await fillScan(scanState, { scanId: scanState.result.scanId, items }, signal);
+    outcomes = signal.aborted ? [] : await fillScan(scanState, { scanId: scanState.result.scanId, items }, signal, trace);
   } catch {
     outcomes = [];
   }
@@ -333,7 +351,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     const wasAborted = signal.aborted;
     runContext.cancelStep();
     const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => (
-      !binding.preserved && valueEquals(binding.control, binding.value)
+      !binding.preserved && (valueEquals(binding.control, binding.value) || trace.ariaComboboxAttempts.has(binding.control.node))
     )));
     return failure(rollbackComplete ? (wasAborted ? 'step-aborted' : 'field-write-failed') : 'rollback-incomplete',
       outcomes.filter(outcome => outcome.status === 'filled').length, rollbackComplete);
@@ -347,10 +365,10 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       items.length, rollbackComplete);
   }
 
-  // Native choices may reveal controls asynchronously. Observe only this editor;
+  // Choices may reveal controls asynchronously. Observe only this editor;
   // manual rewrites, replacement and cancellation cannot grant a saving capability.
   if (input.allowExpansion === true && bindings.some(binding => !binding.preserved
-    && (binding.control.node.tagName === 'SELECT' || binding.control.adapter === 'radio-group'))) {
+    && (binding.control.node.tagName === 'SELECT' || binding.control.adapter === 'radio-group' || binding.control.adapter === 'aria-combobox'))) {
     const quiet = await waitForDomStability({ root: editor, signal, quietWindowMs: 750, timeoutMs: 3_000,
       predicate: () => bindings.every(binding => bindingIdentity(binding.control) === binding.rollbackIdentity
         && currentValueMatches(binding.control, binding.value)) });

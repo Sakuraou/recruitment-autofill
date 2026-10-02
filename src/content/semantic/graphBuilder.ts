@@ -493,7 +493,19 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
   const nodeById = new Map<string, SemanticNode>([[page.id, page]]);
   const fieldNodesById = new Map<string, FieldSemanticNode>();
   const fieldDrafts: RecordTopologyFieldDraft[] = [];
-  fields.forEach((field, index) => {
+  // Scanner control families are collected separately. Semantic order follows
+  // the DOM so an appended native field cannot renumber an earlier ARIA choice.
+  const rootOrder = new Map(roots.map((entry, index) => [entry.root as Node, index]));
+  const orderedFields = [...fields].sort((first, second) => {
+    const a = controls.get(first.id)?.node; const b = controls.get(second.id)?.node;
+    if (!a || !b || a === b) return 0;
+    const aRoot = a.getRootNode(); const bRoot = b.getRootNode();
+    if (aRoot !== bRoot) return (rootOrder.get(aRoot) ?? roots.length) - (rootOrder.get(bRoot) ?? roots.length);
+    const relation = a.compareDocumentPosition(b);
+    if (relation & Node.DOCUMENT_POSITION_DISCONNECTED) return 0;
+    return relation & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : relation & Node.DOCUMENT_POSITION_PRECEDING ? 1 : 0;
+  });
+  orderedFields.forEach((field, index) => {
     const control = controls.get(field.id);
     if (!control) throw new Error('扫描字段缺少页面内控件引用');
     const element = control.node;

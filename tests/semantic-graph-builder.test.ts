@@ -18,6 +18,17 @@ function minimalField(id: string, sectionText = ''): FieldDescriptor {
 }
 
 describe('read-only page semantic graph builder', () => {
+  it('追加原生字段不会因扫描器分组而改变原 ARIA 字段的语义编号', () => {
+    document.body.innerHTML = '<section aria-label="项目经历"><h2>项目经历</h2><label>项目名称<input id="name"></label><button type="button" id="role" role="combobox" aria-label="项目角色" aria-controls="choices">请选择</button><div id="choices" role="listbox" hidden><div role="option">开发成员</div></div></section>';
+    const before = scanDocument(); const role = document.querySelector('#role')!;
+    const originalId = [...before.semanticTargets].find(([id, node]) => id.startsWith('field:') && node === role)![0];
+    document.querySelector('section')!.insertAdjacentHTML('beforeend', '<label>技术栈<input id="stack"></label>');
+    const after = scanDocument();
+    expect(after.semanticTargets.get(originalId)).toBe(role);
+    const fields = after.result.semanticGraph!.nodes.filter(node => node.kind === 'field');
+    expect(fields.map(node => after.semanticTargets.get(node.id)?.id)).toEqual(['name', 'role', 'stack']);
+    expect(semanticGraphProblems(after.result.semanticGraph!, after.result.fields.map(field => field.id))).toEqual([]);
+  });
   it('groups fields under canonical sections and retains only untargeted actions', () => {
     document.title = 'private-candidate-title';
     document.body.innerHTML = `

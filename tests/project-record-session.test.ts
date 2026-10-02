@@ -63,6 +63,153 @@ function unfamiliarProjects(mixed = false) {
   return { ...page, provider };
 }
 
+function stableRoleProjects(initial = [0, 1, 2, 3, 4], commitDelay = 0) {
+  const page = installPage('+', false, initial, 'aria-controls');
+  const local: ProjectProjectionResponse = { ...projection, projects: projection.projects.map((project, index) => ({
+    ...project, role: index % 2 === 0 ? '开发成员' : '负责人', technologies: ['TypeScript'],
+  })) };
+  const actions = { opens: 0, choices: 0 }; const roles: string[] = [];
+  page.add.addEventListener('click', () => {
+    const form = page.list.querySelector('form')!;
+    form.querySelector('button')!.insertAdjacentHTML('beforebegin', '<button type="button" role="combobox" aria-label="项目角色" aria-controls="role-choices" aria-expanded="false">请选择</button><div id="role-choices" role="listbox" hidden><div role="option">开发成员</div><div role="option">负责人</div></div>');
+    const combo = form.querySelector('[role="combobox"]')!; const list = form.querySelector<HTMLElement>('[role="listbox"]')!;
+    combo.addEventListener('click', () => { actions.opens++; list.hidden = false; combo.setAttribute('aria-expanded', 'true'); });
+    list.addEventListener('click', event => {
+      const target = event.target as HTMLElement; if (target.getAttribute('role') !== 'option') return;
+      actions.choices++; const role = target.textContent!; roles.push(role);
+      const commit = () => { combo.setAttribute('aria-valuetext', role); combo.textContent = role; combo.setAttribute('aria-expanded', 'false'); list.hidden = true; };
+      if (commitDelay) setTimeout(commit, commitDelay); else commit();
+    });
+  });
+  return { ...page, local, actions, roles };
+}
+
+it('当前第六个项目的稳定 ARIA 角色组合框补齐后才保存', async () => {
+  const page = stableRoleProjects(); const session = createProjectRecordSession(document, page.local);
+  expect((await session.advance()).status).toBe('advanced');
+  expect((await session.advance()).status).toBe('advanced');
+  expect(page.roles).toEqual(['负责人']); expect(page.counts.save).toBe(0);
+  expect((await session.advance()).status).toBe('advanced'); expect((await session.advance()).status).toBe('complete');
+  expect(page.actions).toEqual({ opens: 1, choices: 1 }); expect(page.counts).toEqual({ add: 1, save: 1, submit: 0, remove: 0 });
+});
+
+it('两个不同项目各选自己的角色，逐条新增保存且不重复', async () => {
+  const page = stableRoleProjects([0, 1, 2, 3]); const session = createProjectRecordSession(document, page.local);
+  let result;
+  for (let step = 0; step < 10; step++) { result = await session.advance(); if (result.status !== 'advanced') break; }
+  expect(result?.status).toBe('complete'); expect(page.roles).toEqual(['开发成员', '负责人']);
+  expect(page.actions).toEqual({ opens: 2, choices: 2 }); expect(page.counts).toEqual({ add: 2, save: 2, submit: 0, remove: 0 });
+});
+
+it.each(['missing', 'duplicate', 'disabled', 'shared', 'default-submit', 'empty'] as const)('稳定项目角色%s时整个编辑器零写入且不保存', async mode => {
+  const page = stableRoleProjects();
+  if (mode === 'missing') delete page.local.projects[5]!.role;
+  page.add.addEventListener('click', () => {
+    const combo = page.list.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+    const choices = page.list.querySelector('[role="listbox"]')!;
+    if (mode === 'duplicate') choices.insertAdjacentHTML('beforeend', '<div role="option">负责人</div>');
+    if (mode === 'disabled') choices.lastElementChild!.setAttribute('aria-disabled', 'true');
+    if (mode === 'shared') page.list.querySelector('form')!.insertAdjacentHTML('beforeend', '<input role="combobox" aria-label="项目角色" aria-controls="role-choices">');
+    if (mode === 'default-submit') combo.removeAttribute('type');
+    if (mode === 'empty') choices.replaceChildren();
+  });
+  const session = createProjectRecordSession(document, page.local); await session.advance();
+  expect((await session.advance()).status).toBe('request-human');
+  expect(page.list.querySelector('input')!.value).toBe(''); expect(page.list.querySelector('textarea')!.value).toBe('');
+  expect(page.actions).toEqual({ opens: 0, choices: 0 }); expect(page.counts.save).toBe(0);
+});
+
+it.each(['same', 'conflict'] as const)('稳定组合框已有%s答案时保留且不点击', async mode => {
+  const page = stableRoleProjects();
+  page.add.addEventListener('click', () => { const combo = page.list.querySelector('[role="combobox"]')!;
+    combo.setAttribute('aria-valuetext', mode === 'same' ? '负责人' : '开发成员'); combo.textContent = combo.getAttribute('aria-valuetext'); });
+  const session = createProjectRecordSession(document, page.local); await session.advance();
+  const result = await session.advance(); expect(result.status).toBe(mode === 'same' ? 'advanced' : 'request-human');
+  expect(page.actions).toEqual({ opens: 0, choices: 0 }); expect(page.counts.save).toBe(0);
+  if (mode === 'same') { expect((await session.advance()).status).toBe('advanced'); expect(page.counts.save).toBe(1); }
+  else expect(page.list.querySelector('input')!.value).toBe('');
+});
+
+it('组合框打开时重建原选项，准确保留不可撤销交互的草稿并零保存', async () => {
+  const page = stableRoleProjects();
+  page.add.addEventListener('click', () => { const combo = page.list.querySelector('[role="combobox"]')!;
+    combo.addEventListener('click', () => { const choices = page.list.querySelector('[role="listbox"]')!; const markup = choices.innerHTML; choices.innerHTML = markup; }); });
+  const session = createProjectRecordSession(document, page.local); await session.advance();
+  expect(await session.advance()).toMatchObject({ status: 'request-human', reason: 'rollback-incomplete' });
+  expect(page.actions).toEqual({ opens: 1, choices: 0 }); expect(page.counts.save).toBe(0);
+  expect(page.list.querySelector('input')!.value).toBe(''); expect(page.list.querySelector('textarea')!.value).toBe('');
+});
+
+it('尚未尝试组合框时第一原生字段停止，后续零交互', async () => {
+  const page = stableRoleProjects(); const session = createProjectRecordSession(document, page.local); await session.advance();
+  const name = page.list.querySelector('input')!;
+  name.addEventListener('input', () => { if (name.value) session.stop(); });
+  expect((await session.advance()).status).toBe('stopped');
+  expect(page.actions).toEqual({ opens: 0, choices: 0 }); expect(page.counts.save).toBe(0); expect(name.value).toBe('');
+});
+
+it('组合框等待回写期间停止，迟到答案保留且零 Save', async () => {
+  const page = stableRoleProjects(undefined, 100); const session = createProjectRecordSession(document, page.local); await session.advance();
+  page.list.querySelector('[role="listbox"]')!.addEventListener('click', () => session.stop());
+  expect((await session.advance()).status).toBe('stopped'); await new Promise(done => setTimeout(done, 140));
+  expect(page.list.querySelector('[role="combobox"]')!.getAttribute('aria-valuetext')).toBe('负责人');
+  expect(page.actions).toEqual({ opens: 1, choices: 1 }); expect(page.counts.save).toBe(0);
+});
+
+it('选择角色后延迟出现技术栈，重新规划同一项目且只保存一次', async () => {
+  const page = stableRoleProjects();
+  page.add.addEventListener('click', () => { const form = page.list.querySelector('form')!;
+    form.querySelector('[role="listbox"]')!.addEventListener('click', () => setTimeout(() => {
+      Array.from(form.querySelectorAll('button')).find(button => button.textContent === 'Save')!.insertAdjacentHTML('beforebegin', '<label>技术栈<input name="stack"></label>');
+    }, 150)); });
+  const session = createProjectRecordSession(document, page.local); await session.advance();
+  expect(await session.advance()).toMatchObject({ status: 'advanced' }); expect(page.counts.save).toBe(0);
+  expect((await session.advance()).status).toBe('advanced');
+  expect(page.list.querySelector<HTMLInputElement>('[name="stack"]')!.value).toBe('TypeScript');
+  expect((await session.advance()).status).toBe('advanced'); expect((await session.advance()).status).toBe('complete');
+  expect(page.actions).toEqual({ opens: 1, choices: 1 }); expect(page.counts).toEqual({ add: 1, save: 1, submit: 0, remove: 0 });
+});
+
+it('角色已核验后保存前同名替换列表，零 Save', async () => {
+  const page = stableRoleProjects(); const session = createProjectRecordSession(document, page.local); await session.advance();
+  expect((await session.advance()).status).toBe('advanced');
+  const choices = page.list.querySelector('[role="listbox"]')!; choices.replaceWith(choices.cloneNode(true));
+  expect((await session.advance()).status).toBe('request-human'); expect(page.counts.save).toBe(0);
+});
+it('陌生角色字段由模型识别含义，两个项目仍从各自本地记录取值', async () => {
+  const page = stableRoleProjects([0, 1, 2, 3]); const requests: unknown[] = [];
+  page.add.addEventListener('click', () => page.list.querySelector('[role="combobox"]')!.setAttribute('aria-label', '这项工作中的身份定位'));
+  const provider: SemanticProvider = { propose: vi.fn(async (request: Parameters<SemanticProvider['propose']>[0]) => { requests.push(request); return { requestId: request.requestId, status: 'mapped',
+    bindings: request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint, path: 'projects.role', certainty: 'certain', evidence: 'label' })) }; }) };
+  const session = createProjectRecordSession(document, page.local, undefined, undefined, provider);
+  let result; for (let step = 0; step < 10; step++) { result = await session.advance(); if (result.status !== 'advanced') break; }
+  expect(result?.status).toBe('complete'); expect(requests).toHaveLength(2); expect(page.roles).toEqual(['开发成员', '负责人']);
+  expect(page.actions).toEqual({ opens: 2, choices: 2 }); expect(page.counts).toEqual({ add: 2, save: 2, submit: 0, remove: 0 });
+  for (const project of page.local.projects) { expect(JSON.stringify(requests)).not.toContain(project.name); expect(JSON.stringify(requests)).not.toContain(project.description); }
+});
+it('组合框先选择、后续原生字段被网页拒绝，保留选择且报告恢复不完整', async () => {
+  const page = stableRoleProjects();
+  page.add.addEventListener('click', () => {
+    const form = page.list.querySelector('form')!; form.prepend(form.querySelector('[role="combobox"]')!, form.querySelector('[role="listbox"]')!);
+    const name = form.querySelector('input')!; name.addEventListener('input', () => { if (name.value) name.value = ''; });
+  });
+  const session = createProjectRecordSession(document, page.local); await session.advance();
+  expect(await session.advance()).toMatchObject({ status: 'request-human', reason: 'rollback-incomplete' });
+  expect(page.actions).toEqual({ opens: 1, choices: 1 }); expect(page.counts.save).toBe(0);
+  expect(page.list.querySelector('[role="combobox"]')!.getAttribute('aria-valuetext')).toBe('负责人');
+  expect(page.list.querySelector('input')!.value).toBe(''); expect(page.list.querySelector('textarea')!.value).toBe('');
+});
+it('选择后静默等待中手改角色，保留手改且零 Save', async () => {
+  const page = stableRoleProjects();
+  page.add.addEventListener('click', () => page.list.querySelector('[role="listbox"]')!.addEventListener('click', () => setTimeout(() => {
+    const combo = page.list.querySelector('[role="combobox"]')!; combo.setAttribute('aria-valuetext', '开发成员'); combo.textContent = '开发成员';
+  }, 50)));
+  const session = createProjectRecordSession(document, page.local); await session.advance();
+  expect(await session.advance()).toMatchObject({ status: 'request-human', reason: 'rollback-incomplete' });
+  expect(page.list.querySelector('[role="combobox"]')!.getAttribute('aria-valuetext')).toBe('开发成员');
+  expect(page.actions).toEqual({ opens: 1, choices: 1 }); expect(page.counts.save).toBe(0);
+});
+
 it('项目角色选择展开新字段后重新规划、补齐，再保存同一项目一次', async () => {
   const page = installPage('+', false, [0, 1, 2, 3, 4], 'aria-controls');
   const local = { ...projection, projects: projection.projects.map(project => ({ ...project, role: '开发成员', technologies: ['TypeScript'] })) };

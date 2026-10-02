@@ -17,7 +17,7 @@ const service = createSemanticServer({ token, provider: async (request, signal) 
   requests.push(request);
   if (mode === 'hold' || mode === 'hold-tools' && request.fields.some(field => field.label.includes('工具'))) await new Promise(done => { pending = done; signal.addEventListener('abort', () => { aborted++; done(); }, { once: true }); });
   const bindings = request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint,
-    path: field.label.includes('叫什么') ? 'projects.name' : field.label.includes('工具') ? 'projects.technologies'
+    path: field.label.includes('定位') ? 'projects.role' : field.label.includes('叫什么') ? 'projects.name' : field.label.includes('工具') ? 'projects.technologies'
       : field.label.includes('产出') ? 'projects.achievements' : 'projects.description', certainty: 'certain', evidence: 'label' }));
   if (mode === 'invalid') bindings.push({ ...bindings[0], ref: 'field-29' });
   return { state: 'ready', proposal: { requestId: request.requestId, status: 'mapped', bindings } };
@@ -29,8 +29,30 @@ const html = raw.replace('data-ra-record-v2-fixture="v1"', '').replace(/<meta na
   .replace('name="fixture-project-name"', 'name="slot-a"').replace('name="fixture-project-description"', 'name="slot-b"')
   .replace("'<label>项目名称' + name + '</label><label>项目描述' + description + '</label>'",
     "'<label>' + (window.fixtureSemanticMixed ? '项目名称' : '这项工作叫什么') + name + '</label><label>这项工作做了些什么' + description + '</label>'")
-  .replace('form.innerHTML = fields +', `if (window.fixtureDynamic) fields += '<label>项目角色<select name="choice"><option value="">请选择</option><option value="developer">开发成员</option></select></label>'; form.innerHTML = fields +`)
+  .replace('form.innerHTML = fields +', `if (window.fixtureDynamic) fields += '<label>项目角色<select name="choice"><option value="">请选择</option><option value="developer">开发成员</option></select></label>';
+    if (window.fixtureStable) fields += '<button type="button" role="combobox" aria-label="这项工作中的身份定位" aria-controls="stable-role-options" aria-expanded="false">请选择</button><div id="stable-role-options" role="listbox" hidden><div role="option">开发成员</div><div role="option">负责人</div></div>';
+    form.innerHTML = fields +`)
   .replace("form.querySelector('[data-save]').addEventListener", `
+    if (window.fixtureStable) {
+      window.fixtureStableActions ??= { opens: 0, choices: 0, savedRoles: [] };
+      const combo = form.querySelector('[role="combobox"]'); const choices = form.querySelector('[role="listbox"]');
+      combo.addEventListener('click', () => {
+        window.fixtureStableActions.opens++; combo.setAttribute('aria-expanded', 'true'); choices.hidden = false;
+        if (window.fixtureStable === 'rehydrate') choices.replaceChildren(...Array.from(choices.children).map(node => node.cloneNode(true)));
+      });
+      choices.addEventListener('click', event => {
+        const option = event.target.closest('[role="option"]'); if (!option) return;
+        window.fixtureStableActions.choices++; const answer = option.textContent;
+        setTimeout(() => {
+          combo.textContent = answer; combo.setAttribute('aria-valuetext', answer); combo.setAttribute('aria-expanded', 'false'); choices.hidden = true;
+          if (window.fixtureStable === 'manual') setTimeout(() => { combo.textContent = '开发成员'; combo.setAttribute('aria-valuetext', '开发成员'); }, 50);
+        }, window.fixtureStable === 'stop-wait' ? 1200 : 25);
+        if (window.fixtureStable === 'dynamic') setTimeout(() => {
+          if (form.isConnected) form.querySelector('[data-save]').insertAdjacentHTML('beforebegin', '<label>这项工作用了什么工具<input name="stack"></label>');
+        }, 600);
+      });
+      form.querySelector('[data-save]').addEventListener('click', () => window.fixtureStableActions.savedRoles.push(combo.getAttribute('aria-valuetext')));
+    }
     if (window.fixtureDynamic) {
       form.querySelector('[name="choice"]').addEventListener('change', () => {
         if (form.querySelector('[name="choice"]').value !== 'developer') return;
@@ -81,10 +103,10 @@ try {
   await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(profile));
   await options.getByRole('button', { name: '校验并载入预览' }).click(); await options.getByRole('button', { name: '保存档案' }).click();
   await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
-  async function pageFor(name, mixed = false, dynamic = false) {
+  async function pageFor(name, mixed = false, dynamic = false, stable = false) {
     const page = await context.newPage();
-    await page.addInitScript(value => { window.fixtureInitialCards = value.dynamic ? [0, 1, 2, 3, 4] : [0];
-      window.fixtureAddRelation = 'aria-controls'; window.fixtureSemanticMixed = value.mixed; window.fixtureDynamic = value.dynamic; }, { mixed, dynamic });
+    await page.addInitScript(value => { window.fixtureInitialCards = value.dynamic || value.stable && value.stable !== 'normal' ? [0, 1, 2, 3, 4] : [0];
+      window.fixtureAddRelation = 'aria-controls'; window.fixtureSemanticMixed = value.mixed; window.fixtureDynamic = value.dynamic; window.fixtureStable = value.stable; }, { mixed, dynamic, stable });
     await page.goto(origin + '/projects?case=' + name);
     const targets = (await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
     await cdp.send('Extensions.triggerAction', { id: extensionId, targetId: targets.find(item => item.url === page.url()).targetId });
@@ -193,6 +215,51 @@ try {
   assert.equal(await page.locator('[name="extra"]').inputValue(), '');
   report.checks.push('A fourth expanding batch exceeds the bounded project limit; it cannot reuse an old receipt or Save an incomplete record');
   await popup.close(); await page.close();
+  const stableProjects = profile.projects.map((project, index) => ({ ...project, role: index % 2 ? '负责人' : '开发成员' }));
+  await worker.evaluate(async projects => { const key = 'recruitment.profile.v1'; const saved = (await chrome.storage.local.get(key))[key];
+    saved.projects = projects; await chrome.storage.local.set({ [key]: saved }); }, stableProjects);
+  mode = 'normal'; const stableBefore = requests.length;
+  page = await pageFor('stable-distinct', false, false, 'normal'); popup = await popupFor(page); await start(popup);
+  await popup.getByText(completion).waitFor(); assert.deepEqual(await counts(page), completed);
+  assert.deepEqual(await page.evaluate(() => window.fixtureStableActions), { opens: 5, choices: 5, savedRoles: stableProjects.slice(1).map(project => project.role) });
+  assert.equal(requests.length - stableBefore, 5);
+  assert.ok(requests.slice(stableBefore).every(request => request.fields.some(field => field.label.includes('定位'))));
+  report.checks.push('Five unfamiliar stable ARIA project roles use five distinct local records, with exactly one open, choice and Save per new project');
+  await popup.close(); await page.close();
+  const stableDynamic = requests.length;
+  page = await pageFor('stable-dynamic', false, false, 'dynamic'); popup = await popupFor(page); await start(popup);
+  await popup.getByText(completion).waitFor(); assert.deepEqual(await counts(page), { ...blocked, save: 1 });
+  assert.deepEqual(requests.slice(stableDynamic).map(request => request.fields.length), [3, 1]);
+  assert.deepEqual(await page.evaluate(() => window.fixtureStableActions), { opens: 1, choices: 1, savedRoles: ['负责人'] });
+  assert.deepEqual(await page.evaluate(() => window.fixture.savedFields), [{ index: 5, values: { 'slot-a': stableProjects[5].name, 'slot-b': stableProjects[5].description, stack: 'TypeScript' } }]);
+  report.checks.push('A stable ARIA role reveals a delayed unfamiliar native tool field; a fresh batch finishes the original project without reopening or an early Save');
+  await popup.close(); await page.close();
+  for (const behavior of ['rehydrate', 'manual', 'stop-wait']) {
+    page = await pageFor('stable-' + behavior, false, false, behavior); popup = await popupFor(page); await start(popup);
+    if (behavior === 'stop-wait') {
+      await page.waitForFunction(() => window.fixtureStableActions?.choices === 1);
+      await popup.getByRole('button', { name: '停止项目填写', exact: true }).click();
+      await popup.getByText('项目任务已停止', { exact: false }).waitFor();
+      await page.waitForFunction(() => document.querySelector('[role="combobox"]').getAttribute('aria-valuetext') === '负责人');
+    } else await popup.getByText('项目填写需要检查', { exact: false }).waitFor();
+    assert.deepEqual(await counts(page), blocked);
+    assert.deepEqual(await page.evaluate(() => window.fixtureStableActions), { opens: 1, choices: behavior === 'rehydrate' ? 0 : 1, savedRoles: [] });
+    if (behavior === 'manual') assert.equal(await page.locator('[role="combobox"]').getAttribute('aria-valuetext'), '开发成员');
+    report.checks.push('Stable project combo ' + behavior + ' stops with zero Save, retains website values and cannot fake a cleared selection');
+    await popup.close(); await page.close();
+  }
+  mode = 'hold'; const stablePause = requests.length;
+  page = await pageFor('stable-before-save', false, false, 'pause'); popup = await popupFor(page); await start(popup); await waitRequest(stablePause);
+  await popup.getByRole('button', { name: '暂停项目填写', exact: true }).click(); mode = 'normal'; pending();
+  await popup.getByText('项目填写已暂停', { exact: false }).waitFor(); assert.deepEqual(await counts(page), blocked);
+  assert.equal(await page.locator('[role="combobox"]').getAttribute('aria-valuetext'), '负责人');
+  await page.locator('[role="listbox"]').evaluate(node => node.replaceWith(node.cloneNode(true)));
+  await popup.getByRole('button', { name: '继续项目填写', exact: true }).click();
+  await popup.getByText('项目填写需要检查', { exact: false }).waitFor(); assert.deepEqual(await counts(page), blocked);
+  assert.deepEqual(await page.evaluate(() => window.fixtureStableActions), { opens: 1, choices: 1, savedRoles: [] });
+  report.checks.push('Replacing the verified combo list before Save invalidates the record receipt, with no repeat choice, Add or Save');
+  await popup.close(); await page.close();
+  assert.doesNotMatch(JSON.stringify(requests), /虚构测试项目|仅用于本地浏览器|intentIndex|fictional-semantic-projects|token/);
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []); report.passed = true;
   console.info('Project semantic extension E2E passed (' + report.checks.length + ' checks)');
 } catch (error) { report.failure = error.stack ?? String(error); throw error; }
