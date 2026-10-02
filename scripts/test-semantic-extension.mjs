@@ -120,7 +120,7 @@ try {
   report.checks.push('Decoded service requests contain neither profile values, URL, pairing token nor protected fields');
   await popup.screenshot({ path: resolve(artifacts, 'semantic-extension.png'), fullPage: true }); await popup.close();
 
-  const cachedCount = requests.length;
+  let cachedCount = requests.length;
   await form.reload(); popup = await openPopup(); await clickAi(popup);
   await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
   assert.equal(requests.length, cachedCount, 'Reopening the popup should reuse verified meanings without another model call');
@@ -140,6 +140,18 @@ try {
   }, url); assert.equal(protectedSession, false);
   report.checks.push('Closed/reopened production popup reuses signed session meanings with zero additional provider calls; raw answers, clues, URL and option values absent and content-script access denied');
 
+  const oldConnectionRevision = saved['recruitment.semantic.connection.v1'].cacheRevision; assert.match(oldConnectionRevision, /^[a-f\d-]{36}$/);
+  await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-reconnect.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
+  await options.waitForFunction(async prior => (await chrome.storage.local.get('recruitment.semantic.connection.v1'))['recruitment.semantic.connection.v1'].cacheRevision !== prior, oldConnectionRevision);
+  await options.waitForFunction(async () => !(await chrome.storage.session.get())['recruitment.semantic.recipes.session.v1']);
+  // Restore a correctly signed old packet to simulate a delayed clear or an old storage write after reconnect.
+  await options.evaluate(async old => chrome.storage.session.set(old), cacheData);
+  await form.reload(); popup = await openPopup(); await clickAi(popup);
+  await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+  assert.equal(requests.length, cachedCount + 1); assert.equal(await form.locator('#u').inputValue(), profile.basic.name);
+  await protectedFields(); await popup.close(); cachedCount = requests.length;
+  report.checks.push('Reconnecting even with the same pairing token rotates an extension-issued revision; restoring a valid old signed packet forces a fresh provider batch independently of background clear timing');
+
   await options.evaluate(async () => { const key = 'recruitment.semantic.recipes.session.v1'; const data = (await chrome.storage.session.get(key))[key];
     data.entries[0].path = 'basic.phone'; await chrome.storage.session.set({ [key]: data }); });
   await form.reload(); popup = await openPopup(); await clickAi(popup);
@@ -147,6 +159,18 @@ try {
   assert.equal(requests.length, cachedCount + 1); assert.equal(await form.locator('#u').inputValue(), profile.basic.name);
   await protectedFields(); await popup.close();
   report.checks.push('Tampered cached path fails signature verification, falls back to one complete provider batch and does not fill a wrong answer');
+
+  const legacyCache = await options.evaluate(async () => chrome.storage.session.get()); cachedCount = requests.length;
+  await options.evaluate(async () => { const key = 'recruitment.semantic.connection.v1'; const data = (await chrome.storage.local.get(key))[key];
+    delete data.cacheRevision; await chrome.storage.local.set({ [key]: data }); });
+  await options.waitForFunction(async () => !(await chrome.storage.session.get())['recruitment.semantic.recipes.session.v1']);
+  await options.evaluate(async old => chrome.storage.session.set(old), legacyCache);
+  await form.reload(); popup = await openPopup(); await clickAi(popup);
+  await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+  assert.equal(requests.length, cachedCount + 1); assert.equal(await form.locator('#u').inputValue(), profile.basic.name); await protectedFields(); await popup.close();
+  report.checks.push('Legacy enabled settings without a cache revision still fill through the ordinary AI provider, ignoring any restored session recipes');
+  await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-modern-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
+  await options.waitForFunction(async () => Boolean((await chrome.storage.local.get('recruitment.semantic.connection.v1'))['recruitment.semantic.connection.v1'].cacheRevision));
 
   // Latency cases below explicitly start with an empty cache to exercise a real pending provider attempt.
   await clearRecipes();

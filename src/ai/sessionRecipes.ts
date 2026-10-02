@@ -44,9 +44,19 @@ async function loadPacket(data: Record<string, unknown>, scope: string): Promise
 
 /** Browser-session only. Compact signed meanings, not values, raw clues, selectors or execution permissions. */
 export class SessionSemanticRecipes implements SemanticRecipes {
+  readonly #connectionRevision?: string;
+  readonly #enabled: boolean;
+  constructor(connectionRevision?: string) {
+    this.#enabled = connectionRevision === undefined || z.uuid().safeParse(connectionRevision).success;
+    this.#connectionRevision = connectionRevision;
+  }
+  #scope(scan: ScanResult, profile: UserProfile): string | undefined {
+    const base = semanticRecipeScope(scan, profile);
+    return this.#enabled && base ? JSON.stringify({ base, connectionRevision: this.#connectionRevision }) : undefined;
+  }
   async propose(session: SemanticBindingSession, scan: ScanResult, profile: UserProfile, signal?: AbortSignal): Promise<SemanticProposal | undefined> {
     try {
-      const observations = semanticSessionObservations(session, scan, profile); const scope = semanticRecipeScope(scan, profile);
+      const observations = semanticSessionObservations(session, scan, profile); const scope = this.#scope(scan, profile);
       if (!observations || !scope || signal?.aborted) return undefined;
       return await trustedSession(async area => {
         const data = await area.get([SESSION_RECIPE_KEY, SESSION_RECIPE_SECRET]);
@@ -66,7 +76,7 @@ export class SessionSemanticRecipes implements SemanticRecipes {
   }
   async remember(result: BindingValidation, scan: ScanResult, profile: UserProfile, signal?: AbortSignal): Promise<boolean> {
     try {
-      const recipes = verifiedSemanticRecipes(result, scan, profile); const scope = semanticRecipeScope(scan, profile);
+      const recipes = verifiedSemanticRecipes(result, scan, profile); const scope = this.#scope(scan, profile);
       if (!recipes || !scope || signal?.aborted || !recipes.some(recipe => recipe.observation)) return false;
       return await trustedSession(async area => {
         const data = await area.get([SESSION_RECIPE_KEY, SESSION_RECIPE_SECRET]);

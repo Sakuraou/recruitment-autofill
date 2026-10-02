@@ -31,6 +31,18 @@ function fixture() {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('trusted browser-session semantic recipes', () => {
+  it('rejects an old signed packet immediately after a connection revision changes, even before storage is cleared', async () => {
+    const s = fixture(); const originalRevision = crypto.randomUUID();
+    expect(await new SessionSemanticRecipes(originalRevision).remember(s.verified, s.scan, s.profile)).toBe(true);
+    expect(await new SessionSemanticRecipes(originalRevision).propose(s.session(), s.scan, s.profile)).toBeDefined();
+    expect(await new SessionSemanticRecipes(crypto.randomUUID()).propose(s.session(), s.scan, s.profile)).toBeUndefined();
+    expect(s.data[SESSION_RECIPE_KEY]).toBeDefined();
+  });
+  it('does not enable recipe replay with a malformed connection revision', async () => {
+    const s = fixture(); const cache = new SessionSemanticRecipes('untrusted-override');
+    expect(await cache.remember(s.verified, s.scan, s.profile)).toBe(false);
+    expect(await cache.propose(s.session(), s.scan, s.profile)).toBeUndefined(); expect(s.area.get).not.toHaveBeenCalled();
+  });
   it('survives a new cache instance without storing raw clues, answers or routing', async () => {
     const s = fixture(); expect(await new SessionSemanticRecipes().remember(s.verified, s.scan, s.profile)).toBe(true);
     const serialized = JSON.stringify(s.data);

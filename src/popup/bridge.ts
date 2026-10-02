@@ -87,7 +87,7 @@ export async function fillWithAi(signal: AbortSignal): Promise<AiFillResult> {
   signal.throwIfAborted();
   const connection = await loadAiConnection();
   const provider = connection ? createLoopbackProvider({ protocol: 1, token: connection.token }) : undefined;
-  const recipes = new SessionSemanticRecipes();
+  const recipes = connection?.cacheRevision ? new SessionSemanticRecipes(connection.cacheRevision) : undefined;
   return runAiFillWorkflow({ scan: () => scanPage(), scanAfterFill: () => scanPage(true),
     fillRules: (plan, activeSignal) => fillAutoUntilStable(plan, 4, activeSignal),
     fillModel: (plan, ids, activeSignal) => fillPlan(plan, ids, 'review', activeSignal),

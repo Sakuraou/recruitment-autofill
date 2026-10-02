@@ -69,9 +69,19 @@ describe('production loopback semantic transport', () => {
       remove: vi.fn(async (key: string) => { delete data[key]; }) };
     vi.stubGlobal('chrome', { runtime: { id: 'fixture' }, storage: { local } });
     expect(await loadAiConnection()).toBeUndefined();
-    await enableAiConnection(connection); expect(await loadAiConnection()).toEqual({ ...connection, enabled: true });
+    await enableAiConnection(connection); expect(await loadAiConnection()).toEqual({ ...connection, enabled: true, cacheRevision: expect.any(String) });
+    const first = (await loadAiConnection())!.cacheRevision;
+    await enableAiConnection(connection); expect((await loadAiConnection())!.cacheRevision).not.toBe(first);
+    expect(connectionFileSchema.safeParse({ ...connection, cacheRevision: first }).success).toBe(false);
     expect(Object.keys(data)).toEqual([AI_CONNECTION_KEY]);
     expect(local.setAccessLevel).toHaveBeenLastCalledWith({ accessLevel: 'TRUSTED_CONTEXTS' });
     await disableAiConnection(); expect(await loadAiConnection()).toBeUndefined(); expect(data).toEqual({});
+  });
+  it('loads a legacy enabled connection without enabling cross-popup cache, and refuses a malformed cache revision', async () => {
+    const data: Record<string, unknown> = { [AI_CONNECTION_KEY]: { ...connection, enabled: true } };
+    vi.stubGlobal('chrome', { runtime: { id: 'fixture' }, storage: { local: { setAccessLevel: vi.fn(async () => {}), get: vi.fn(async () => data) } } });
+    expect(await loadAiConnection()).toEqual({ ...connection, enabled: true });
+    data[AI_CONNECTION_KEY] = { ...connection, enabled: true, cacheRevision: 'untrusted-override' };
+    expect(await loadAiConnection()).toBeUndefined();
   });
 });

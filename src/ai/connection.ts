@@ -3,7 +3,7 @@ import { isExtensionContext } from '../profile/storage';
 
 export const AI_CONNECTION_KEY = 'recruitment.semantic.connection.v1';
 export const connectionFileSchema = z.object({ protocol: z.literal(1), token: z.string().regex(/^[a-f\d]{64}$/u) }).strict();
-const settingsSchema = connectionFileSchema.extend({ enabled: z.literal(true) }).strict();
+const settingsSchema = connectionFileSchema.extend({ enabled: z.literal(true), cacheRevision: z.uuid().optional() }).strict();
 export type AiConnection = z.infer<typeof settingsSchema>;
 
 async function storage() {
@@ -18,7 +18,7 @@ export async function loadAiConnection(): Promise<AiConnection | undefined> {
 }
 export async function enableAiConnection(value: unknown): Promise<void> {
   const connection = connectionFileSchema.parse(value);
-  await (await storage()).set({ [AI_CONNECTION_KEY]: { ...connection, enabled: true } });
+  await (await storage()).set({ [AI_CONNECTION_KEY]: { ...connection, enabled: true, cacheRevision: crypto.randomUUID() } });
 }
 export async function disableAiConnection(): Promise<void> {
   await (await storage()).remove(AI_CONNECTION_KEY);
