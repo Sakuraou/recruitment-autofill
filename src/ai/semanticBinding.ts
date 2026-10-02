@@ -21,7 +21,13 @@ export interface SemanticBindingSession {
 interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating' }
 interface LocalSession { snapshot: string; issuedAt: number; fields: ReadonlyMap<string, LocalField> }
 const sessions = new WeakMap<SemanticBindingSession, LocalSession>();
-const accepted = new WeakMap<object, Readonly<{ snapshot: string; issuedAt: number }>>();
+export interface VerifiedSemanticRecipeEntry {
+  readonly field: SemanticBindingSession['request']['fields'][number];
+  readonly path: SemanticBindingPath;
+  readonly evidence: 'label' | 'context' | 'options';
+  readonly observation?: string;
+}
+const accepted = new WeakMap<object, Readonly<{ snapshot: string; issuedAt: number; recipes: readonly VerifiedSemanticRecipeEntry[] }>>();
 type CreateResult = { ok: true; session: SemanticBindingSession } | { ok: false; reason: 'invalid-graph' | 'no-candidates' | 'request-too-large' };
 export type BindingValidation = { ok: true; bindings: ReadonlyArray<Readonly<{ fieldId: string; path: SemanticBindingPath }>> }
   | { ok: false; reason: 'invalid-session' | 'stale-context' | 'invalid-response' | 'invalid-reference' | 'ownership-conflict' | 'unresolved' | 'uncertain' };
@@ -43,6 +49,31 @@ export function semanticBindingsCurrent(result: BindingValidation, scan: ScanRes
     const age = Date.now() - receipt.issuedAt;
     return age >= 0 && age <= 120_000 && validGraph(scan) && snapshot(scan, profile) === receipt.snapshot;
   } catch { return false; }
+}
+
+/** Read-only guards for recipe reuse; copies of either capability carry no provenance. */
+export function semanticSessionCurrent(session: SemanticBindingSession, scan: ScanResult, profile: UserProfile): boolean {
+  const local = sessions.get(session);
+  if (!local) return false;
+  try {
+    const age = Date.now() - local.issuedAt;
+    return age >= 0 && age <= 120_000 && validGraph(scan) && snapshot(scan, profile) === local.snapshot;
+  } catch { return false; }
+}
+export function verifiedSemanticRecipes(result: BindingValidation, scan: ScanResult, profile: UserProfile): readonly VerifiedSemanticRecipeEntry[] | undefined {
+  return semanticBindingsCurrent(result, scan, profile) ? accepted.get(result)?.recipes : undefined;
+}
+function recipeObservation(field: FieldDescriptor, redact: (value: string) => string): string | undefined {
+  if (field.options.length > 40) return undefined;
+  const options = field.options.map(option => ({ label: redact(option.label), disabled: option.disabled }));
+  if (options.some(option => option.label.length > 80)) return undefined;
+  return JSON.stringify({ kind: field.kind, type: field.type, maxLength: field.maxLength, required: field.required,
+    disabled: field.disabled, readOnly: field.readOnly, options });
+}
+export function semanticSessionObservations(session: SemanticBindingSession, scan: ScanResult, profile: UserProfile): ReadonlyMap<string, string | undefined> | undefined {
+  if (!semanticSessionCurrent(session, scan, profile)) return undefined;
+  const redact = semanticRedactor(profile); const descriptors = new Map(scan.fields.map(field => [field.id, field]));
+  return new Map([...sessions.get(session)!.fields].map(([ref, field]) => [ref, recipeObservation(descriptors.get(field.fieldId)!, redact)]));
 }
 function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
   let role: SemanticSectionRole = 'other'; let record: 'none' | 'creating' = 'none'; let allowed = true;
@@ -128,7 +159,12 @@ export function validateSemanticBindings(session: SemanticBindingSession, respon
       seen.add(binding.ref); bindings.push(Object.freeze({ fieldId: target.fieldId, path: binding.path }));
     }
     const result = Object.freeze({ ok: true as const, bindings: Object.freeze(bindings) });
-    accepted.set(result, { snapshot: local.snapshot, issuedAt: local.issuedAt });
+    const redact = semanticRedactor(profile); const descriptors = new Map(current.fields.map(field => [field.id, field]));
+    const recipes = Object.freeze(proposal.bindings.map(binding => Object.freeze({
+      field: session.request.fields.find(field => field.ref === binding.ref)!, path: binding.path, evidence: binding.evidence,
+      observation: recipeObservation(descriptors.get(local.fields.get(binding.ref)!.fieldId)!, redact),
+    })));
+    accepted.set(result, { snapshot: local.snapshot, issuedAt: local.issuedAt, recipes });
     return result;
   } catch { return { ok: false, reason: 'invalid-response' }; }
 }

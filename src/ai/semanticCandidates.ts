@@ -6,6 +6,7 @@ import { finalizeCandidateValue, hasMeasurementUnits } from '../matching/candida
 import { resolveProfileValue } from '../matching/profileResolver';
 import { createSemanticBindingSession, semanticBindingsCurrent, validateSemanticBindings,
   type BindingValidation, type SemanticBindingPath, type SemanticBindingSession } from './semanticBinding';
+import type { SemanticRecipeCache } from './semanticRecipes';
 
 type CandidateResult = { ok: true; matches: MatchResult[] } | { ok: false; reason: 'stale-binding' | 'invalid-profile' };
 function incompatibleControl(field: FieldDescriptor, path: SemanticBindingPath): boolean {
@@ -52,6 +53,7 @@ export interface SemanticProvider {
 export interface SemanticInferenceOptions {
   timeoutMs?: number; signal?: AbortSignal;
   excludedFieldIds?: ReadonlySet<string>;
+  recipes?: SemanticRecipeCache;
   currentContext?: () => { scan: ScanResult; profile: UserProfile } | Promise<{ scan: ScanResult; profile: UserProfile }>;
 }
 export interface SemanticInferenceResult {
@@ -76,13 +78,14 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
   const timer = setTimeout(() => { finish(empty('timeout')); controller.abort(); }, timeoutMs);
   const operation = Promise.resolve().then(async (): Promise<SemanticInferenceResult> => {
     if (controller.signal.aborted) return empty('cancelled');
-    const response = await provider.propose(created.session.request, controller.signal);
+    const response = options.recipes?.propose(created.session, scan, profile) ?? await provider.propose(created.session.request, controller.signal);
     if (controller.signal.aborted) return empty('cancelled');
     const current = options.currentContext ? await options.currentContext() : { scan, profile };
     if (controller.signal.aborted) return empty('cancelled');
     const validated = validateSemanticBindings(created.session, response, current.scan, current.profile);
     if (!validated.ok) return empty('rejected');
     const candidates = resolveSemanticCandidates(validated, current.scan, current.profile);
+    if (candidates.ok) options.recipes?.remember(validated, current.scan, current.profile);
     return candidates.ok ? { state: 'ready', matches: candidates.matches } : empty('rejected');
   }).catch(() => empty('unavailable'));
   try { return await Promise.race([operation, cancelled]); }
