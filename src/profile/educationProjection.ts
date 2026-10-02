@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { educationSchema, type UserProfile } from './schema';
 
-/** Internal education-only data contract; no runtime message or model authority. */
+export const educationProjectionRequestSchema = z.object({ type: z.literal('RA_PROFILE_EDUCATION') }).strict();
+
+/** Education-only data contract; it never grants model or page action authority. */
 export const educationProjectionEntrySchema = educationSchema.safeExtend({ id: z.string().min(1).max(200) });
 export type EducationProjectionEntry = z.infer<typeof educationProjectionEntrySchema>;
 export const educationProjectionResponseSchema = z.object({

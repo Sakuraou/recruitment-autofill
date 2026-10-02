@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createEmptyProfile } from '../src/profile/schema';
+import { educationSessionProfile } from './fixtures/education-session-page';
 
 type Listener = (message: unknown, sender: chrome.runtime.MessageSender, respond: (response: unknown) => void) => boolean | undefined;
 let listener: Listener;
 const extensionId = 'projection-test-extension';
 const addListener = vi.fn((callback: Listener) => { listener = callback; });
 const setAccessLevel = vi.fn(async () => undefined);
-const get = vi.fn(async () => ({ ["recruitment.profile.v1"]: {
+const storedProfile = async (): Promise<Record<string, unknown>> => ({ ["recruitment.profile.v1"]: {
   schemaVersion: 1,
   updatedAt: '2026-09-29T00:00:00.000Z',
   basic: { name: '不得返回' }, education: [],
@@ -13,14 +15,15 @@ const get = vi.fn(async () => ({ ["recruitment.profile.v1"]: {
   projects: [{ id: 'p1', name: '项目甲', role: '成员', technologies: [] }],
   internships: [{ id: 'i1', organization: '公司甲', role: '实习生' }], studentWork: [], awards: [], certificates: [],
   skills: { programmingLanguages: [], frameworks: [], tools: [], other: [] }, commonAnswers: {}, family: [],
-} }));
+} });
+const get = vi.fn(storedProfile);
 function sender(value: { id?: string; url?: string; tab?: { id?: number; url?: string } }): chrome.runtime.MessageSender {
   return value as chrome.runtime.MessageSender;
 }
 
 beforeEach(async () => {
   vi.resetModules();
-  addListener.mockClear(); setAccessLevel.mockClear(); get.mockClear();
+  addListener.mockClear(); setAccessLevel.mockClear(); get.mockReset(); get.mockImplementation(storedProfile);
   vi.stubGlobal('chrome', { runtime: {
     id: extensionId,
     onInstalled: { addListener: vi.fn() },
@@ -32,6 +35,29 @@ beforeEach(async () => {
 });
 
 describe('后台档案投影消息', () => {
+  it('教育请求仅返回教育与修订号，保持源顺序，不返回基本信息和项目', async () => {
+    const profile = createEmptyProfile(); profile.updatedAt = '2026-10-02T00:00:00.000Z';
+    profile.basic.name = '不得返回的姓名'; profile.education = educationSessionProfile.education.map(record => ({ ...record }));
+    profile.projects = [{ id: 'private-project', name: '不得返回的项目', technologies: [] }];
+    get.mockResolvedValueOnce({ ['recruitment.profile.v1']: profile });
+    const response = vi.fn(); const source = sender({ id: extensionId, url: 'https://jobs.example/app', tab: { id: 7 } });
+    expect(listener({ type: 'RA_PROFILE_EDUCATION', payload: { path: 'basic.name' } }, source, response)).toBe(false);
+    expect(response).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
+    expect(listener({ type: 'RA_PROFILE_EDUCATION' }, source, response)).toBe(true);
+    await vi.waitFor(() => expect(response).toHaveBeenCalledOnce());
+    const result = response.mock.calls[0]![0] as { ok: boolean; data: { recordType: string; education: { school: string }[] } };
+    expect(result.ok).toBe(true); expect(Object.keys(result.data).sort()).toEqual(['education', 'profileRevision', 'recordType']);
+    expect(result.data.education.map(record => record.school)).toEqual(educationSessionProfile.education.map(record => record.school));
+    expect(JSON.stringify(result)).not.toContain('不得返回');
+  });
+  it.each(['foreign', 'no-tab', 'internal'])('教育投影不接受%s来源', mode => {
+    const response = vi.fn();
+    const source = sender({ id: mode === 'foreign' ? 'other' : extensionId,
+      url: mode === 'internal' ? 'chrome-extension://other/page' : 'https://jobs.example',
+      ...(mode !== 'no-tab' ? { tab: { id: 7 } } : {}) });
+    expect(listener({ type: 'RA_PROFILE_EDUCATION' }, source, response)).toBe(false);
+    expect(response).toHaveBeenCalledWith({ ok: false, error: '不可信的档案投影请求' }); expect(get).not.toHaveBeenCalled();
+  });
   it('只接受严格空载荷，并返回最小项目投影', async () => {
     const response = vi.fn();
     const source = sender({ id: extensionId, url: 'https://jobs.example/app', tab: { id: 7, url: 'https://jobs.example/app' } });

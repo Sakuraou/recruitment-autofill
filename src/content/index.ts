@@ -10,7 +10,8 @@ import { EXTENSION_VERSION } from '../shared/version';
 import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
-import { requestProjectProjection } from './profileProjectionClient';
+import { requestEducationProjection, requestProjectProjection } from './profileProjectionClient';
+import { EducationRecordWorkflow } from './educationRecordWorkflow';
 import { ProjectRecordWorkflow } from './projectRecordWorkflow';
 import { createProjectRecordSession } from './projectRecordSession';
 import { createProjectSemanticClient } from './projectSemanticClient';
@@ -42,6 +43,11 @@ const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_PROJECT_RECORD_PAUSE') }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_RESUME') }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_STOP') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_START') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_STATUS') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_PAUSE') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_STOP') }).strict(),
   z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema }).strict(),
 ]);
 
@@ -50,6 +56,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
+  const educationWorkflow = new EducationRecordWorkflow(document, requestEducationProjection);
   const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection,
     (doc, projection, refresh) => createProjectRecordSession(doc, projection, refresh, undefined, createProjectSemanticClient()));
   let projectProjection: Awaited<ReturnType<typeof requestProjectProjection>> | undefined;
@@ -64,7 +71,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   chrome.runtime.onConnect.addListener(createPageOperationPortHandler({
     extensionId: chrome.runtime.id, extensionUrl: path => chrome.runtime.getURL(path),
     acquire: () => {
-      if (filling || projectWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
+      if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
         throw new Error('page occupied');
       filling = true;
       return () => { filling = false; };
@@ -93,27 +100,32 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     if (!parsed.success) { sendResponse({ ok: false, error: '无效的扩展请求' }); return false; }
     const request = parsed.data;
     if (request.type === 'RA_PROJECT_RECORD_START' || request.type === 'RA_PROJECT_RECORD_STATUS'
-      || request.type === 'RA_PROJECT_RECORD_PAUSE' || request.type === 'RA_PROJECT_RECORD_RESUME'
-      || request.type === 'RA_PROJECT_RECORD_STOP') {
+      || request.type === 'RA_PROJECT_RECORD_PAUSE' || request.type === 'RA_PROJECT_RECORD_RESUME' || request.type === 'RA_PROJECT_RECORD_STOP'
+      || request.type === 'RA_EDUCATION_RECORD_START' || request.type === 'RA_EDUCATION_RECORD_STATUS'
+      || request.type === 'RA_EDUCATION_RECORD_PAUSE' || request.type === 'RA_EDUCATION_RECORD_RESUME' || request.type === 'RA_EDUCATION_RECORD_STOP') {
+      const targetWorkflow = request.type.startsWith('RA_EDUCATION_') ? educationWorkflow : projectWorkflow;
+      const otherWorkflow = targetWorkflow === educationWorkflow ? projectWorkflow : educationWorkflow;
+      const operation = request.type.slice(request.type.lastIndexOf('_') + 1);
       try {
-        if (request.type === 'RA_PROJECT_RECORD_STATUS') {
-          sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: projectWorkflow.status() } }); return false;
+        if (operation === 'STATUS') {
+          sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: targetWorkflow.status() } }); return false;
         }
-        if (request.type === 'RA_PROJECT_RECORD_STOP' || request.type === 'RA_PROJECT_RECORD_PAUSE') {
+        if (operation === 'STOP' || operation === 'PAUSE') {
           currentScan = undefined;
-          sendResponse({ ok: true, data: request.type === 'RA_PROJECT_RECORD_STOP' ? projectWorkflow.stop() : projectWorkflow.pause() }); return false;
+          sendResponse({ ok: true, data: operation === 'STOP' ? targetWorkflow.stop() : targetWorkflow.pause() }); return false;
         }
-        if (filling || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
+        if (!['START', 'RESUME'].includes(operation)) throw new Error('无效的栏目操作');
+        if (filling || otherWorkflow.holdsPage() || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
           || ['ready', 'running', 'paused'].includes(recordV2.status().state)) {
           throw new Error('另一个填写任务尚未结束，请先停止该任务');
         }
         currentScan = undefined;
-        void (request.type === 'RA_PROJECT_RECORD_START' ? projectWorkflow.start() : projectWorkflow.resume())
+        void (operation === 'START' ? targetWorkflow.start() : targetWorkflow.resume())
           .then(data => sendResponse({ ok: true, data }))
-          .catch(() => sendResponse({ ok: false, error: '项目任务尚未就绪，请检查网页并停止当前任务后重试' }));
+          .catch(() => sendResponse({ ok: false, error: '栏目任务尚未就绪，请检查网页并停止当前任务后重试' }));
         return true;
       } catch (error) {
-        sendResponse({ ok: false, error: error instanceof Error ? error.message : '项目任务操作失败' }); return false;
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : '栏目任务操作失败' }); return false;
       }
     }
     if (request.type === 'RA_RECORD_V2_STATUS'
@@ -124,7 +136,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_RECORD_V2_STOP') {
       try {
         if (request.type !== 'RA_RECORD_V2_STATUS' && request.type !== 'RA_RECORD_V2_STOP'
-          && (projectWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
+          && (educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
         if (request.type === 'RA_RECORD_V2_STATUS') {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
@@ -167,6 +179,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return false;
     }
     if (filling) { sendResponse({ ok: false, error: '正在填写，请等待完成后再操作' }); return false; }
+    if (educationWorkflow.holdsPage()) { sendResponse({ ok: false, error: '教育任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (projectWorkflow.holdsPage()) { sendResponse({ ok: false, error: '项目任务尚未结束，请在扩展中暂停或停止；其它填写模式需先停止项目任务' }); return false; }
     if (request.type === 'RA_WORKFLOW_START' || request.type === 'RA_WORKFLOW_RESUME') {
       try { sendResponse({ ok: true, data: request.type === 'RA_WORKFLOW_START' ? workflow.start(request.payload) : workflow.resume() }); }

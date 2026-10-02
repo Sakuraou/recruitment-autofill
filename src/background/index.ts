@@ -1,5 +1,6 @@
 import { loadProfile, PROFILE_STORAGE_KEY } from '../profile/storage';
 import { projectProjectionRequestSchema, projectProfile } from '../profile/projection';
+import { educationProjectionRequestSchema, educationProfile } from '../profile/educationProjection';
 import { AI_CONNECTION_KEY } from '../ai/connection';
 import { clearSessionSemanticRecipes } from '../ai/sessionRecipes';
 import { createProjectSemanticPortHandler } from './projectSemanticPort';
@@ -17,7 +18,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: unknown) => void) => {
-  const parsed = projectProjectionRequestSchema.safeParse(message);
+  const parsed = projectProjectionRequestSchema.or(educationProjectionRequestSchema).safeParse(message);
   if (!parsed.success) return false;
   const pageUrl = sender.url ?? sender.tab?.url ?? '';
   if (sender.id !== chrome.runtime.id || !sender.tab?.id || !/^https?:\/\//u.test(pageUrl)) {
@@ -25,7 +26,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (r
     return false;
   }
   void loadProfile()
-    .then(profile => sendResponse({ ok: true, data: projectProfile(profile) }))
+    .then(profile => sendResponse({ ok: true, data: parsed.data.type === 'RA_PROFILE_EDUCATION'
+      ? educationProfile(profile) : projectProfile(profile) }))
     .catch(() => sendResponse({ ok: false, error: '无法读取本地档案' }));
   return true;
 });

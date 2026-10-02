@@ -28,7 +28,7 @@ export async function send<T>(tabId: number, request: ContentRequest): Promise<T
       : '无法连接网页中的网申助手。若刚更新扩展，请先保留未保存内容，再刷新招聘网页并重新扫描。');
   }
   if (!response) throw new Error('页面没有响应，请刷新页面后重新扫描。');
-  if (!response.ok) throw new Error((request.type.startsWith('RA_WORKFLOW_') || request.type.startsWith('RA_PROJECT_RECORD_')) && response.error === '无效的扩展请求'
+  if (!response.ok) throw new Error((request.type.startsWith('RA_WORKFLOW_') || request.type.startsWith('RA_PROJECT_RECORD_') || request.type.startsWith('RA_EDUCATION_RECORD_')) && response.error === '无效的扩展请求'
     ? '网页仍运行旧版脚本，请先保留未保存内容，再刷新招聘网页以加载连续填写功能。' : response.error);
   return response.data;
 }
