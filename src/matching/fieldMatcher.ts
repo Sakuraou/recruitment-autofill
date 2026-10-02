@@ -83,7 +83,7 @@ function knownLabelWrapper(text: string, alias: string, scope: AliasScope): bool
   if (normalized === target) return true;
   if (scope === 'education' && normalized.endsWith(target)) {
     const prefix = normalized.slice(0, -target.length);
-    return /^(?:最高学历|最高|硕士研究生|博士研究生|硕士|博士|本科|专科|研究生|bachelor|master|doctor|undergraduate)$/u.test(prefix);
+    return /^(?:最高学历|全日制最高学历|最高全日制学历|全日制最高|最高全日制|最高|highest|highestfulltime|fulltimehighest|highestqualification|highesteducation|highestfulltimequalification|highestfulltimeeducation|硕士研究生|博士研究生|硕士|博士|本科|专科|研究生|bachelor|master|doctor|undergraduate)$/u.test(prefix);
   }
   return false;
 }
@@ -94,8 +94,9 @@ function matchText(text: string, scope: AliasScope | undefined, fallback: boolea
     const exact = normalize(text) === normalize(alias);
     const inContext = scope === entry.scope;
     // Prefer a long, specific phrase to its contained generic alias (e.g. 专业类别 > 专业).
-    const rank = normalize(alias).length + (exact ? 30 : 0) + (inContext ? 2 : 0);
-    return { entry, rank, exact, knownWrapper: knownLabelWrapper(text, alias, entry.scope) };
+    const knownWrapper = knownLabelWrapper(text, alias, entry.scope);
+    const rank = normalize(alias).length + (exact ? 30 : knownWrapper && entry.scope === 'education' ? 6 : 0) + (inContext ? 2 : 0);
+    return { entry, rank, exact, knownWrapper };
   })).sort((a, b) => b.rank - a.rank);
   const best = matches[0];
   if (!best) return undefined;

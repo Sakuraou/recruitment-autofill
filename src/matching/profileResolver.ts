@@ -5,6 +5,7 @@ import { directTexts } from './fieldMatcher';
 import { normalize } from './confidence';
 import { resolveEndDate } from './endDate';
 import { confirmedEndDate } from '../profile/facts';
+import { educationHighestFact } from '../profile/educationHighestFacts';
 
 export interface Resolution {
   key: string;
@@ -15,7 +16,6 @@ export interface Resolution {
   fuzzy?: boolean;
 }
 
-const levelRanks: Record<EducationExperience['level'], number> = { '其他': 0, '专科': 1, '本科': 2, '硕士研究生': 3, '博士研究生': 4 };
 const levels: [EducationExperience['level'], RegExp][] = [
   ['博士研究生', /博士|doctor|phd/i], ['硕士研究生', /硕士|master/i],
   ['本科', /本科|学士|bachelor|undergraduate/i], ['专科', /专科|大专|associate/i],
@@ -76,25 +76,51 @@ function educationValue(field: FieldDescriptor, profile: UserProfile, alias: Fie
   const selectedLevels = directLevels.length ? directLevels : levels.filter(([, pattern]) => pattern.test(context)).map(([level]) => level);
   if (selectedLevels.length > 1) return { key: genericKey, review: true, confidence: 0.65, reason: '字段包含多个教育阶段，请先确认对应哪一段教育经历。' };
   const explicitlyHighest = /最高|highest/i.test(direct) || (!selectedLevels.length && /最高|highest/i.test(context));
-  if (!selectedLevels.length && !explicitlyHighest) {
-    const invariant = sameEducationValue(profile, alias);
-    if (invariant) return { key: `education.*.${alias.key}`, value: invariant,
-      reason: '所有教育经历在该字段上的已保存值一致，直接使用这一共同事实。' };
-  }
   const profileSummary = !selectedLevels.length
     && /(?:person|candidate|applicant|resume)[\s_.:[\]-]*profile|个人信息|基本信息/iu.test(`${direct} ${context}`)
     && ['school', 'college', 'major', 'majorCategory', 'level', 'degree', 'studyMode', 'gpa', 'gpaScale', 'ranking', 'researchDirection', 'courses', 'educationType', 'schoolProperty', 'country', 'durationYears'].includes(alias.key);
   const highest = explicitlyHighest || profileSummary;
+  const fulltimeHighest = highest && /全日制|full[\s_-]*time/iu.test(`${direct} ${context}`);
+  const highestFacet = alias.key === 'degree' ? 'degree' : fulltimeHighest ? 'fulltimeLevel' : 'level';
+  if (highest && (/是否|已取得|已获得|已获|已毕业|已完成|所获|非全日制|\b(?:earned|obtained|awarded|completed|is\s+this|part[\s_-]*time|non[\s_-]*full[\s_-]*time)\b/iu.test(direct)
+    || /学历\s*[/／、和与]?\s*学位|学位\s*[/／、和与]?\s*学历/iu.test(direct)
+    || explicitlyHighest && directLevels.length > 0 || fulltimeHighest && alias.key === 'degree')) {
+    return { key: genericKey, review: true, reason: '该问题包含最高标记、取得状态或多个条件，不能用普通最高教育摘要代替。' };
+  }
+  if (!selectedLevels.length && !explicitlyHighest && !['level', 'degree'].includes(alias.key)) {
+    const invariant = sameEducationValue(profile, alias);
+    if (invariant) return { key: `education.*.${alias.key}`, value: invariant,
+      reason: '所有教育经历在该字段上的已保存值一致，直接使用这一共同事实。' };
+  }
   let entries = profile.education.map((education, index) => ({ education, index }));
-  if (selectedLevels[0]) entries = entries.filter(({ education }) => education.level === selectedLevels[0]);
-  else if (highest) {
-    const highestRank = Math.max(...entries.map(({ education }) => levelRanks[education.level]));
-    entries = entries.filter(({ education }) => levelRanks[education.level] === highestRank);
-  } else if (/研究生|graduate/i.test(`${direct} ${context}`)) {
+  if (highest) {
+    const fact = educationHighestFact(profile.education, highestFacet);
+    if (fact.status === 'request-human') {
+      const missing = fact.reason === 'education-degree-unknown' && profile.education.some(record => !record.degree?.trim());
+      return { key: genericKey, review: !missing,
+        reason: fact.reason === 'education-degree-unknown' ? '完整教育集合有缺失或无法确定等级的学位，不能仅根据最高学历或忽略未知记录。'
+          : fact.reason === 'education-study-mode-unknown' ? '完整教育集合有未确认的学习形式，不能把统招或空白推断为全日制。'
+            : '完整教育集合存在未知教育阶段或无效记录，无法确认最高摘要。' };
+    }
+    if (fact.status === 'none') {
+      const invariant = highestFacet === 'degree' ? profile.education.length === 1
+        ? readString(profile.education[0], 'degree') : sameEducationValue(profile, alias) : undefined;
+      return { key: invariant ? 'education.*.degree' : genericKey, ...(invariant ? { value: invariant } : {}),
+        reason: highestFacet === 'degree' ? '全部记录明确无学位，不从学历推断学位。' : '全部记录明确非全日制，没有全日制最高学历。' };
+    }
+    const candidates = new Set(fact.candidateIds);
+    entries = entries.filter(({ education }) => candidates.has(education.id));
+    if (entries.length > 1 && ['level', 'degree'].includes(alias.key)) {
+      const values = entries.map(({ education }) => readString(education, alias.key));
+      if (values[0] && values.every(value => value === values[0])) return { key: `education.*.${alias.key}`, value: values[0],
+        reason: `完整集合的最高${highestFacet === 'degree' ? '学位' : fulltimeHighest ? '全日制学历' : '学历'}候选在此字段上完全相同，使用共同原事实。` };
+    }
+  } else if (selectedLevels[0]) entries = entries.filter(({ education }) => education.level === selectedLevels[0]);
+  else if (/研究生|graduate/i.test(`${direct} ${context}`)) {
     entries = entries.filter(({ education }) => ['硕士研究生', '博士研究生'].includes(education.level));
   }
   if (!entries.length) return { key: genericKey, reason: '档案中没有该教育阶段的资料，请人工填写。' };
-  if (entries.length > 1 && !(highest && alias.key === 'level')) {
+  if (entries.length > 1) {
     return { key: genericKey, review: true, confidence: 0.65, reason: '存在多段可能的教育经历，不能默认使用第一条；请明确本科、硕士等阶段或人工选择。' };
   }
   const entry = entries[0];
@@ -106,7 +132,7 @@ function educationValue(field: FieldDescriptor, profile: UserProfile, alias: Fie
     return { key: `education.${entry.index}.major`, value: '计算机类', confidence: 0.78, review: true, fuzzy: true,
       reason: `档案只有专业“${entry.education.major}”；“计算机类”仅为待确认建议，需按招聘方专业目录核实。` };
   }
-  return { key, value, reason: value ? `${highest ? '按个人资料页的最高学历' : selectedLevels.length ? '按明确教育阶段' : '按唯一教育经历'}读取已保存的${alias.key === 'degree' ? '学位；学位与学历独立保存' : '事实'}。`
+  return { key, value, reason: value ? `${highest ? `按完整集合的最高${highestFacet === 'degree' ? '学位' : fulltimeHighest ? '全日制学历' : '学历'}` : selectedLevels.length ? '按明确教育阶段' : '按唯一教育经历'}读取已保存的${alias.key === 'degree' ? '学位；学位与学历独立保存' : '事实'}。`
     : alias.key === 'degree' ? '该教育经历未填写学位；不能从学历推断学位。' : '这段教育经历尚未填写该项资料。' };
 }
 

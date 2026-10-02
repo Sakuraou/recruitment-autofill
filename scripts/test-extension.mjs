@@ -32,6 +32,15 @@ try {
   await context.route(/^https?:/, async route => {
     const url = new URL(route.request().url());
     if (url.hostname === '127.0.0.1' && url.pathname === '/education-facts') await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: educationFields });
+    else if (url.hostname === '127.0.0.1' && url.pathname === '/highest-summary') await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8',
+      body: `<!doctype html><body><section aria-label="个人信息"><h2>个人信息</h2>
+        <label>最高学历<select id="summary-level"><option value="">请选择</option><option value="doctoral">博士研究生</option><option value="master">硕士研究生</option></select></label>
+        <label>最高学位<select id="summary-degree"><option value="">请选择</option><option value="d">博士学位</option><option value="m">硕士学位</option><option value="b">学士学位</option></select></label>
+        <label>全日制最高学历<select id="summary-fulltime"><option value="">请选择</option><option value="bf">本科</option><option value="mf">硕士研究生</option></select></label>
+        <label>全日制最高学历院校<input id="summary-fulltime-school"></label><label>最高学历院校<input id="summary-school"></label>
+        <label>已取得最高学位<input id="summary-earned"></label><label>是否最高学位<select id="summary-marker"><option value="">请选择</option><option value="y">是</option><option value="n">否</option></select></label>
+        <label>最高学历<input id="summary-manual" value="人工原值"></label></section><button type="submit" id="summary-submit">提交</button>
+        <script>window.summarySubmits=0;document.querySelector('#summary-submit').addEventListener('click',()=>window.summarySubmits++);</script></body>` });
     else if (url.hostname !== '127.0.0.1') {
       report.externalRequests.push(route.request().url()); await route.abort();
     } else await route.continue();
@@ -477,6 +486,40 @@ try {
     assert.equal(await educationPage.locator('#' + id).inputValue(), value);
   assert.equal(await educationPage.locator('#submits').textContent(), '0');
   report.checks.push('Known undergraduate/master admission, school category, duration and country fill eight distinct facts through the production popup; highest-degree boolean stays unresolved and Submit remains zero');
+  for (const mode of ['independent', 'missing-degree', 'missing-mode', 'tied-level']) {
+    const records = [
+      { id: 'summary-master', level: '硕士研究生', degree: '硕士学位', school: '虚构硕士学校', studyMode: '非全日制' },
+      { id: 'summary-bachelor', level: '本科', degree: '学士学位', school: '虚构本科学校', studyMode: '全日制' },
+      { id: 'summary-doctor', level: '博士研究生', degree: '学士学位', school: '虚构博士学校', studyMode: '非全日制' },
+    ];
+    if (mode === 'missing-degree') delete records[1].degree;
+    if (mode === 'missing-mode') delete records[0].studyMode;
+    if (mode === 'tied-level') records.push({ ...records[2], id: 'summary-doctor-two', school: '虚构第二博士学校' });
+    await worker.evaluate(async education => {
+      const key = 'recruitment.profile.v1'; const saved = (await chrome.storage.local.get(key))[key];
+      saved.education = education; saved.revision = crypto.randomUUID(); await chrome.storage.local.set({ [key]: saved });
+    }, records);
+    const url = 'http://127.0.0.1:4173/highest-summary?case=' + mode;
+    const page = await context.newPage(); await page.goto(url);
+    const targets = (await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
+    await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: targets.find(target => target.url === url).targetId });
+    const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await worker.evaluate(async value => { const tab = (await chrome.tabs.query({})).find(item => item.url === value);
+      await chrome.tabs.update(tab.id, { active: true }); }, url);
+    await popup.getByRole('button', { name: '扫描页面', exact: true }).click();
+    await popup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+    await popup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+    const written = mode === 'independent' ? 5 : mode === 'missing-mode' ? 3 : 4;
+    await popup.getByRole('status').filter({ hasText: new RegExp('已填写 ' + written + ' 项，跳过或未完成 0 项') }).waitFor();
+    for (const [id, value] of Object.entries({ 'summary-level': 'doctoral', 'summary-degree': mode === 'missing-degree' ? '' : 'm',
+      'summary-fulltime': mode === 'missing-mode' ? '' : 'bf', 'summary-fulltime-school': mode === 'missing-mode' ? '' : '虚构本科学校',
+      'summary-school': mode === 'tied-level' ? '' : '虚构博士学校', 'summary-earned': '', 'summary-marker': '', 'summary-manual': '人工原值' })) {
+      assert.equal(await page.locator('#' + id).inputValue(), value, mode + '/' + id);
+    }
+    assert.equal(await page.evaluate(() => window.summarySubmits), 0);
+    report.checks.push(mode + ': production ordinary popup resolves level/degree/full-time independently, protects missing facts, earned/boolean questions, ties and manual values');
+    await popup.close(); await page.close();
+  }
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);
   report.passed = true;
