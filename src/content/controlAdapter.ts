@@ -233,14 +233,39 @@ function comboRefs(node: Element): string[] {
     .trim().split(/\s+/u).filter(Boolean);
 }
 
+/** ARIA roles do not remove native submit/reset/navigation activation. */
+function ariaActivationProblem(node: Element): string | undefined {
+  const seen = new Set<Element>(); let current: Element | null = node;
+  for (let depth = 0; current && depth < 256; depth++) {
+    if (seen.has(current)) return '控件激活关系不明确，需要人工处理';
+    seen.add(current);
+    if (current.tagName === 'BUTTON' && (current as HTMLButtonElement).type !== 'button'
+      || current.tagName === 'INPUT' && ['submit', 'image', 'reset'].includes((current as HTMLInputElement).type))
+      return '此控件带有原生提交或重置行为，不能自动点击';
+    if (['A', 'AREA'].includes(current.tagName) && current.hasAttribute('href'))
+      return '此控件带有链接导航行为，不能自动点击';
+    if (current.tagName === 'LABEL') {
+      const associated = (current as HTMLLabelElement).control;
+      if (associated && associated !== node && (associated.tagName === 'BUTTON'
+        || associated.tagName === 'INPUT' && ['checkbox', 'radio', 'submit', 'image', 'reset'].includes((associated as HTMLInputElement).type)))
+        return '此控件会激活另一个表单控件，需要人工处理';
+    }
+    const root = current.getRootNode();
+    current = current.parentElement ?? (root && 'host' in root ? (root as ShadowRoot).host : null);
+  }
+  return current ? '控件激活关系过深，需要人工处理' : undefined;
+}
+
 /** A scan-safe binding never opens the page and requires one explicit same-document listbox reference. */
 export function stableAriaComboboxListbox(node: Element): HTMLElement | null {
   const refs = comboRefs(node);
   if (refs.length !== 1) return null;
   const root = node.getRootNode();
   if (root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return null;
-  const target = Array.from((root as Document | ShadowRoot).querySelectorAll<HTMLElement>('[id]'))
-    .find(candidate => candidate.id === refs[0]);
+  const targets = Array.from((root as Document | ShadowRoot).querySelectorAll<HTMLElement>('[id]'))
+    .filter(candidate => candidate.id === refs[0]);
+  if (targets.length !== 1) return null;
+  const target = targets[0];
   return target?.ownerDocument === node.ownerDocument && target.getAttribute('role') === 'listbox'
     ? target as HTMLElement : null;
 }
@@ -297,10 +322,11 @@ function waitForAriaChecked(node: Element, desired: boolean, signal?: AbortSigna
 export function createAriaRadioGroupAdapter(group: Element, members: readonly Element[]): ControlAdapter {
   const inspect = (): ControlInspection => {
     const options = members.map(member => ({ value: radioOptionLabel(member), label: radioOptionLabel(member),
-      disabled: member.getAttribute('aria-disabled') === 'true' || member.hasAttribute('disabled') }));
+      disabled: Boolean(unavailableReason(member, '单选项') || ariaActivationProblem(member)) }));
     const selected = members.find(member => member.getAttribute('aria-checked') === 'true');
     return { kind: 'aria-radio-group', value: selected ? radioOptionLabel(selected) : '', hasValue: Boolean(selected), options,
-      ...(unavailableReason(group, '单选组') ? { blockedReason: unavailableReason(group, '单选组') } : {}) };
+      ...(unavailableReason(group, '单选组') || ariaActivationProblem(group)
+        ? { blockedReason: unavailableReason(group, '单选组') || ariaActivationProblem(group) } : {}) };
   };
   return {
     node: group,
@@ -317,7 +343,7 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
         ? { status: 'preserved', reason: '单选组已有相同答案，保留原值' }
         : { status: 'request-human', reason: '单选组已有答案，不覆盖' };
       const candidates = members.filter(member => radioOptionLabel(member) === value
-        && member.getAttribute('aria-disabled') !== 'true' && !member.hasAttribute('disabled'));
+        && !unavailableReason(member, '单选项') && !ariaActivationProblem(member));
       if (candidates.length !== 1) return { status: 'request-human', reason: '单选组没有唯一匹配选项' };
       const target = candidates[0]!;
       if (!target.isConnected || !group.contains(target)) return { status: 'request-human', reason: '单选组选项已被替换' };
@@ -325,13 +351,15 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
       catch { return { status: 'request-human', reason: '单选项无法安全选择' }; }
       const checked = await waitForAriaChecked(target, true, signal);
       return checked && !signal?.aborted && group.ownerDocument.URL === originalUrl
+        && target.isConnected && group.contains(target) && !unavailableReason(target, '单选项') && !ariaActivationProblem(target)
         ? { status: 'written', reason: '单选选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期单选答案' };
     },
     verify: (value: string) => {
       const selected = members.filter(member => member.getAttribute('aria-checked') === 'true');
       return selected.length === 1 && selected[0]!.isConnected && group.contains(selected[0]!)
-        && radioOptionLabel(selected[0]!) === value;
+        && !unavailableReason(group, '单选组') && !unavailableReason(selected[0]!, '单选项')
+        && !ariaActivationProblem(selected[0]!) && radioOptionLabel(selected[0]!) === value;
     },
   };
 }
@@ -351,7 +379,8 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
     return {
       kind: 'aria-checkbox', value: checked ? 'true' : 'false', hasValue: checked,
       options: [{ value: 'true', label: '是', disabled: false }, { value: 'false', label: '否', disabled: false }],
-      ...(unavailableReason(node, '复选框') ? { blockedReason: unavailableReason(node, '复选框') }
+      ...(unavailableReason(node, '复选框') || ariaActivationProblem(node)
+        ? { blockedReason: unavailableReason(node, '复选框') || ariaActivationProblem(node) }
         : rawChecked !== 'true' && rawChecked !== 'false' ? { blockedReason: '复选框状态不明确，需要人工处理' } : {}),
     };
   };
@@ -373,6 +402,7 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
       catch { return { status: 'request-human', reason: '复选框无法安全选择' }; }
       const verifiedChecked = await waitForAriaChecked(node, true, signal);
       return verifiedChecked && !signal?.aborted && node.ownerDocument.URL === originalUrl
+        && !unavailableReason(node, '复选框') && !ariaActivationProblem(node)
         ? { status: 'written', reason: '复选框选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期复选框答案' };
     },
@@ -380,7 +410,7 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
       const desired = booleanValue(value);
       const rawChecked = node.getAttribute('aria-checked');
       return desired !== undefined && (rawChecked === 'true' || rawChecked === 'false')
-        && (rawChecked === 'true') === desired && !unavailableReason(node, '复选框');
+        && (rawChecked === 'true') === desired && !unavailableReason(node, '复选框') && !ariaActivationProblem(node);
     },
   };
 }
@@ -399,7 +429,7 @@ function comboOptions(node: Element): ControlAdapterOption[] {
   return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).filter(visibleWithinList).map((option) => ({
     value: option.getAttribute('data-value') ?? option.getAttribute('value') ?? option.id,
     label: clean(option.getAttribute('aria-label') || option.textContent),
-    disabled: Boolean(option.closest('[aria-disabled="true"], [aria-readonly="true"], [inert], [disabled]')),
+    disabled: Boolean(option.closest('[aria-disabled="true"], [aria-readonly="true"], [inert], [disabled]')) || Boolean(ariaActivationProblem(option)),
   }));
 }
 
@@ -408,7 +438,7 @@ function visibleComboOptions(node: Element, value: string): HTMLElement[] {
   if (!list) return [];
   return Array.from(list.querySelectorAll<HTMLElement>('[role="option"]')).filter(option => (
     visibleTree(option)
-    && !option.hasAttribute('disabled') && !unavailableReason(option, '选项')
+    && !option.hasAttribute('disabled') && !unavailableReason(option, '选项') && !ariaActivationProblem(option)
     && clean(option.getAttribute('aria-label') || option.textContent) === value
   ));
 }
@@ -437,13 +467,14 @@ function waitForComboState(state: () => 'ready' | 'stop' | 'wait', signal?: Abor
 }
 
 function clickComboNode(node: Element): void {
+  if (ariaActivationProblem(node)) throw new Error('unsafe native activation');
   const MouseEventConstructor = node.ownerDocument.defaultView?.MouseEvent;
   if (!MouseEventConstructor) throw new Error('event constructor unavailable');
   node.dispatchEvent(new MouseEventConstructor('click', { bubbles: true, composed: true }));
 }
 
 function verifyCombo(node: Element, value: string): boolean {
-  if (unavailableReason(node, '组合框')) return false;
+  if (unavailableReason(node, '组合框') || ariaActivationProblem(node)) return false;
   const selected = Array.from(comboListbox(node)?.querySelectorAll('[role="option"][aria-selected="true"]') ?? []);
   if (selected.length > 1 || (selected.length === 1 && radioOptionLabel(selected[0]!) !== value)) return false;
   const current = comboValue(node);
@@ -453,7 +484,8 @@ function verifyCombo(node: Element, value: string): boolean {
 function comboAdapter(node: Element): ControlAdapter {
   const inspect = (): ControlInspection => ({
     kind: 'aria-combobox', value: comboValue(node), hasValue: comboHasValue(comboValue(node)), options: comboOptions(node),
-    ...(unavailableReason(node, '组合框') ? { blockedReason: unavailableReason(node, '组合框') } : {}),
+    ...(unavailableReason(node, '组合框') || ariaActivationProblem(node)
+      ? { blockedReason: unavailableReason(node, '组合框') || ariaActivationProblem(node) } : {}),
   });
   return {
     node,
@@ -476,7 +508,7 @@ function comboAdapter(node: Element): ControlAdapter {
       const refs = comboRefs(node).join(' ');
       if (refs !== originalRefs || (originalList !== null && list !== originalList)) return { status: 'request-human', reason: '打开期间组合框绑定已改变，请重新扫描' };
       const stillAvailable = (): boolean => !signal?.aborted && node.ownerDocument.URL === originalUrl && !unavailableReason(node, '组合框')
-        && comboListbox(node) === list && comboRefs(node).join(' ') === refs;
+        && !ariaActivationProblem(node) && comboListbox(node) === list && comboRefs(node).join(' ') === refs;
       if (!await waitForComboState(() => {
         if (!stillAvailable() || comboHasValue(comboValue(node))) return 'stop';
         return visibleComboOptions(node, value).length === 1 ? 'ready' : 'wait';
@@ -507,12 +539,13 @@ function comboAdapter(node: Element): ControlAdapter {
 }
 
 async function thisOpen(node: Element, signal?: AbortSignal): Promise<boolean> {
-  if (signal?.aborted || unavailableReason(node, '组合框')) return false;
+  if (signal?.aborted || unavailableReason(node, '组合框') || ariaActivationProblem(node)) return false;
+  if (comboRefs(node).length && !stableAriaComboboxListbox(node)) return false;
   const originalUrl = node.ownerDocument.URL;
   if (node.getAttribute('aria-expanded') !== 'true') {
     try { clickComboNode(node); } catch { return false; }
   }
-  return waitForComboState(() => signal?.aborted || node.ownerDocument.URL !== originalUrl || unavailableReason(node, '组合框') ? 'stop'
+  return waitForComboState(() => signal?.aborted || node.ownerDocument.URL !== originalUrl || unavailableReason(node, '组合框') || ariaActivationProblem(node) ? 'stop'
     : comboListbox(node) !== null ? 'ready' : 'wait', signal);
 }
 

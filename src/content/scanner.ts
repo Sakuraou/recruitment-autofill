@@ -137,6 +137,7 @@ export function describeAriaCombobox(node: Element, id: string, controller = cre
     maxLength: null, required: node.getAttribute('aria-required') === 'true', hasValue: inspection.hasValue,
     disabled, readOnly,
     ...(!label ? { blockedReason: 'ARIA 组合框缺少可验证标签，需要人工处理' }
+      : inspection.blockedReason ? { blockedReason: inspection.blockedReason }
       : disabled ? { blockedReason: 'ARIA 组合框已禁用，需要人工处理' }
         : readOnly ? { blockedReason: 'ARIA 组合框只读，需要人工处理' } : {}),
   };

@@ -50,7 +50,12 @@ try {
     { mode: 'record-cancel', status: 'request-human', optionClicks: 0, submits: 0, retained: true },
   ]);
   assert.deepEqual(errors, []);
-  const report = { browser: browser.version(), checks: 15, externalRequests, pageErrors: errors.length, result };
+  assert.deepEqual(result.activation, ['open-submit', 'open-reset', 'open-implicit', 'option-submit', 'option-reset', 'option-implicit',
+    'checkbox-submit', 'radio-submit', 'anchor', 'nested-submit', 'duplicate-id', 'legal-button'].map(mode => ({
+      mode, status: mode === 'legal-button' ? 'written' : 'request-human', clicks: mode === 'legal-button' ? 2 : 0,
+      submits: 0, resets: 0, bound: false,
+    })));
+  const report = { browser: browser.version(), checks: 27, externalRequests, pageErrors: errors.length, result };
   await mkdir(resolve(root, 'artifacts'), { recursive: true });
   await writeFile(resolve(root, 'artifacts/control-adapters-e2e.json'), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
