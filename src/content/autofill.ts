@@ -61,11 +61,12 @@ function candidateProblem(node: FormControl, value: string, field: FieldDescript
 }
 
 /** Only explicit requests from the extension UI are executed; the page is never submitted. */
-export async function fillScan(state: ScanState, request: FillRequest): Promise<FillOutcome[]> {
+export async function fillScan(state: ScanState, request: FillRequest, signal?: AbortSignal): Promise<FillOutcome[]> {
   const outcomes: FillOutcome[] = [];
   const seen = new Set<string>();
   for (const item of request.items) {
     const skip = (reason: string): void => { outcomes.push({ fieldId: item.fieldId, status: 'skipped', reason }); };
+    if (signal?.aborted) { skip('填写已停止，不再写入后续字段'); continue; }
     if (request.scanId !== state.result.scanId) { skip('扫描已过期，请重新扫描'); continue; }
     if (state.document.URL !== state.result.url) { skip('页面地址已改变，请重新扫描'); continue; }
     if (!item.confirmed) { skip('尚未确认填写此答案'); continue; }
@@ -81,9 +82,9 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       if (current.hasValue) { skip('组合框已有选择，不覆盖'); continue; }
       if (ariaComboboxFingerprint(node, current, controller) !== control.fingerprint) { skip('组合框标签、选项或内容已改变，请重新扫描'); continue; }
       try {
-        const pending = controller.write(item.value);
+        const pending = controller.write(item.value, signal);
         const result = isPromiseLike(pending) ? await pending : pending;
-        outcomes.push({ fieldId: item.fieldId, status: result.status === 'written' ? 'filled' : 'error', reason: result.reason });
+        outcomes.push({ fieldId: item.fieldId, status: !signal?.aborted && result.status === 'written' ? 'filled' : 'error', reason: result.reason });
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: 'ARIA 组合框未能安全完成选择，请人工检查' }); }
       continue;
     }
@@ -97,9 +98,9 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       if (current.hasValue) { skip('单选组已有答案，不覆盖'); continue; }
       if (ariaRadioGroupFingerprint(node, members, current, controller) !== control.fingerprint) { skip('单选组选项或标签已改变，请重新扫描'); continue; }
       try {
-        const pending = controller.write(item.value);
+        const pending = controller.write(item.value, signal);
         const result = isPromiseLike(pending) ? await pending : pending;
-        outcomes.push({ fieldId: item.fieldId, status: result.status === 'written' ? 'filled' : 'error', reason: result.reason });
+        outcomes.push({ fieldId: item.fieldId, status: !signal?.aborted && result.status === 'written' ? 'filled' : 'error', reason: result.reason });
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: 'ARIA 单选组未能安全完成选择，请人工检查' }); }
       continue;
     }
@@ -110,9 +111,9 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       if (current.blockedReason) { skip(current.blockedReason); continue; }
       if (ariaCheckboxFingerprint(node, current, controller) !== control.fingerprint) { skip('复选框标签、选项或内容已改变，请重新扫描'); continue; }
       try {
-        const pending = controller.write(item.value);
+        const pending = controller.write(item.value, signal);
         const result = isPromiseLike(pending) ? await pending : pending;
-        const successful = result.status === 'written' || result.status === 'preserved';
+        const successful = !signal?.aborted && (result.status === 'written' || result.status === 'preserved');
         outcomes.push({ fieldId: item.fieldId, status: successful ? 'filled' : 'error', reason: result.reason });
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: 'ARIA 复选框未能安全完成选择，请人工检查' }); }
       continue;
@@ -125,7 +126,7 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       if (current.hasValue) { skip('字段已有选择，不覆盖'); continue; }
       if (mobileFingerprint(node, current) !== control.fingerprint) { skip('字段标签、选项或内容已改变，请重新扫描'); continue; }
       try {
-        const filled = await fillMobileSelect(node, item.value);
+        const filled = await fillMobileSelect(node, item.value, signal);
         outcomes.push({ fieldId: item.fieldId, status: filled ? 'filled' : 'error', reason: filled ? '已通过移动网站的选项事件选择，请复核' : '网站未保留预期选择，请人工检查并重新扫描' });
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '下拉选择失败，请人工检查' }); }
       continue;
@@ -146,7 +147,7 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
         // click/change sequence. No selector search or broad click is used.
         target.click();
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        const verified = verifyNativeRadioGroup(members, item.value);
+        const verified = !signal?.aborted && verifyNativeRadioGroup(members, item.value);
         outcomes.push({ fieldId: item.fieldId, status: verified ? 'filled' : 'error',
           reason: verified ? '已选择唯一匹配的单选项；请在提交前复核' : '网页未保留预期单选答案，请人工检查' });
       } catch { outcomes.push({ fieldId: item.fieldId, status: 'error', reason: '单选控件未能安全完成填写，请人工检查' }); }
@@ -170,11 +171,11 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
       const problem = candidateProblem(node, item.value, current);
       if (problem) { skip(problem); continue; }
       const adapter = createControlAdapter(node);
-      const pending = adapter.write(item.value);
+      const pending = adapter.write(item.value, signal);
       const result = isPromiseLike(pending) ? await pending : pending;
       if (result.status === 'preserved') {
         outcomes.push({ fieldId: item.fieldId, status: 'skipped', reason: result.reason });
-      } else if (result.status === 'written' && belongsToDocument(node, state.document) && adapter.verify(item.value)) {
+      } else if (!signal?.aborted && result.status === 'written' && belongsToDocument(node, state.document) && adapter.verify(item.value)) {
         outcomes.push({ fieldId: item.fieldId, status: 'filled', reason: '已填写并检查当前值；请在提交前复核' });
       } else {
         outcomes.push({ fieldId: item.fieldId, status: 'error', reason: result.reason || '网页更新后未保留预期答案，请检查并重新扫描' });
@@ -185,7 +186,7 @@ export async function fillScan(state: ScanState, request: FillRequest): Promise<
   }
   // A later field can reset an earlier one. Recheck the whole batch after a short
   // settling window; never retry a rejected write or overwrite the site's result.
-  if (outcomes.some(outcome => outcome.status === 'filled')) {
+  if (!signal?.aborted && outcomes.some(outcome => outcome.status === 'filled')) {
     await new Promise<void>(resolve => setTimeout(resolve, 200));
     for (const outcome of outcomes) {
       if (outcome.status !== 'filled') continue;

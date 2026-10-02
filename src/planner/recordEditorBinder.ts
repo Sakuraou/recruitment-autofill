@@ -325,7 +325,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     .map(binding => ({ fieldId: binding.scanFieldId, value: binding.value, confirmed: true }));
   let outcomes: Awaited<ReturnType<typeof fillScan>>;
   try {
-    outcomes = signal.aborted ? [] : await fillScan(scanState, { scanId: scanState.result.scanId, items });
+    outcomes = signal.aborted ? [] : await fillScan(scanState, { scanId: scanState.result.scanId, items }, signal);
   } catch {
     outcomes = [];
   }

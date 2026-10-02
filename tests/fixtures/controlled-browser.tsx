@@ -157,6 +157,44 @@ async function recordRadioChecks() {
   return checks;
 }
 
+async function cancellationChecks() {
+  const checks = [];
+  for (const mode of ['cancel', 'navigate', 'already-cancelled'] as const) {
+    document.body.innerHTML = '<main id="fixture"></main>';
+    const root = createRoot(document.querySelector('#fixture')!); const actions = { options: 0, submits: 0 };
+    flushSync(() => root.render(<ControlledCombo mode="commit" actions={actions} />));
+    const originalUrl = document.URL; const controller = new AbortController();
+    if (mode === 'already-cancelled') controller.abort();
+    const state = scanDocument(); const field = state.result.fields.find(candidate => candidate.type === 'aria-combobox')!;
+    const pending = fillScan(state, { scanId: state.result.scanId, items: [{ fieldId: field.id, value: '硕士', confirmed: true }] }, controller.signal);
+    if (mode !== 'already-cancelled') setTimeout(() => {
+      if (mode === 'cancel') controller.abort(); else window.history.replaceState({}, '', '/changed-controls');
+    }, 10);
+    const outcomes = await pending; await new Promise(resolve => setTimeout(resolve, 60));
+    checks.push({ mode, status: outcomes[0]!.status, optionClicks: actions.options, submits: actions.submits,
+      retained: document.querySelector('[data-state]')!.textContent === '' });
+    window.history.replaceState({}, '', originalUrl); flushSync(() => root.unmount());
+  }
+  document.body.innerHTML = '<main id="fixture"></main>';
+  const root = createRoot(document.querySelector('#fixture')!); const events = { changes: 0 };
+  flushSync(() => root.render(<ControlledSelect events={events} />));
+  const controller = new AbortController(); const state = scanDocument();
+  const pending = fillScan(state, { scanId: state.result.scanId, items: [{ fieldId: state.result.fields[0]!.id, value: 'master', confirmed: true }] }, controller.signal);
+  setTimeout(() => controller.abort(), 10); const outcomes = await pending; await new Promise(resolve => setTimeout(resolve, 60));
+  checks.push({ mode: 'native-cancel', status: outcomes[0]!.status, optionClicks: events.changes, submits: 0,
+    retained: document.querySelector('select')!.value === '' && document.querySelector('[data-state]')!.textContent === '' });
+  flushSync(() => root.unmount());
+  const first = document.createElement('input'); const second = document.createElement('textarea');
+  const record = lifecycle([first, second]); let laterWrites = 0;
+  first.addEventListener('input', () => { if (first.value === 'first') record.context.stop(); });
+  second.addEventListener('input', () => { if (second.value === 'second') laterWrites++; });
+  const result = await bindRecordEditor({ plan: record.populatePlan, capture: record.editing, activeTransaction: record.active,
+    runContext: record.context, scanState: record.fixture.scanState,
+    provideValue: ({ fieldNodeId }) => fieldNodeId === 'field:0' ? 'first' : 'second', rescan: () => record.context.capture(record.fixture.source) });
+  checks.push({ mode: 'record-cancel', status: result.status, optionClicks: laterWrites, submits: 0, retained: second.value === '' });
+  return checks;
+}
+
 export async function runChecks() {
   const checks: Array<{ mode: string; status: string; optionClicks: number; submits: number; retained: boolean }> = [];
   for (const mode of ['commit', 'user-choice', 'replace'] as const) {
@@ -199,5 +237,5 @@ export async function runChecks() {
   });
   const frameResult = await createControlAdapter(combo).write('硕士');
   return { checks, nativeSelect, frame: { status: frameResult.status, realmCorrect },
-    recordCheckboxes: await recordCheckboxChecks(), recordRadios: await recordRadioChecks() };
+    recordCheckboxes: await recordCheckboxChecks(), recordRadios: await recordRadioChecks(), cancellations: await cancellationChecks() };
 }

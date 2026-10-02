@@ -3,6 +3,19 @@ import { bindRecordEditor } from '../src/planner/recordEditorBinder';
 import { lifecycle } from './fixtures/record-editor-context';
 
 describe('记录编辑器脱敏绑定器', () => {
+  it('第一字段事件停止事务后，不再写第二字段，即使稍后能回滚也不能先写', async () => {
+    const first = document.createElement('input'); const second = document.createElement('textarea');
+    const state = lifecycle([first, second]); let secondWrites = 0;
+    first.addEventListener('input', () => { if (first.value === '第一字段答案') state.context.stop(); });
+    second.addEventListener('input', () => { if (second.value === '第二字段答案') secondWrites++; });
+    const result = await bindRecordEditor({ plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: ({ fieldNodeId }) => fieldNodeId === 'field:0' ? '第一字段答案' : '第二字段答案',
+      rescan: () => state.context.capture(state.fixture.source) });
+    expect(result).toMatchObject({ status: 'request-human', reason: 'step-aborted' });
+    expect(secondWrites).toBe(0); expect(second.value).toBe('');
+  });
+
   it('未勾选的已扫描字段被改为协议项时不能签发“否”的核验收据', async () => {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox'; checkbox.setAttribute('aria-label', '是否学生干部');

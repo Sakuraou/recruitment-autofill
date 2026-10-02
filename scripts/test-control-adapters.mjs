@@ -42,8 +42,15 @@ try {
       retained: true, frameworkRetained: true, clicks: 1 },
   ]);
   assert.equal(externalRequests, 0);
+  assert.deepEqual(result.cancellations, [
+    { mode: 'cancel', status: 'error', optionClicks: 0, submits: 0, retained: true },
+    { mode: 'navigate', status: 'error', optionClicks: 0, submits: 0, retained: true },
+    { mode: 'already-cancelled', status: 'skipped', optionClicks: 0, submits: 0, retained: true },
+    { mode: 'native-cancel', status: 'error', optionClicks: 0, submits: 0, retained: true },
+    { mode: 'record-cancel', status: 'request-human', optionClicks: 0, submits: 0, retained: true },
+  ]);
   assert.deepEqual(errors, []);
-  const report = { browser: browser.version(), checks: 10, externalRequests, pageErrors: errors.length, result };
+  const report = { browser: browser.version(), checks: 15, externalRequests, pageErrors: errors.length, result };
   await mkdir(resolve(root, 'artifacts'), { recursive: true });
   await writeFile(resolve(root, 'artifacts/control-adapters-e2e.json'), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));

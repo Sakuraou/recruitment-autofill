@@ -25,9 +25,9 @@ export interface ControlAdapter {
   readonly node: Element;
   readonly kind: ControlAdapterKind;
   inspect(): ControlInspection;
-  open(): Promise<boolean>;
+  open(signal?: AbortSignal): Promise<boolean>;
   readOptions(): readonly ControlAdapterOption[];
-  write(value: string): ControlAdapterResult | Promise<ControlAdapterResult>;
+  write(value: string, signal?: AbortSignal): ControlAdapterResult | Promise<ControlAdapterResult>;
   verify(value: string): boolean;
 }
 
@@ -59,11 +59,11 @@ function nativeSetter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelectE
   return (value: string) => setter.call(node, value);
 }
 
-function dispatchInput(node: Element): void {
+function dispatchInput(node: Element, signal?: AbortSignal): void {
   const EventConstructor = node.ownerDocument.defaultView?.Event;
   if (!EventConstructor) throw new Error('event constructor unavailable');
   node.dispatchEvent(new EventConstructor('input', { bubbles: true, composed: true }));
-  node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
+  if (!signal?.aborted) node.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
 }
 
 function unavailableReason(node: Element, kind: string): string | undefined {
@@ -95,7 +95,8 @@ export function verifyNativeRadioGroup(members: readonly HTMLInputElement[], val
     && !unavailableReason(target, '单选项') && target.validity.valid;
 }
 
-function waitForSelectableOption(select: HTMLSelectElement, value: string): Promise<boolean> {
+function waitForSelectableOption(select: HTMLSelectElement, value: string, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
   if (selectableOptions(select, value).length === 1) return Promise.resolve(true);
   const Observer = select.ownerDocument.defaultView?.MutationObserver;
   if (!Observer) return Promise.resolve(false);
@@ -111,9 +112,13 @@ function waitForSelectableOption(select: HTMLSelectElement, value: string): Prom
       settled = true;
       clearTimeout(timer);
       observer.disconnect();
+      signal?.removeEventListener('abort', abort);
       resolve(result);
     };
+    const abort = (): void => finish(false);
     observer.observe(select, { childList: true, subtree: true, attributes: true });
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) finish(false);
   });
 }
 
@@ -131,9 +136,11 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
     node,
     kind,
     inspect,
-    open: async () => true,
+    open: async signal => !signal?.aborted,
     readOptions: () => inspect().options,
-    write: (value: string): ControlAdapterResult | Promise<ControlAdapterResult> => {
+    write: (value: string, signal?: AbortSignal): ControlAdapterResult | Promise<ControlAdapterResult> => {
+      if (signal?.aborted) return { status: 'request-human', reason: '填写已停止' };
+      const originalUrl = node.ownerDocument.URL;
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       if (current.hasValue) return current.value === value
@@ -144,6 +151,7 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
         const select = node as HTMLSelectElement;
         const originalAttributes = attributesFingerprint(select);
         const applySelect = (): ControlAdapterResult => {
+          if (signal?.aborted || select.ownerDocument.URL !== originalUrl) return { status: 'request-human', reason: '填写已停止或页面已变化' };
           const unavailable = unavailableReason(select, '下拉框');
           if (unavailable) return { status: 'request-human', reason: unavailable };
           if (attributesFingerprint(select) !== originalAttributes) return { status: 'request-human', reason: '等待期间下拉框属性已改变，请重新扫描' };
@@ -153,26 +161,26 @@ function nativeAdapter(node: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
           if (selectableOptions(select, value).length !== 1) return { status: 'request-human', reason: '下拉选项不存在或不唯一' };
           try {
             nativeSetter(select)(value);
-            dispatchInput(select);
+            dispatchInput(select, signal);
           } catch {
             return { status: 'request-human', reason: '控件未能安全写入' };
           }
-          return select.value === value && select.validity.valid
+          return !signal?.aborted && select.value === value && select.validity.valid
             ? { status: 'written', reason: '写入后已回读核验' }
             : { status: 'request-human', reason: '网页更新后未保留预期值' };
         };
         const candidates = selectableOptions(select, value);
-        if (candidates.length !== 1) return waitForSelectableOption(select, value).then((ready): ControlAdapterResult => ready
+        if (candidates.length !== 1) return waitForSelectableOption(select, value, signal).then((ready): ControlAdapterResult => ready
           ? applySelect() : { status: 'request-human', reason: '下拉选项未在限定时间内形成唯一匹配' });
         return applySelect();
       }
       try {
         nativeSetter(node)(value);
-        dispatchInput(node);
+        dispatchInput(node, signal);
       } catch {
         return { status: 'request-human', reason: '控件未能安全写入' };
       }
-      return node.value === value && node.validity.valid
+      return !signal?.aborted && node.value === value && node.validity.valid
         ? { status: 'written', reason: '写入后已回读核验' }
         : { status: 'request-human', reason: '网页更新后未保留预期值' };
     },
@@ -190,9 +198,10 @@ function nativeCheckboxAdapter(node: HTMLInputElement): ControlAdapter {
   });
   return {
     node, kind: 'native-checkbox', inspect,
-    open: async () => true,
+    open: async signal => !signal?.aborted,
     readOptions: () => inspect().options,
-    write: (value: string): ControlAdapterResult => {
+    write: (value: string, signal?: AbortSignal): ControlAdapterResult => {
+      if (signal?.aborted) return { status: 'request-human', reason: '填写已停止' };
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       const desired = booleanValue(value);
@@ -208,7 +217,7 @@ function nativeCheckboxAdapter(node: HTMLInputElement): ControlAdapter {
         // not a broad click search.
         node.click();
       } catch { return { status: 'request-human', reason: '复选框未能安全选择' }; }
-      return node.checked && !node.indeterminate && node.validity.valid && !unavailableReason(node, '复选框')
+      return !signal?.aborted && node.checked && !node.indeterminate && node.validity.valid && !unavailableReason(node, '复选框')
         ? { status: 'written', reason: '复选框选择后已核验' } : { status: 'request-human', reason: '网页未保留有效的复选框答案' };
     },
     verify: (value: string) => {
@@ -258,8 +267,11 @@ function radioOptionLabel(node: Element): string {
   return clean(node.getAttribute('aria-label') || node.textContent);
 }
 
-function waitForAriaChecked(node: Element, desired: boolean): Promise<boolean> {
-  const matches = (): boolean => node.isConnected && (node.getAttribute('aria-checked') === 'true') === desired;
+function waitForAriaChecked(node: Element, desired: boolean, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+  const originalUrl = node.ownerDocument.URL;
+  const matches = (): boolean => !signal?.aborted && node.ownerDocument.URL === originalUrl
+    && node.isConnected && (node.getAttribute('aria-checked') === 'true') === desired;
   if (matches()) return Promise.resolve(true);
   const Observer = node.ownerDocument.defaultView?.MutationObserver;
   if (!Observer) return Promise.resolve(false);
@@ -272,9 +284,13 @@ function waitForAriaChecked(node: Element, desired: boolean): Promise<boolean> {
       settled = true;
       clearTimeout(timer);
       observer.disconnect();
+      signal?.removeEventListener('abort', abort);
       resolve(result);
     };
+    const abort = (): void => finish(false);
     observer.observe(node, { attributes: true, attributeFilter: ['aria-checked'] });
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) finish(false);
   });
 }
 
@@ -290,9 +306,11 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
     node: group,
     kind: 'aria-radio-group',
     inspect,
-    open: async () => true,
+    open: async signal => !signal?.aborted,
     readOptions: () => inspect().options,
-    write: async (value: string): Promise<ControlAdapterResult> => {
+    write: async (value: string, signal?: AbortSignal): Promise<ControlAdapterResult> => {
+      if (signal?.aborted) return { status: 'request-human', reason: '填写已停止' };
+      const originalUrl = group.ownerDocument.URL;
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       if (current.hasValue) return current.value === value
@@ -305,7 +323,8 @@ export function createAriaRadioGroupAdapter(group: Element, members: readonly El
       if (!target.isConnected || !group.contains(target)) return { status: 'request-human', reason: '单选组选项已被替换' };
       try { target.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
       catch { return { status: 'request-human', reason: '单选项无法安全选择' }; }
-      return await waitForAriaChecked(target, true)
+      const checked = await waitForAriaChecked(target, true, signal);
+      return checked && !signal?.aborted && group.ownerDocument.URL === originalUrl
         ? { status: 'written', reason: '单选选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期单选答案' };
     },
@@ -338,9 +357,11 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
   };
   return {
     node, kind: 'aria-checkbox', inspect,
-    open: async () => true,
+    open: async signal => !signal?.aborted,
     readOptions: () => inspect().options,
-    write: async (value: string): Promise<ControlAdapterResult> => {
+    write: async (value: string, signal?: AbortSignal): Promise<ControlAdapterResult> => {
+      if (signal?.aborted) return { status: 'request-human', reason: '填写已停止' };
+      const originalUrl = node.ownerDocument.URL;
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       const desired = booleanValue(value);
@@ -350,7 +371,8 @@ export function createAriaCheckboxAdapter(node: Element): ControlAdapter {
       if (checked === desired) return { status: 'preserved', reason: '复选框已有相同答案，保留原值' };
       try { node.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true })); }
       catch { return { status: 'request-human', reason: '复选框无法安全选择' }; }
-      return await waitForAriaChecked(node, true)
+      const verifiedChecked = await waitForAriaChecked(node, true, signal);
+      return verifiedChecked && !signal?.aborted && node.ownerDocument.URL === originalUrl
         ? { status: 'written', reason: '复选框选择后已核验' }
         : { status: 'request-human', reason: '网页未保留预期复选框答案' };
     },
@@ -392,15 +414,24 @@ function visibleComboOptions(node: Element, value: string): HTMLElement[] {
 }
 
 /** Polling also detects input.value changes, which do not generate DOM mutations. */
-function waitForComboState(state: () => 'ready' | 'stop' | 'wait'): Promise<boolean> {
+function waitForComboState(state: () => 'ready' | 'stop' | 'wait', signal?: AbortSignal): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const deadline = Date.now() + 500;
-    const check = (): void => {
-      const current = state();
-      if (current === 'ready') { resolve(true); return; }
-      if (current === 'stop' || Date.now() >= deadline) { resolve(false); return; }
-      setTimeout(check, 16);
+    let timer: ReturnType<typeof setTimeout> | undefined; let finished = false;
+    const finish = (result: boolean): void => {
+      if (finished) return; finished = true;
+      clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(result);
     };
+    const abort = (): void => finish(false);
+    const check = (): void => {
+      if (finished) return;
+      if (signal?.aborted) { finish(false); return; }
+      const current = state();
+      if (current === 'ready') { finish(true); return; }
+      if (current === 'stop' || Date.now() >= deadline) { finish(false); return; }
+      timer = setTimeout(check, 16);
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     check();
   });
 }
@@ -428,9 +459,11 @@ function comboAdapter(node: Element): ControlAdapter {
     node,
     kind: 'aria-combobox',
     inspect,
-    open: () => thisOpen(node),
+    open: signal => thisOpen(node, signal),
     readOptions: () => comboOptions(node),
-    write: async (value: string): Promise<ControlAdapterResult> => {
+    write: async (value: string, signal?: AbortSignal): Promise<ControlAdapterResult> => {
+      if (signal?.aborted) return { status: 'request-human', reason: '填写已停止' };
+      const originalUrl = node.ownerDocument.URL;
       const current = inspect();
       if (current.blockedReason) return { status: 'request-human', reason: current.blockedReason };
       if (current.hasValue) return current.value === value
@@ -438,16 +471,16 @@ function comboAdapter(node: Element): ControlAdapter {
         : { status: 'request-human', reason: '组合框已有内容，不覆盖' };
       const originalRefs = comboRefs(node).join(' ');
       const originalList = comboListbox(node);
-      if (!await thisOpen(node)) return { status: 'request-human', reason: '组合框未能安全打开' };
+      if (!await thisOpen(node, signal) || signal?.aborted || node.ownerDocument.URL !== originalUrl) return { status: 'request-human', reason: '组合框未能安全打开' };
       const list = comboListbox(node);
       const refs = comboRefs(node).join(' ');
       if (refs !== originalRefs || (originalList !== null && list !== originalList)) return { status: 'request-human', reason: '打开期间组合框绑定已改变，请重新扫描' };
-      const stillAvailable = (): boolean => !unavailableReason(node, '组合框')
+      const stillAvailable = (): boolean => !signal?.aborted && node.ownerDocument.URL === originalUrl && !unavailableReason(node, '组合框')
         && comboListbox(node) === list && comboRefs(node).join(' ') === refs;
       if (!await waitForComboState(() => {
         if (!stillAvailable() || comboHasValue(comboValue(node))) return 'stop';
         return visibleComboOptions(node, value).length === 1 ? 'ready' : 'wait';
-      })) return { status: 'request-human', reason: '组合框选项或当前答案已改变，未形成唯一匹配' };
+      }, signal)) return { status: 'request-human', reason: '组合框选项或当前答案已改变，未形成唯一匹配' };
       // Opening and loading can synchronously update a controlled field. Check
       // again at the action boundary, before dispatching the option click.
       if (!stillAvailable() || comboHasValue(comboValue(node))) return { status: 'request-human', reason: '组合框已有新答案或已不可交互，不覆盖' };
@@ -457,14 +490,15 @@ function comboAdapter(node: Element): ControlAdapter {
       if (!target) return { status: 'request-human', reason: '组合框选项已被替换' };
       try { clickComboNode(target); }
       catch { return { status: 'request-human', reason: '组合框选项无法选择' }; }
-      return await waitForComboState(() => {
-        if (unavailableReason(node, '组合框') || comboRefs(node).join(' ') !== refs) return 'stop';
+      const verified = await waitForComboState(() => {
+        if (signal?.aborted || node.ownerDocument.URL !== originalUrl || unavailableReason(node, '组合框') || comboRefs(node).join(' ') !== refs) return 'stop';
         const currentValue = comboValue(node);
         if (comboHasValue(currentValue) && currentValue !== value) return 'stop';
         if (verifyCombo(node, value)) return 'ready';
         if (comboListbox(node) !== list || !target.isConnected) return 'stop';
         return 'wait';
-      })
+      }, signal);
+      return verified && !signal?.aborted && node.ownerDocument.URL === originalUrl
         ? { status: 'written', reason: '组合框选择后已核验' }
         : { status: 'request-human', reason: '网页未保留组合框选择' };
     },
@@ -472,13 +506,14 @@ function comboAdapter(node: Element): ControlAdapter {
   };
 }
 
-async function thisOpen(node: Element): Promise<boolean> {
-  if (unavailableReason(node, '组合框')) return false;
+async function thisOpen(node: Element, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted || unavailableReason(node, '组合框')) return false;
+  const originalUrl = node.ownerDocument.URL;
   if (node.getAttribute('aria-expanded') !== 'true') {
     try { clickComboNode(node); } catch { return false; }
   }
-  return waitForComboState(() => unavailableReason(node, '组合框') ? 'stop'
-    : comboListbox(node) !== null ? 'ready' : 'wait');
+  return waitForComboState(() => signal?.aborted || node.ownerDocument.URL !== originalUrl || unavailableReason(node, '组合框') ? 'stop'
+    : comboListbox(node) !== null ? 'ready' : 'wait', signal);
 }
 
 export function createControlAdapter(node: Element): ControlAdapter {

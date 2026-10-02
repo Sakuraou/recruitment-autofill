@@ -38,7 +38,8 @@ export function mobileFingerprint(node: HTMLElement, field: FieldDescriptor): st
 }
 
 /** Use the site's own option handler so its jQuery code cache and visible label agree. */
-export async function fillMobileSelect(node: HTMLElement, value: string): Promise<boolean> {
+export async function fillMobileSelect(node: HTMLElement, value: string, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
   const field = describeMobileSelect(node, '');
   if (field.blockedReason || field.hasValue) return false;
   const matches = mobileOptions(node).filter(option => option.getAttribute('data-code') === value);
@@ -49,5 +50,5 @@ export async function fillMobileSelect(node: HTMLElement, value: string): Promis
   const expectedLabel = cleanText(option.textContent);
   option.click();
   await new Promise<void>(resolve => setTimeout(resolve, 0));
-  return node.isConnected && selectedLabel(node) === expectedLabel;
+  return !signal?.aborted && node.isConnected && selectedLabel(node) === expectedLabel;
 }
