@@ -32,6 +32,7 @@ export type RecordEditorBindReason =
   | ProjectFieldReason
   | 'invalid-bind-input'
   | 'duplicate-step'
+  | 'snapshot-stale'
   | 'field-map-mismatch'
   | 'field-target-replaced'
   | 'field-unsupported'

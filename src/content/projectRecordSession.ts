@@ -1,4 +1,4 @@
-import { bindRecordEditor, type RecordEditorBindResult } from '../planner/recordEditorBinder';
+import { bindRecordEditor, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
 import { resolveProjectField } from '../matching/projectFieldResolver';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
@@ -11,6 +11,9 @@ import { projectProjectionResponseSchema, type ProjectProjectionResponse } from 
 import { projectCardComparator } from './projectRecordIdentity';
 import { hiddenReason } from './domUtils';
 import { recordObservationMatches } from './recordObservation';
+import { createEmptyProfile, type UserProfile } from '../profile/schema';
+import { createProjectSemanticContext, projectSemanticContextCurrent } from '../ai/projectSemanticContext';
+import { inferSemanticCandidates, type SemanticProvider } from '../ai/semanticCandidates';
 
 interface ProjectObservation {
   readonly scan: ScanState;
@@ -61,15 +64,22 @@ class ProjectDriver implements RecordOrchestratorDriver {
   readonly #context: RecordRunContext;
   readonly #observe: () => ProjectObservation | undefined;
   readonly #records: readonly ProjectProjectionResponse['projects'][number][];
+  readonly #profile: UserProfile;
+  readonly #provider?: SemanticProvider;
+  readonly #verifyProfile: () => Promise<boolean>;
   readonly #observations = new WeakMap<RecordRunCapture, ProjectObservation>();
   readonly #identities = new WeakMap<RecordRunCapture, string>();
   #verifiedFields?: { readonly observation: ProjectObservation; readonly capture: RecordRunCapture };
 
   constructor(context: RecordRunContext, projection: ProjectProjectionResponse,
-    observer: () => ProjectObservation | undefined) {
+    observer: () => ProjectObservation | undefined, verifyProfile: () => Promise<boolean>, provider?: SemanticProvider) {
     this.#observe = observer;
     this.#context = context;
     this.#records = projection.projects;
+    this.#profile = createEmptyProfile();
+    this.#profile.updatedAt = projection.profileRevision;
+    this.#profile.projects = projection.projects.map(project => ({ ...project, technologies: [...project.technologies] }));
+    this.#provider = provider; this.#verifyProfile = verifyProfile;
   }
 
   capture(): RecordRunCapture | RecordRunCaptureFailure {
@@ -176,13 +186,41 @@ class ProjectDriver implements RecordOrchestratorDriver {
     const record = this.#records[active.intentIndex];
     if (!record) return { status: 'request-human', reason: 'profile-value-missing', writtenFieldCount: 0, rollbackComplete: true };
     const values = new Map<string, string>();
+    const unknown = new Set<string>();
     for (const nodeId of plan.nextStep.fieldNodeIds) {
       const node = observation.scan.result.semanticGraph?.nodes.find(candidate => candidate.id === nodeId);
       const field = node?.kind === 'field' ? observation.scan.result.fields.find(candidate => candidate.id === node.fieldId) : undefined;
       if (!field) return { status: 'request-human', reason: 'field-map-mismatch', writtenFieldCount: 0, rollbackComplete: true };
       const resolved = resolveProjectField(field, record);
-      if (resolved.status !== 'known') return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
+      if (resolved.status !== 'known') {
+        if (resolved.reason === 'field-semantic-unknown') { unknown.add(field.id); continue; }
+        return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
+      }
       values.set(field.id, resolved.value);
+    }
+    if (unknown.size) {
+      const reject = (reason: RecordEditorBindReason = 'field-semantic-unknown'): RecordEditorBindResult => ({ status: 'request-human', reason, writtenFieldCount: 0, rollbackComplete: true });
+      if (!this.#provider) return reject();
+      const projectContext = createProjectSemanticContext({ plan, capture, activeTransaction: active,
+        runContext: this.#context, scanState: observation.scan, profile: this.#profile });
+      if (!projectContext) return reject('snapshot-stale');
+      const signal = this.#context.beginStep();
+      const candidates = await inferSemanticCandidates(observation.scan.result, this.#profile, this.#provider, {
+        signal, projectContext, excludedFieldIds: new Set(observation.scan.result.fields.filter(field => !unknown.has(field.id)).map(field => field.id)),
+        currentContext: async () => {
+          if (!await this.#verifyProfile() || !this.validateCapture(capture)) throw new Error('项目观察已变化');
+          return { scan: observation.scan.result, profile: this.#profile };
+        },
+      });
+      if (signal.aborted || !projectSemanticContextCurrent(projectContext, observation.scan.result, this.#profile, [...unknown])) return reject('snapshot-stale');
+      if (candidates.state !== 'ready' || candidates.matches.length !== unknown.size) return reject();
+      const seen = new Set<string>();
+      for (const match of candidates.matches) {
+        if (!unknown.has(match.fieldId) || seen.has(match.fieldId) || match.source !== 'llm' || match.status !== 'review'
+          || match.confidence < 0.9 || match.value === undefined || !match.matchedProfileKey?.startsWith('projects.')) return reject();
+        seen.add(match.fieldId); values.set(match.fieldId, match.value);
+      }
+      // Model meanings do not issue actions. All fields use the original atomic binder and readback receipt below.
     }
     const result = await bindRecordEditor({
       plan,
@@ -204,7 +242,7 @@ class ProjectDriver implements RecordOrchestratorDriver {
 /** Internal factory: selectors, values and page eligibility never come from runtime messages. */
 export function createProjectRecordSession(doc: Document, projection: ProjectProjectionResponse,
   refreshProjection?: () => Promise<ProjectProjectionResponse>,
-  additionalEligibility?: (doc: Document) => boolean): RecordV2Session {
+  additionalEligibility?: (doc: Document) => boolean, semanticProvider?: SemanticProvider): RecordV2Session {
   const initial = observe(doc);
   if (projectPageProblem(doc, initial) || additionalEligibility?.(doc) === false) {
     throw new Error('当前页面没有唯一、可验证且已关闭编辑器的项目列表');
@@ -223,8 +261,18 @@ export function createProjectRecordSession(doc: Document, projection: ProjectPro
     throw new Error('项目档案投影格式无效');
   }
   const context = new RecordRunContext();
-  const orchestrator = new RecordTransactionOrchestrator(context, new ProjectDriver(context, parsed.data, observer));
   let stoppedForProfileChange = false;
+  const originalProjection = JSON.stringify(parsed.data);
+  const verifyProfile = async (): Promise<boolean> => {
+    if (stoppedForProfileChange || context.stopped) return false;
+    if (!refreshProjection) return true;
+    try {
+      const latest = projectProjectionResponseSchema.safeParse(await refreshProjection());
+      if (latest.success && JSON.stringify(latest.data) === originalProjection) return true;
+    } catch { /* Missing or changed projections never update an in-flight record. */ }
+    stoppedForProfileChange = true; context.stop(); return false;
+  };
+  const orchestrator = new RecordTransactionOrchestrator(context, new ProjectDriver(context, parsed.data, observer, verifyProfile, semanticProvider));
   return {
     get state() { return orchestrator.state; },
     get snapshotVersion() { return orchestrator.snapshotVersion; },
@@ -236,7 +284,8 @@ export function createProjectRecordSession(doc: Document, projection: ProjectPro
         try { latest = await refreshProjection(); }
         catch { stoppedForProfileChange = true; orchestrator.stop(); return { status: 'request-human',
           snapshotVersion: orchestrator.snapshotVersion, reason: 'profile-projection-unavailable' }; }
-        if (latest.profileRevision !== parsed.data.profileRevision) {
+        const checked = projectProjectionResponseSchema.safeParse(latest);
+        if (!checked.success || JSON.stringify(checked.data) !== originalProjection) {
           stoppedForProfileChange = true;
           orchestrator.stop();
           return { status: 'request-human', snapshotVersion: orchestrator.snapshotVersion, reason: 'profile-changed' };

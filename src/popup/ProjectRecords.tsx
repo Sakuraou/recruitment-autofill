@@ -47,7 +47,7 @@ export function ProjectRecordControls() {
   const active = ['preparing', 'running', 'pausing', 'paused', 'review'].includes(state.phase);
   return <section className="workflow-panel" aria-label="通用项目连续填写">
     <h2>项目 · 连续填写（试用）</h2>
-    <p>按档案顺序逐条检查项目，跳过已有项，添加、填写并核验每条保存结果。支持明确的项目列表与原生表单控件。</p>
+    <p>按档案顺序逐条检查项目，跳过已有项，添加、填写并核验每条保存结果。已连接 AI 时会识别当前编辑器的陌生字段，答案从本地当前项目读取。</p>
     {!active && <button className="primary" type="button" disabled={busy || !state.canStart} onClick={() => void action('RA_PROJECT_RECORD_START')}>连续填写全部项目</button>}
     <div className="workflow-status" role="status">
       {state.phase === 'preparing' && <p>正在读取本地项目档案…</p>}

@@ -1,0 +1,136 @@
+// Actual MV3 background/content ports, fictional profile/model, no cloud or recruitment backend.
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { chromium } from 'playwright';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..'); const artifacts = resolve(root, 'artifacts');
+await mkdir(artifacts, { recursive: true });
+const bundle = resolve(artifacts, 'project-semantic-server.mjs');
+await build({ entryPoints: [resolve(root, 'src/companion/server.ts')], bundle: true, platform: 'node', format: 'esm', target: 'node22', outfile: bundle });
+const { createSemanticServer } = await import(pathToFileURL(bundle).href);
+const token = 'b'.repeat(64); const requests = []; let mode = 'normal'; let pending; let aborted = 0;
+const report = { startedAt: new Date().toISOString(), checks: [], externalRequests: [], errors: [] };
+const service = createSemanticServer({ token, provider: async (request, signal) => {
+  requests.push(request);
+  if (mode === 'hold') await new Promise(done => { pending = done; signal.addEventListener('abort', () => { aborted++; done(); }, { once: true }); });
+  const bindings = request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint,
+    path: field.label.includes('叫什么') ? 'projects.name' : 'projects.description', certainty: 'certain', evidence: 'label' }));
+  if (mode === 'invalid') bindings.push({ ...bindings[0], ref: 'field-29' });
+  return { state: 'ready', proposal: { requestId: request.requestId, status: 'mapped', bindings } };
+} });
+const origin = 'https://fictional-semantic-projects.example.test';
+const raw = await readFile(resolve(root, 'tests/fixtures/record-v2.html'), 'utf8');
+const html = raw.replace('data-ra-record-v2-fixture="v1"', '').replace(/<meta name="ra-record-v2-fixture"[^>]+>/u, '')
+  .replace('data-schema="record-v2-six-projects-v1"', '').replace("add.textContent = '添加项目经历';", "add.textContent = '+';")
+  .replace('name="fixture-project-name"', 'name="slot-a"').replace('name="fixture-project-description"', 'name="slot-b"')
+  .replace("'<label>项目名称' + name + '</label><label>项目描述' + description + '</label>'",
+    "'<label>' + (window.fixtureSemanticMixed ? '项目名称' : '这项工作叫什么') + name + '</label><label>这项工作做了些什么' + description + '</label>'");
+const profile = JSON.parse(await readFile(resolve(root, 'examples/sample-profile.json'), 'utf8'));
+profile.projects = Array.from({ length: 6 }, (_, index) => ({ id: 'fictional-semantic-' + index,
+  name: '虚构测试项目 ' + (index + 1), description: '仅用于本地浏览器扩展验证的虚构项目 ' + (index + 1) + '。', technologies: [] }));
+let context;
+try {
+  await new Promise((res, rej) => { service.once('error', rej); service.listen(43127, '127.0.0.1', res); });
+  context = await chromium.launchPersistentContext('', { channel: 'chromium', headless: true,
+    args: [`--disable-extensions-except=${resolve(root, 'dist')}`, `--load-extension=${resolve(root, 'dist')}`,
+      '--enable-unsafe-extension-debugging', '--enable-extension-target-discovery'] });
+  context.setDefaultTimeout(20_000);
+  context.on('page', page => page.on('pageerror', error => report.errors.push(error.message)));
+  await context.route(/^https?:/, async route => {
+    if (route.request().url().startsWith(origin)) await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+    else if (new URL(route.request().url()).hostname === '127.0.0.1') await route.continue();
+    else { report.externalRequests.push(route.request().url()); await route.abort(); }
+  });
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  const extensionId = new URL(worker.url()).host;
+  const cdp = await context.browser().newBrowserCDPSession();
+  const options = await context.newPage(); await options.goto(`chrome-extension://${extensionId}/options.html`);
+  await options.getByRole('button', { name: /11 导入与备份/ }).click();
+  await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(profile));
+  await options.getByRole('button', { name: '校验并载入预览' }).click(); await options.getByRole('button', { name: '保存档案' }).click();
+  await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
+  async function pageFor(name, mixed = false) {
+    const page = await context.newPage();
+    await page.addInitScript(value => { window.fixtureInitialCards = [0]; window.fixtureAddRelation = 'aria-controls'; window.fixtureSemanticMixed = value; }, mixed);
+    await page.goto(origin + '/projects?case=' + name);
+    const targets = (await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
+    await cdp.send('Extensions.triggerAction', { id: extensionId, targetId: targets.find(item => item.url === page.url()).targetId });
+    return page;
+  }
+  async function popupFor(page) {
+    const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await worker.evaluate(async url => { const tab = (await chrome.tabs.query({})).find(item => item.url === url); await chrome.tabs.update(tab.id, { active: true }); }, page.url());
+    await popup.reload(); return popup;
+  }
+  async function start(popup) { await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click(); }
+  async function waitRequest(count) { for (let index = 0; index < 200 && requests.length <= count; index++) await new Promise(res => setTimeout(res, 50));
+    assert.ok(requests.length > count, 'No current-project request received'); }
+  async function counts(page) { return page.evaluate(() => ({ add: window.fixture.add, save: window.fixture.save, delete: window.fixture.delete,
+    upload: window.fixture.upload, next: window.fixture.next, submit: window.fixture.submit })); }
+  const blocked = { add: 1, save: 0, delete: 0, upload: 0, next: 0, submit: 0 };
+  const completion = /全部 6 个档案项目已处理并核验/;
+  let page = await pageFor('disabled'); let popup = await popupFor(page); await start(popup);
+  await popup.getByText('项目填写需要检查', { exact: false }).waitFor();
+  assert.deepEqual(await counts(page), blocked); assert.equal(requests.length, 0); assert.equal(await page.locator('form input').inputValue(), '');
+  report.checks.push('Disabled AI preserves the unknown project draft with zero model calls, writes or Save');
+  await popup.close(); await page.close();
+  await options.getByRole('button', { name: /13 AI 识别连接/ }).click();
+  await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-project-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
+  await options.getByText('AI 连接已启用。回到招聘网页', { exact: false }).waitFor();
+  mode = 'hold'; const before = requests.length;
+  page = await pageFor('happy'); popup = await popupFor(page); await start(popup); await waitRequest(before);
+  assert.equal(await page.locator('form input').inputValue(), ''); await popup.close(); mode = 'normal'; pending();
+  popup = await popupFor(page); await popup.getByText(completion).waitFor();
+  const completed = { ...blocked, add: 5, save: 5 };
+  assert.deepEqual(await counts(page), completed); assert.equal(requests.length - before, 5);
+  assert.deepEqual(await page.evaluate(() => window.fixture.savedFields), profile.projects.slice(1).map((project, index) => ({ index: index + 1, values: { 'slot-a': project.name, 'slot-b': project.description } })));
+  assert.ok(requests.every(request => request.fields.every(field => field.section === 'project' && field.record === 'creating')));
+  assert.doesNotMatch(JSON.stringify(requests), /虚构测试项目|仅用于本地浏览器|intentIndex|fictional-semantic-projects|token/);
+  report.checks.push('One production click fills and saves five distinct unfamiliar projects after popup closure, using trusted background ports and local current-record values');
+  await start(popup); await popup.getByText(completion).waitFor(); assert.deepEqual(await counts(page), completed); assert.equal(requests.length - before, 5);
+  report.checks.push('Restart verifies six existing projects without another model call, Add or Save');
+  await popup.close(); await page.close();
+  mode = 'hold'; const pauseBefore = requests.length;
+  page = await pageFor('paused', true); popup = await popupFor(page); await start(popup); await waitRequest(pauseBefore);
+  await popup.getByRole('button', { name: '暂停项目填写', exact: true }).click();
+  mode = 'normal'; pending(); await popup.getByText('项目填写已暂停', { exact: false }).waitFor();
+  assert.deepEqual(await counts(page), blocked); assert.equal(await page.locator('form input').inputValue(), profile.projects[1].name);
+  await popup.close(); popup = await popupFor(page);
+  await popup.getByRole('button', { name: '继续项目填写', exact: true }).click(); await popup.getByText(completion).waitFor();
+  assert.deepEqual(await counts(page), completed); assert.equal(requests.length - pauseBefore, 5);
+  report.checks.push('Cooperative pause during model wait verifies the current mixed editor without Save; reopening and resuming saves all projects exactly once');
+  await popup.close(); await page.close();
+  const originalConnection = await worker.evaluate(async () => (await chrome.storage.local.get('recruitment.semantic.connection.v1'))['recruitment.semantic.connection.v1']);
+  for (const change of ['manual', 'replace', 'stop', 'profile', 'connection', 'invalid']) {
+    mode = change === 'invalid' ? 'invalid' : 'hold'; const previous = requests.length; const previousAborted = aborted;
+    page = await pageFor(change, true); popup = await popupFor(page); await start(popup); await waitRequest(previous);
+    assert.equal(requests.at(-1).fields.length, 1);
+    if (change === 'manual') await page.locator('form textarea').fill('保留手工草稿');
+    if (change === 'replace') await page.locator('form textarea').evaluate(node => node.replaceWith(node.cloneNode(true)));
+    if (change === 'profile') await worker.evaluate(async () => { const key = 'recruitment.profile.v1'; const saved = (await chrome.storage.local.get(key))[key];
+      saved.projects[1].description = '虚构同修订号更新'; await chrome.storage.local.set({ [key]: saved }); });
+    if (change === 'connection') await worker.evaluate(async () => { const key = 'recruitment.semantic.connection.v1'; const saved = (await chrome.storage.local.get(key))[key];
+      saved.cacheRevision = crypto.randomUUID(); await chrome.storage.local.set({ [key]: saved }); });
+    if (change === 'stop') await popup.getByRole('button', { name: '停止项目填写', exact: true }).click();
+    if (change !== 'invalid' && change !== 'stop') { mode = 'normal'; pending(); }
+    if (change === 'stop') { await popup.getByText('项目任务已停止', { exact: false }).waitFor();
+      await new Promise(res => setTimeout(res, 200)); assert.ok(aborted > previousAborted, 'Port disconnect did not abort upstream'); }
+    else await popup.getByText('项目填写需要检查', { exact: false }).waitFor();
+    assert.deepEqual(await counts(page), blocked); assert.equal(await page.locator('form input').inputValue(), ''); assert.equal(requests.length - previous, 1);
+    if (change === 'manual') assert.equal(await page.locator('form textarea').inputValue(), '保留手工草稿');
+    report.checks.push('Current project ' + change + ' rejects the entire pending batch, preserves drafts and performs no Save or unsafe action');
+    await popup.close(); await page.close();
+    if (change === 'profile') await worker.evaluate(async restored => { const key = 'recruitment.profile.v1'; const saved = (await chrome.storage.local.get(key))[key];
+      saved.projects = restored; await chrome.storage.local.set({ [key]: saved }); }, profile.projects);
+    if (change === 'connection') await worker.evaluate(async restored => chrome.storage.local.set({ 'recruitment.semantic.connection.v1': restored }), originalConnection);
+  }
+  assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []); report.passed = true;
+  console.info('Project semantic extension E2E passed (' + report.checks.length + ' checks)');
+} catch (error) { report.failure = error.stack ?? String(error); throw error; }
+finally {
+  report.finishedAt = new Date().toISOString(); await writeFile(resolve(artifacts, 'project-semantic-extension-report.json'), JSON.stringify(report, null, 2));
+  await context?.close(); service.closeAllConnections(); await new Promise(res => service.close(res));
+}

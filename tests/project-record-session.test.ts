@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createProjectRecordSession, projectRecordAvailability } from '../src/content/projectRecordSession';
 import { ProjectRecordWorkflow } from '../src/content/projectRecordWorkflow';
 import type { ProjectProjectionResponse } from '../src/profile/projection';
+import type { SemanticProvider } from '../src/ai/semanticCandidates';
 
 const projection: ProjectProjectionResponse = { recordType: 'project', profileRevision: 'fictional-project-revision',
   projects: Array.from({ length: 6 }, (_, index) => ({ id: `fictional-${index}`,
@@ -14,6 +15,7 @@ function installPage(addLabel = '+', english = false, initial = [1, 0], relation
   const list = document.querySelector('[role="list"]')!;
   list.id = 'project-items';
   const counts = { add: 0, save: 0, submit: 0, remove: 0 };
+  const saved: { name: string; description: string }[] = [];
   const cards: Element[] = [];
   const add = document.createElement('button'); add.type = 'button'; add.textContent = addLabel;
   if (relation) add.setAttribute(relation, list.id);
@@ -35,6 +37,7 @@ function installPage(addLabel = '+', english = false, initial = [1, 0], relation
       const name = editor.querySelector('input')!.value;
       const index = projection.projects.findIndex(project => project.name === name);
       if (index < 0) return;
+      saved.push({ name, description: editor.querySelector('textarea')!.value });
       cards.unshift(card(index)); closed();
     });
     list.append(editor);
@@ -42,10 +45,74 @@ function installPage(addLabel = '+', english = false, initial = [1, 0], relation
   closed();
   const final = document.createElement('button'); final.type = 'button'; final.textContent = '最终提交';
   final.addEventListener('click', () => counts.submit++); document.body.append(final);
-  return { list, add, counts };
+  return { list, add, counts, saved };
 }
 
 afterEach(() => { document.body.innerHTML = ''; document.head.innerHTML = ''; window.history.replaceState({}, '', '/'); });
+
+function unfamiliarProjects(mixed = false) {
+  const page = installPage('+', false, [0], 'aria-controls');
+  page.add.addEventListener('click', () => {
+    const labels = page.list.querySelectorAll('form label');
+    if (!mixed) labels[0]!.firstChild!.textContent = '这项工作叫什么';
+    labels[1]!.firstChild!.textContent = '这项工作做了些什么';
+  });
+  const provider: SemanticProvider = { propose: vi.fn(async (request: Parameters<SemanticProvider['propose']>[0]) => ({ requestId: request.requestId, status: 'mapped',
+    bindings: request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint,
+      path: field.label.includes('叫什么') ? 'projects.name' : 'projects.description', certainty: 'certain', evidence: 'label' })) })) };
+  return { ...page, provider };
+}
+
+it.each([false, true])('陌生项目编辑器与已知字段混合=%s时逐条读取正确项目并只保存一次', async mixed => {
+  const p = unfamiliarProjects(mixed);
+  const session = createProjectRecordSession(document, projection, undefined, undefined, p.provider);
+  for (let step = 0; step < 20; step++) { const result = await session.advance(); if (result.status === 'complete') break; expect(result.status).toBe('advanced'); }
+  expect(session.state).toBe('complete');
+  expect(p.saved).toEqual(projection.projects.slice(1).map(project => ({ name: project.name, description: project.description })));
+  expect(p.counts).toEqual({ add: 5, save: 5, submit: 0, remove: 0 });
+  expect(p.provider.propose).toHaveBeenCalledTimes(5);
+  expect(vi.mocked(p.provider.propose).mock.calls.every(([request]) => request.fields.length === (mixed ? 1 : 2))).toBe(true);
+  expect(JSON.stringify(vi.mocked(p.provider.propose).mock.calls)).not.toContain('虚构通用项目');
+}, 15_000);
+
+it.each(['stop', 'manual', 'replace', 'profile'])('模型等待期间%s不会写已知字段或保存', async change => {
+  const p = unfamiliarProjects(true); let reply!: (response: unknown) => void;
+  const original = p.provider.propose; p.provider.propose = vi.fn(() => new Promise(resolve => { reply = resolve; }));
+  let latest = projection;
+  const session = createProjectRecordSession(document, projection, async () => latest, undefined, p.provider);
+  expect((await session.advance()).status).toBe('advanced');
+  const pending = session.advance(); await vi.waitFor(() => expect(p.provider.propose).toHaveBeenCalledOnce());
+  if (change === 'stop') session.stop();
+  if (change === 'manual') p.list.querySelector('textarea')!.value = '保留手工草稿';
+  if (change === 'replace') { const field = p.list.querySelector('textarea')!; field.replaceWith(field.cloneNode(true)); }
+  if (change === 'profile') latest = { ...projection, projects: projection.projects.map(project => ({ ...project, description: '同修订号的新资料' })) };
+  const [request, signal] = vi.mocked(p.provider.propose).mock.calls[0]!;
+  reply(await original(request, new AbortController().signal)); await pending;
+  expect(p.list.querySelector('input')!.value).toBe(''); expect(p.counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+  if (change === 'stop' || change === 'profile') expect(signal.aborted).toBe(true);
+  if (change === 'manual') expect(p.list.querySelector('textarea')!.value).toBe('保留手工草稿');
+});
+
+it('已知字段缺事实时零模型调用、零写入与保存', async () => {
+  const p = unfamiliarProjects(true);
+  p.add.addEventListener('click', () => p.list.querySelector('form')!.insertAdjacentHTML('afterbegin', '<label>开始日期<input type="date"></label>'));
+  const session = createProjectRecordSession(document, projection, undefined, undefined, p.provider);
+  expect((await session.advance()).status).toBe('advanced'); expect((await session.advance()).status).toBe('request-human');
+  expect(p.provider.propose).not.toHaveBeenCalled(); expect(p.counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+  expect([...p.list.querySelectorAll('input,textarea')].every(node => (node as HTMLInputElement).value === '')).toBe(true);
+});
+
+it.each(['partial', 'invalid'])('项目模型%s批次不能只写其中的已知或有效字段', async mode => {
+  const p = unfamiliarProjects(); const original = p.provider.propose;
+  p.provider.propose = vi.fn(async (request: Parameters<SemanticProvider['propose']>[0], signal: AbortSignal) => {
+    const response = await original(request, signal) as { bindings: unknown[] };
+    return mode === 'partial' ? { ...response, bindings: response.bindings.slice(0, 1) } : { ...response, answer: '不能生成答案' };
+  });
+  const session = createProjectRecordSession(document, projection, undefined, undefined, p.provider);
+  expect((await session.advance()).status).toBe('advanced'); expect((await session.advance()).status).toBe('request-human');
+  expect([...p.list.querySelectorAll('input,textarea')].every(node => (node as HTMLInputElement).value === '')).toBe(true);
+  expect(p.counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+});
 
 it.each([
   [[], 'aria-controls', 6], [[], 'aria-owns', 6], [[0], 'aria-controls', 5], [[0], 'aria-owns', 5],

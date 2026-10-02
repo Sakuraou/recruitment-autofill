@@ -12,6 +12,8 @@ import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
 import { requestProjectProjection } from './profileProjectionClient';
 import { ProjectRecordWorkflow } from './projectRecordWorkflow';
+import { createProjectRecordSession } from './projectRecordSession';
+import { createProjectSemanticClient } from './projectSemanticClient';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -51,7 +53,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
-  const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection);
+  const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection,
+    (doc, projection, refresh) => createProjectRecordSession(doc, projection, refresh, undefined, createProjectSemanticClient()));
   let projectProjection: Awaited<ReturnType<typeof requestProjectProjection>> | undefined;
   let projectProjectionRequest: Promise<Awaited<ReturnType<typeof requestProjectProjection>>> | undefined;
   const recordV2 = new RecordV2Gateway({

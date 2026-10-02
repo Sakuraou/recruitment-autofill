@@ -2,6 +2,9 @@ import { loadProfile, PROFILE_STORAGE_KEY } from '../profile/storage';
 import { projectProjectionRequestSchema, projectProfile } from '../profile/projection';
 import { AI_CONNECTION_KEY } from '../ai/connection';
 import { clearSessionSemanticRecipes } from '../ai/sessionRecipes';
+import { createProjectSemanticPortHandler } from './projectSemanticPort';
+
+chrome.runtime.onConnect.addListener(createProjectSemanticPortHandler());
 
 async function restrictStorage() {
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
