@@ -152,6 +152,14 @@ export class RecordRunContext {
   get profileRevision(): number { return this.#profileRevision; }
   get stopped(): boolean { return this.#stopped; }
 
+  /** Read-only freshness check; an old capture never becomes the current editor again. */
+  isCurrentCapture(capture: unknown): capture is RecordRunCapture {
+    return isIssuedRecordRunCapture(capture) && !this.#stopped && capture.runToken === this.#runToken
+      && capture.snapshotVersion === this.#snapshotVersion && capture.profileRevision === this.#profileRevision
+      && (capture.editorCandidate ? this.#editor?.handle === capture.editorCandidate.editorHandle
+        && this.#editor.revision === capture.editorRevision : this.#editor === undefined);
+  }
+
   bumpProfileRevision(): number {
     if (this.#stopped || this.#profileRevision >= MAX_REVISION) throw new Error('运行已停止或档案修订次数超限');
     this.#profileRevision++;

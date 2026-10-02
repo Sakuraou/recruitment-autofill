@@ -7,8 +7,9 @@ import { resolveProfileValue } from '../matching/profileResolver';
 import { createSemanticBindingSession, semanticBindingsCurrent, validateSemanticBindings,
   type BindingValidation, type SemanticBindingPath, type SemanticBindingSession } from './semanticBinding';
 import type { SemanticRecipes } from './semanticRecipes';
+import { projectSemanticContextCurrent, resolveCurrentProjectField, type ProjectSemanticContext } from './projectSemanticContext';
 
-type CandidateResult = { ok: true; matches: MatchResult[] } | { ok: false; reason: 'stale-binding' | 'invalid-profile' };
+type CandidateResult = { ok: true; matches: MatchResult[] } | { ok: false; reason: 'stale-binding' | 'invalid-profile' | 'invalid-project-context' };
 function incompatibleControl(field: FieldDescriptor, path: SemanticBindingPath): boolean {
   if (field.type === 'email') return path !== 'basic.email';
   if (field.type === 'tel') return path !== 'basic.phone';
@@ -20,9 +21,11 @@ function incompatibleControl(field: FieldDescriptor, path: SemanticBindingPath):
 }
 
 /** Produces review candidates only. No network, logging, writes, guessed record index or automatic approval. */
-export function resolveSemanticCandidates(result: BindingValidation, scan: ScanResult, profile: UserProfile): CandidateResult {
+export function resolveSemanticCandidates(result: BindingValidation, scan: ScanResult, profile: UserProfile, projectContext?: ProjectSemanticContext): CandidateResult {
   if (!result.ok || !semanticBindingsCurrent(result, scan, profile)) return { ok: false, reason: 'stale-binding' };
   if (!profileSchema.safeParse(profile).success) return { ok: false, reason: 'invalid-profile' };
+  if (projectContext && !projectSemanticContextCurrent(projectContext, scan, profile, result.bindings.map(binding => binding.fieldId)))
+    return { ok: false, reason: 'invalid-project-context' };
   const byId = new Map(scan.fields.map(field => [field.id, field]));
   const matches = result.bindings.map(binding => {
     const field = byId.get(binding.fieldId)!;
@@ -32,7 +35,13 @@ export function resolveSemanticCandidates(result: BindingValidation, scan: ScanR
     if ((binding.path === 'basic.heightCm' || binding.path === 'basic.weightKg')
       && !hasMeasurementUnits(field, binding.path === 'basic.heightCm' ? 'heightCm' : 'weightKg'))
       return { ...base, reason: '测量单位未唯一明确为厘米或千克，不能按模型提议推算。' };
-    if (binding.path.startsWith('projects.')) return { ...base, reason: '项目字段需要记录规划器明确当前经历；模型绑定不会默认第一条。' };
+    if (binding.path.startsWith('projects.')) {
+      const resolved = projectContext ? resolveCurrentProjectField(projectContext, scan, profile, field.id, binding.path) : undefined;
+      if (!resolved) return { ...base, reason: '项目字段需要记录规划器明确当前经历；模型绑定不会默认第一条。' };
+      return resolved.status === 'known' ? { ...base, value: resolved.value, confidence: resolved.confidence,
+        reason: '从当前规划项目读取，并通过本地日期、长度与选项校验。' }
+        : { ...base, confidence: 0, reason: `当前项目字段未通过本地校验：${resolved.reason}` };
+    }
     const alias = fieldAliases.find(item => `${item.scope}.${item.key}` === binding.path);
     if (!alias) return { ...base, reason: '本地尚未提供这个资料路径的取值规则。' };
     const resolved = resolveProfileValue(field, profile, alias);
