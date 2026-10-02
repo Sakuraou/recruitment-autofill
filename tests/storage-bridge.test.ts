@@ -6,11 +6,12 @@ import { scanDocument } from '../src/content/scanner';
 import { matchFields } from '../src/matching/ruleMatcher';
 import { createDebugReport } from '../src/popup/debug';
 import { EXTENSION_VERSION } from '../src/shared/version';
+import { fillScan } from '../src/content/autofill';
 
 const profile = createEmptyProfile();
 profile.basic = { name: '虚构用户', phone: '00000000000', email: 'fictional@example.invalid', idNumber: 'TEST-SECRET-ID' };
 const local = { setAccessLevel: vi.fn().mockResolvedValue(undefined), get: vi.fn(), set: vi.fn().mockResolvedValue(undefined) };
-const tabs = { query: vi.fn(), sendMessage: vi.fn() };
+const tabs = { query: vi.fn(), sendMessage: vi.fn(), connect: vi.fn() };
 const scripting = { executeScript: vi.fn().mockResolvedValue([]) };
 let plan: PagePlan;
 beforeEach(() => {
@@ -64,6 +65,25 @@ describe('local profile storage', () => {
   });
 });
 describe('popup execution gates', () => {
+  it('停止须送达当前网页批次，第一字段事件取消后第二字段零写入', async () => {
+    const scanState = scanDocument(); plan.scan = scanState.result; plan.matches = matchFields(plan.scan.fields, profile);
+    const controller = new AbortController(); const remote = new AbortController(); let laterWrites = 0;
+    document.querySelectorAll('input')[0]!.addEventListener('input', () => controller.abort());
+    document.querySelectorAll('input')[1]!.addEventListener('input', () => laterWrites++);
+    tabs.sendMessage.mockImplementation(async (_tab, message) => ({ ok: true, data: await fillScan(scanState, message.payload) }));
+    const messages = new Set<(value: unknown) => void>(); const disconnects = new Set<() => void>();
+    tabs.connect.mockReturnValue({
+      onMessage: { addListener: (fn: (value: unknown) => void) => messages.add(fn), removeListener: (fn: (value: unknown) => void) => messages.delete(fn) },
+      onDisconnect: { addListener: (fn: () => void) => disconnects.add(fn), removeListener: (fn: () => void) => disconnects.delete(fn) },
+      disconnect: () => { remote.abort(); for (const fn of [...disconnects]) fn(); },
+      postMessage: (message: { payload: Parameters<typeof fillScan>[1] }) => {
+        void fillScan(scanState, message.payload, remote.signal).then(data => { for (const fn of [...messages]) fn({ ok: true, data }); });
+      },
+    });
+    await expect(fillPlan(plan, new Set(), 'auto', controller.signal)).rejects.toThrow();
+    expect(laterWrites).toBe(0); expect(document.querySelectorAll('input')[1]!.value).toBe('');
+    expect(tabs.sendMessage).not.toHaveBeenCalled();
+  });
   it('拒绝旧页面脚本，明确告知刷新招聘网页而不是反复重装', async () => {
     tabs.sendMessage.mockResolvedValue({ ok: true, data: { ...plan.scan, contentVersion: undefined } });
     await expect(scanPage()).rejects.toThrow('网页仍运行旧版脚本');

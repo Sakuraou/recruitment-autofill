@@ -1,11 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContentResponse, ScanResult } from '../src/shared/types';
+import { PAGE_OPERATION_PORT } from '../src/shared/pageOperationProtocol';
 
 type MessageListener = (message: unknown, sender: chrome.runtime.MessageSender, respond: (response: ContentResponse<unknown>) => void) => boolean | undefined;
 let listener: MessageListener;
+let portListener: (port: chrome.runtime.Port) => void;
 const extensionId = 'recruitment-autofill-test';
 const sender = { id: extensionId, url: `chrome-extension://${extensionId}/popup.html` };
 const addListener = vi.fn((callback: MessageListener) => { listener = callback; });
+function testPort() {
+  const messages = new Set<(value: unknown) => void>(); const disconnects = new Set<() => void>();
+  const port = { name: PAGE_OPERATION_PORT, sender,
+    onMessage: { addListener: (fn: (value: unknown) => void) => messages.add(fn), removeListener: (fn: (value: unknown) => void) => messages.delete(fn) },
+    onDisconnect: { addListener: (fn: () => void) => disconnects.add(fn), removeListener: (fn: () => void) => disconnects.delete(fn) },
+    postMessage: vi.fn(), disconnect: () => { for (const fn of [...disconnects]) fn(); },
+  };
+  portListener(port as unknown as chrome.runtime.Port);
+  return { port, send: (value: unknown) => { for (const fn of [...messages]) fn(value); } };
+}
 
 beforeEach(async () => {
   vi.resetModules();
@@ -15,13 +27,38 @@ beforeEach(async () => {
   vi.stubGlobal('chrome', { runtime: {
     id: extensionId,
     getURL: (path: string) => `chrome-extension://${extensionId}/${path}`,
-    onMessage: { addListener },
+    onMessage: { addListener }, onConnect: { addListener: (fn: (port: chrome.runtime.Port) => void) => { portListener = fn; } },
   } });
   await import('../src/content/index');
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('Content Script 消息入口', () => {
+  it('真实入口的端口与消息共享占用锁；断开中止后续字段并使扫描失效', async () => {
+    document.body.innerHTML = '<label>姓名<input></label><label>手机号<input></label>';
+    const response = vi.fn(); listener({ type: 'RA_SCAN' }, sender, response);
+    const scanned = response.mock.calls[0]![0] as { ok: true; data: ScanResult };
+    const p = testPort(); let laterWrites = 0;
+    document.querySelectorAll('input')[0]!.addEventListener('input', () => p.port.disconnect());
+    document.querySelectorAll('input')[1]!.addEventListener('input', () => laterWrites++);
+    p.send({ type: 'RA_FILL', payload: { scanId: scanned.data.scanId,
+      items: scanned.data.fields.map(field => ({ fieldId: field.id, value: '虚构内容', confirmed: true })) } });
+    response.mockClear(); listener({ type: 'RA_SCAN' }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: false, error: '正在填写，请等待完成后再操作' });
+    for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+    listener({ type: 'RA_FILL', payload: { scanId: scanned.data.scanId, items: [] } }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: false, error: '请先扫描当前页面' });
+    expect(laterWrites).toBe(0); expect(p.port.postMessage).not.toHaveBeenCalled();
+    listener({ type: 'RA_SCAN' }, sender, response); expect(response).toHaveBeenLastCalledWith({ ok: true, data: expect.any(Object) });
+  });
+
+  it('取消稳定扫描后零新快照，旧扫描不能用于后续填写', async () => {
+    const response = vi.fn(); listener({ type: 'RA_SCAN' }, sender, response);
+    const p = testPort(); p.send({ type: 'RA_SCAN_SETTLED' }); p.port.disconnect();
+    for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+    listener({ type: 'RA_FILL', payload: { scanId: 'old', items: [] } }, sender, response);
+    expect(response).toHaveBeenLastCalledWith({ ok: false, error: '请先扫描当前页面' }); expect(p.port.postMessage).not.toHaveBeenCalled();
+  });
   it('重复注入不会重复注册监听器', async () => {
     vi.resetModules();
     await import('../src/content/index');

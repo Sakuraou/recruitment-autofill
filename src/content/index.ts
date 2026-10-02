@@ -14,6 +14,8 @@ import { requestProjectProjection } from './profileProjectionClient';
 import { ProjectRecordWorkflow } from './projectRecordWorkflow';
 import { createProjectRecordSession } from './projectRecordSession';
 import { createProjectSemanticClient } from './projectSemanticClient';
+import { createPageOperationPortHandler } from './pageOperationPort';
+import { fillRequestSchema } from '../shared/pageOperationProtocol';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -40,12 +42,7 @@ const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_PROJECT_RECORD_PAUSE') }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_RESUME') }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_STOP') }).strict(),
-  z.object({ type: z.literal('RA_FILL'), payload: z.object({
-    scanId: z.string().min(1).max(100),
-    items: z.array(z.object({
-      fieldId: z.string().min(1).max(150), value: z.string().max(50_000), confirmed: z.boolean(),
-    }).strict()).max(500),
-  }).strict() }).strict(),
+  z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema }).strict(),
 ]);
 
 if (!window.__recruitmentAutofillInstalled && window.top === window) {
@@ -64,6 +61,29 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return createRecordV2FixtureSession(document, projectProjection, requestProjectProjection);
     } } : {}),
   });
+  chrome.runtime.onConnect.addListener(createPageOperationPortHandler({
+    extensionId: chrome.runtime.id, extensionUrl: path => chrome.runtime.getURL(path),
+    acquire: () => {
+      if (filling || projectWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
+        throw new Error('page occupied');
+      filling = true;
+      return () => { filling = false; };
+    },
+    invalidate: () => { currentScan = undefined; },
+    execute: async (request, signal) => {
+      signal.throwIfAborted();
+      if (request.type === 'RA_FILL') {
+        if (!currentScan) throw new Error('scan missing');
+        return fillScan(currentScan, request.payload, signal);
+      }
+      const originalUrl = document.URL; currentScan = undefined;
+      const result = await waitForDomStability({ root: document.documentElement, quietWindowMs: 750, timeoutMs: 3000,
+        signal, observe: { characterData: true }, predicate: () => document.URL === originalUrl && !document.querySelector('[aria-busy="true"]') });
+      signal.throwIfAborted();
+      if (result.status !== 'stable' || document.URL !== originalUrl) throw new Error('page unsettled');
+      currentScan = scanDocument(); return currentScan.result;
+    },
+  }));
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: ContentResponse<unknown>) => void) => {
     const senderUrl = sender.url?.split(/[?#]/u)[0];
     if (sender.id !== chrome.runtime.id || !senderUrl || ![

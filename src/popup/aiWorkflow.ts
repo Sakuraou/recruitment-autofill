@@ -7,7 +7,7 @@ export interface AiWorkflowPorts {
   fillRules(plan: PagePlan, signal: AbortSignal): Promise<IterativeFillResult>;
   infer(plan: PagePlan, signal: AbortSignal, excludedFieldIds: ReadonlySet<string>): Promise<SemanticInferenceResult>;
   fillModel(plan: PagePlan, ids: Set<string>, signal: AbortSignal): Promise<FillOutcome[]>;
-  scanAfterFill(): Promise<PagePlan>;
+  scanAfterFill(signal: AbortSignal): Promise<PagePlan>;
 }
 export interface AiFillResult {
   plan: PagePlan; outcomes: FillOutcome[]; rounds: number;
@@ -45,7 +45,7 @@ export async function runAiFillWorkflow(ports: AiWorkflowPorts, signal: AbortSig
     signal.throwIfAborted(); const filled = await ports.fillModel(plan, ids, signal); signal.throwIfAborted();
     outcomes.push(...filled);
     if (!filled.some(item => item.status === 'filled')) return { plan, outcomes, rounds, state: 'no-progress' };
-    const next = await ports.scanAfterFill(); verify(next); plan = next;
+    const next = await ports.scanAfterFill(signal); verify(next); plan = next;
   }
   return { plan, outcomes, rounds, state: 'limit-reached' };
 }

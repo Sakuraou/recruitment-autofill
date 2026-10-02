@@ -8,6 +8,7 @@ import { createLoopbackProvider } from '../ai/loopbackProvider';
 import { inferSemanticCandidates } from '../ai/semanticCandidates';
 import { SessionSemanticRecipes } from '../ai/sessionRecipes';
 import { runAiFillWorkflow, type AiFillResult } from './aiWorkflow';
+import { fillPageCancelable, scanPageCancelable } from './pageOperationClient';
 
 export interface PagePlan { tabId: number; scan: ScanResult; matches: MatchResult[]; profile: UserProfile }
 export async function currentTab(): Promise<chrome.tabs.Tab & { id: number }> {
@@ -31,11 +32,16 @@ export async function send<T>(tabId: number, request: ContentRequest): Promise<T
     ? '网页仍运行旧版脚本，请先保留未保存内容，再刷新招聘网页以加载连续填写功能。' : response.error);
   return response.data;
 }
-export async function scanPage(settled = false): Promise<PagePlan> {
+export async function scanPage(settled = false, signal?: AbortSignal): Promise<PagePlan> {
+  signal?.throwIfAborted();
   const [tab, profile] = await Promise.all([currentTab(), loadProfile()]);
   try { await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }); }
   catch { throw new Error('无法访问此页面。请确认是普通网页；file:// 测试页需要在扩展详情开启文件访问，或使用本地测试服务器。'); }
-  const scan = await send<ScanResult>(tab.id, { type: settled ? 'RA_SCAN_SETTLED' : 'RA_SCAN' });
+  signal?.throwIfAborted();
+  const scan = settled && signal ? await scanPageCancelable(tab.id, signal)
+    : await send<ScanResult>(tab.id, { type: settled ? 'RA_SCAN_SETTLED' : 'RA_SCAN' });
+  signal?.throwIfAborted();
+  if (scan.url !== tab.url) throw new Error('页面已变化，请重新扫描。');
   if (scan.contentVersion !== EXTENSION_VERSION) throw new Error(`扩展已是 v${EXTENSION_VERSION}，但网页仍运行旧版脚本。请先保留未保存内容，再刷新招聘网页后扫描。`);
   return { tabId: tab.id, scan, matches: matchFields(scan.fields, profile), profile };
 }
@@ -50,6 +56,7 @@ export async function fillPlan(plan: PagePlan, selectedIds: Set<string>, mode: '
     .map(match => ({ fieldId: match.fieldId, value: match.value!, confirmed: true }));
   if (!items.length) throw new Error('没有已确认且可填写的候选。');
   signal?.throwIfAborted();
+  if (signal) return fillPageCancelable(plan.tabId, { scanId: plan.scan.scanId, items }, signal);
   return send<FillOutcome[]>(plan.tabId, { type: 'RA_FILL', payload: { scanId: plan.scan.scanId, items } });
 }
 
@@ -75,7 +82,7 @@ export async function fillAutoUntilStable(initial: PagePlan, maxRounds = 4, sign
     if (!result.some((item) => item.status === 'filled')) { rounds++; break; }
     await new Promise((resolve) => setTimeout(resolve, 300));
     signal?.throwIfAborted();
-    plan = await scanPage();
+    plan = await scanPage(false, signal);
     if (plan.tabId !== initial.tabId || plan.scan.url !== initial.scan.url || JSON.stringify(plan.profile) !== profileSnapshot)
       throw new Error('页面或档案已变化，已停止后续填写。');
   }
@@ -88,7 +95,7 @@ export async function fillWithAi(signal: AbortSignal): Promise<AiFillResult> {
   const connection = await loadAiConnection();
   const provider = connection ? createLoopbackProvider({ protocol: 1, token: connection.token }) : undefined;
   const recipes = connection?.cacheRevision ? new SessionSemanticRecipes(connection.cacheRevision) : undefined;
-  return runAiFillWorkflow({ scan: () => scanPage(), scanAfterFill: () => scanPage(true),
+  return runAiFillWorkflow({ scan: () => scanPage(false, signal), scanAfterFill: activeSignal => scanPage(true, activeSignal),
     fillRules: (plan, activeSignal) => fillAutoUntilStable(plan, 4, activeSignal),
     fillModel: (plan, ids, activeSignal) => fillPlan(plan, ids, 'review', activeSignal),
     infer: (plan, activeSignal, excludedFieldIds) => inferSemanticCandidates(plan.scan, plan.profile, provider, { recipes, signal: activeSignal, excludedFieldIds, currentContext: async () => {

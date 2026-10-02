@@ -46,8 +46,24 @@ document.querySelector('#fields').insertAdjacentHTML('beforeend','<label>如何�
 document.querySelector('#u').addEventListener('change',()=>setTimeout(()=>{
 document.querySelector('#fields').insertAdjacentHTML('beforeend','<label>展示您制作的作品<input type="url" id="p"></label>');},600));},600);});},600);});
 </script></body></html>`;
-const fixture = createServer((request, response) => { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); response.end(request.url.startsWith('/dynamic') ? dynamicHtml : html); });
-let context;
+const cancellationHtml = `<!doctype html><html lang="zh"><meta charset="utf-8"><title>虚构异步选择表单</title><body>
+<section><h2>个人信息</h2><button type="button" id="c1" role="combobox" aria-label="您的身份称谓" aria-controls="list-one" aria-expanded="false">请选择</button>
+<div id="list-one" role="listbox" hidden><div role="option">男性</div></div>
+<button type="button" id="c2" role="combobox" aria-label="如何称呼您" aria-controls="list-two" aria-expanded="false">请选择</button>
+<div id="list-two" role="listbox" hidden><div role="option">虚构用户乙</div></div></section>
+<button type="submit" onclick="window.submits++">最终提交</button><script>
+window.submits=0;window.opens=0;window.optionClicks=0;window.laterOpens=0;
+const gender=document.querySelector('#c1'), choices=document.querySelector('#list-one');
+gender.addEventListener('click',()=>{window.opens++;gender.setAttribute('aria-expanded','true');choices.hidden=false;choices.innerHTML='';
+setTimeout(()=>{choices.innerHTML='<div role="option">男性</div>';},400);});
+choices.addEventListener('click',()=>{window.optionClicks++;gender.textContent='男性';gender.setAttribute('aria-valuetext','男性');gender.setAttribute('aria-expanded','false');choices.hidden=true;});
+const name=document.querySelector('#c2'), names=document.querySelector('#list-two');
+name.addEventListener('click',()=>{window.laterOpens++;name.setAttribute('aria-expanded','true');names.hidden=false;});
+names.addEventListener('click',()=>{window.optionClicks++;name.textContent='虚构用户乙';name.setAttribute('aria-valuetext','虚构用户乙');name.setAttribute('aria-expanded','false');names.hidden=true;});
+</script></body></html>`;
+const fixture = createServer((request, response) => { response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  response.end(request.url.startsWith('/cancel-controls') ? cancellationHtml : request.url.startsWith('/dynamic') ? dynamicHtml : html); });
+let context; let latestPopup;
 try {
   await new Promise((res, rej) => { service.once('error', rej); service.listen(43127, '127.0.0.1', res); });
   await new Promise((res, rej) => { fixture.once('error', rej); fixture.listen(0, '127.0.0.1', res); });
@@ -78,7 +94,7 @@ try {
     const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] });
     const target = targetInfos.find(info => info.type === 'tab' && info.url === pageUrl); assert.ok(target);
     await cdp.send('Extensions.triggerAction', { id: extensionId, targetId: target.targetId });
-    const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    const popup = await context.newPage(); latestPopup = popup; await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await worker.evaluate(async fixtureUrl => { const tabs = await chrome.tabs.query({});
       const tab = tabs.find(item => item.url === fixtureUrl); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl);
     return popup;
@@ -244,6 +260,27 @@ try {
   assert.equal(requests.length - previous, 1); assert.equal(await form.locator('#e').inputValue(), ''); await popup.close();
   report.checks.push('Stop during delayed reveal prevents another model round or write while preserving the first selected answer');
 
+  for (const cancellation of ['stop', 'close', 'profile-change']) {
+    mode = 'normal'; await clearRecipes(); await form.goto(`${url}cancel-controls`); popup = await openPopup(); previous = requests.length;
+    await clickAi(popup);
+    try { await form.waitForFunction(() => window.opens === 1); }
+    catch (error) { report.cancelFixture = { popup: await popup.locator('[role="status"]').allTextContents(),
+      requests: requests.slice(previous).map(value => ({ fields: value.fields.map(field => ({ label: field.label, kind: field.kind, section: field.section })) })) };
+      await popup.screenshot({ path: resolve(artifacts, 'cancel-fixture-failure.png'), fullPage: true }); throw error; }
+    if (cancellation === 'stop') await popup.getByRole('button', { name: '停止 AI 填写', exact: true }).click();
+    else if (cancellation === 'close') await popup.close();
+    else await options.evaluate(async () => { const key='recruitment.profile.v1'; const data=await chrome.storage.local.get(key);
+      await chrome.storage.local.set({[key]:{...data[key],revision:crypto.randomUUID()}}); });
+    if (cancellation !== 'close') await popup.getByText('已停止后续 AI 填写', { exact: false }).waitFor();
+    await form.waitForFunction(() => document.querySelector('#list-one [role="option"]'));
+    await form.waitForTimeout(120);
+    assert.deepEqual(await form.evaluate(() => ({opens:window.opens, clicks:window.optionClicks, later:window.laterOpens, submits:window.submits})),
+      {opens:1,clicks:0,later:0,submits:0});
+    assert.equal(await form.locator('#c1').textContent(), '请选择'); assert.equal(requests.length-previous,1);
+    if (cancellation !== 'close') await popup.close();
+    report.checks.push(`Production popup ${cancellation} disconnects the in-flight content batch: late options have zero clicks and subsequent combo has zero opens`);
+  }
+
   await options.getByRole('button', { name: '关闭 AI 连接', exact: true }).click();
   await options.getByText('已关闭 AI 连接并移除配对令牌。', { exact: false }).waitFor();
   assert.equal((await options.evaluate(async () => await chrome.storage.local.get()))['recruitment.semantic.connection.v1'], undefined);
@@ -253,7 +290,9 @@ try {
   report.checks.push('Disabling AI clears signed session recipes and their secret');
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []);
   console.log(`Semantic extension E2E passed (${report.checks.length} checks)`);
-} catch (error) { report.failure = error.message; throw error; }
+} catch (error) { report.failure = error.message;
+  if (latestPopup && !latestPopup.isClosed()) report.lastState = await latestPopup.locator('[role="status"]').allTextContents();
+  throw error; }
 finally {
   await writeFile(resolve(artifacts, 'semantic-extension-report.json'), JSON.stringify(report, null, 2));
   await context?.close(); service.closeAllConnections(); fixture.closeAllConnections();
