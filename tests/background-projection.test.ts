@@ -26,7 +26,7 @@ beforeEach(async () => {
     onInstalled: { addListener: vi.fn() },
     onStartup: { addListener: vi.fn() },
     onMessage: { addListener },
-  }, storage: { local: { setAccessLevel, get } } });
+  }, storage: { local: { setAccessLevel, get }, onChanged: { addListener: vi.fn() } } });
   await import('../src/background/index');
 });
 

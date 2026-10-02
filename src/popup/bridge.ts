@@ -6,6 +6,7 @@ import { EXTENSION_VERSION } from '../shared/version';
 import { loadAiConnection } from '../ai/connection';
 import { createLoopbackProvider } from '../ai/loopbackProvider';
 import { inferSemanticCandidates } from '../ai/semanticCandidates';
+import { SessionSemanticRecipes } from '../ai/sessionRecipes';
 import { runAiFillWorkflow, type AiFillResult } from './aiWorkflow';
 
 export interface PagePlan { tabId: number; scan: ScanResult; matches: MatchResult[]; profile: UserProfile }
@@ -86,10 +87,11 @@ export async function fillWithAi(signal: AbortSignal): Promise<AiFillResult> {
   signal.throwIfAborted();
   const connection = await loadAiConnection();
   const provider = connection ? createLoopbackProvider({ protocol: 1, token: connection.token }) : undefined;
+  const recipes = new SessionSemanticRecipes();
   return runAiFillWorkflow({ scan: () => scanPage(), scanAfterFill: () => scanPage(true),
     fillRules: (plan, activeSignal) => fillAutoUntilStable(plan, 4, activeSignal),
     fillModel: (plan, ids, activeSignal) => fillPlan(plan, ids, 'review', activeSignal),
-    infer: (plan, activeSignal, excludedFieldIds) => inferSemanticCandidates(plan.scan, plan.profile, provider, { signal: activeSignal, excludedFieldIds, currentContext: async () => {
+    infer: (plan, activeSignal, excludedFieldIds) => inferSemanticCandidates(plan.scan, plan.profile, provider, { recipes, signal: activeSignal, excludedFieldIds, currentContext: async () => {
     const [tab, profile, latestConnection] = await Promise.all([currentTab(), loadProfile(), loadAiConnection()]);
     signal.throwIfAborted();
     if (tab.id !== plan.tabId || tab.url !== plan.scan.url || JSON.stringify(latestConnection) !== JSON.stringify(connection))

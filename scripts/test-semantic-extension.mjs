@@ -84,6 +84,9 @@ try {
     return popup;
   }
   async function clickAi(popup) { await popup.getByRole('button', { name: 'AI 识别并填写本页', exact: true }).click(); }
+  async function clearRecipes() { await options.evaluate(async () => chrome.storage.session.remove([
+    'recruitment.semantic.recipes.session.v1', 'recruitment.semantic.recipes.secret.v1',
+  ])); }
   async function waitForRequest(previous) { for (let i = 0; i < 100 && requests.length <= previous; i++) await new Promise(res => setTimeout(res, 50));
     assert.ok(requests.length > previous, 'No model request received'); }
   async function protectedFields() {
@@ -117,6 +120,37 @@ try {
   report.checks.push('Decoded service requests contain neither profile values, URL, pairing token nor protected fields');
   await popup.screenshot({ path: resolve(artifacts, 'semantic-extension.png'), fullPage: true }); await popup.close();
 
+  const cachedCount = requests.length;
+  await form.reload(); popup = await openPopup(); await clickAi(popup);
+  await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+  assert.equal(requests.length, cachedCount, 'Reopening the popup should reuse verified meanings without another model call');
+  assert.equal(await form.locator('#u').inputValue(), profile.basic.name); assert.equal(await form.locator('#g').inputValue(), 'opaque-m');
+  assert.equal(await form.locator('#b').inputValue(), profile.basic.birthday); await protectedFields(); await popup.close();
+  const cacheData = await options.evaluate(async () => chrome.storage.session.get()); const encodedCache = JSON.stringify(cacheData);
+  assert.ok(cacheData['recruitment.semantic.recipes.session.v1'].entries.length > 0); assert.ok(encodedCache.length < 35000);
+  for (const value of [profile.basic.name, profile.basic.phone, profile.basic.email, profile.basic.idNumber, token, url, '如何称呼您', 'opaque-m']) assert.ok(!encodedCache.includes(value));
+  const visibleSession = await form.evaluate(async () => {
+    // The ordinary page has no extension API. Its injected content script is checked below through its isolated realm.
+    return typeof chrome !== 'undefined' && Boolean(chrome.storage);
+  }); assert.equal(visibleSession, false);
+  const protectedSession = await worker.evaluate(async fixtureUrl => { const tab = (await chrome.tabs.query({})).find(item => item.url === fixtureUrl);
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: async () => {
+      try { return Boolean((await chrome.storage.session.get())['recruitment.semantic.recipes.session.v1']); } catch { return false; }
+    } }); return result.result;
+  }, url); assert.equal(protectedSession, false);
+  report.checks.push('Closed/reopened production popup reuses signed session meanings with zero additional provider calls; raw answers, clues, URL and option values absent and content-script access denied');
+
+  await options.evaluate(async () => { const key = 'recruitment.semantic.recipes.session.v1'; const data = (await chrome.storage.session.get(key))[key];
+    data.entries[0].path = 'basic.phone'; await chrome.storage.session.set({ [key]: data }); });
+  await form.reload(); popup = await openPopup(); await clickAi(popup);
+  await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+  assert.equal(requests.length, cachedCount + 1); assert.equal(await form.locator('#u').inputValue(), profile.basic.name);
+  await protectedFields(); await popup.close();
+  report.checks.push('Tampered cached path fails signature verification, falls back to one complete provider batch and does not fill a wrong answer');
+
+  // Latency cases below explicitly start with an empty cache to exercise a real pending provider attempt.
+  await clearRecipes();
+
   mode = 'hold'; await form.reload(); popup = await openPopup(); let previous = requests.length;
   await clickAi(popup); await waitForRequest(previous); await form.locator('#u').fill('人工修改'); pending();
   await popup.getByText('未知字段未填', { exact: false }).waitFor();
@@ -144,6 +178,9 @@ try {
   assert.equal(await form.locator('#u').inputValue(), ''); await popup.close();
   for (let i = 0; i < 50 && aborted < 2; i++) await new Promise(res => setTimeout(res, 50)); assert.ok(aborted >= 2);
   report.checks.push('Profile revision change aborts pending inference before any model candidate is written');
+  await options.waitForFunction(async () => !(await chrome.storage.session.get())['recruitment.semantic.recipes.session.v1']);
+  assert.equal((await options.evaluate(async () => chrome.storage.session.get()))['recruitment.semantic.recipes.secret.v1'], undefined);
+  report.checks.push('Background profile-change listener clears both session meanings and their signing secret');
 
   await form.reload(); popup = await openPopup(); previous = requests.length; await clickAi(popup); await waitForRequest(previous);
   await form.goto(`${url}another-page`); pending();
@@ -162,6 +199,11 @@ try {
   assert.equal(await form.locator('#u').inputValue(), ''); assert.equal(await form.locator('#g').inputValue(), ''); await popup.close();
   report.checks.push('Partially valid response with a forbidden field reference is rejected as a whole');
 
+  mode = 'normal'; await form.reload(); popup = await openPopup(); previous = requests.length; await clickAi(popup);
+  await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
+  assert.equal(requests.length - previous, 1); assert.equal(await form.locator('#u').inputValue(), '虚构用户乙'); await protectedFields(); await popup.close();
+  report.checks.push('After a profile edit the next intent requests new meanings and resolves the new saved name, never the old cached personal answer');
+
   mode = 'normal'; await form.goto(`${url}dynamic`); popup = await openPopup(); previous = requests.length;
   await clickAi(popup); await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
   await form.locator('#u').waitFor();
@@ -171,7 +213,7 @@ try {
   assert.equal(await form.evaluate(() => window.submits), 0); await popup.close();
   report.checks.push('One AI intent completes three unknown layers revealed after 600ms each, with fresh scan/session per layer; fourth layer stays pending at the explicit bound and no submit');
 
-  await form.reload(); popup = await openPopup(); previous = requests.length; await clickAi(popup);
+  await clearRecipes(); await form.reload(); popup = await openPopup(); previous = requests.length; await clickAi(popup);
   await form.waitForFunction(() => document.querySelector('#g').value === 'opaque-m');
   await popup.getByRole('button', { name: '停止 AI 填写', exact: true }).click();
   await popup.getByText('已停止后续 AI 填写', { exact: false }).waitFor();
@@ -181,7 +223,10 @@ try {
   await options.getByRole('button', { name: '关闭 AI 连接', exact: true }).click();
   await options.getByText('已关闭 AI 连接并移除配对令牌。', { exact: false }).waitFor();
   assert.equal((await options.evaluate(async () => await chrome.storage.local.get()))['recruitment.semantic.connection.v1'], undefined);
+  await options.waitForFunction(async () => !(await chrome.storage.session.get())['recruitment.semantic.recipes.session.v1']);
+  assert.equal((await options.evaluate(async () => chrome.storage.session.get()))['recruitment.semantic.recipes.secret.v1'], undefined);
   report.checks.push('Disabling AI removes the saved pairing token');
+  report.checks.push('Disabling AI clears signed session recipes and their secret');
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []);
   console.log(`Semantic extension E2E passed (${report.checks.length} checks)`);
 } catch (error) { report.failure = error.message; throw error; }

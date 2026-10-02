@@ -135,7 +135,7 @@ describe('private verified semantic recipes', () => {
     let resolveReply: (value: unknown) => void = () => {};
     const provider: SemanticProvider = { propose: vi.fn(() => new Promise(resolve => { resolveReply = resolve; })) };
     const pending = inferSemanticCandidates(s.scan, s.profile, provider, { recipes: cache, signal: controller.signal });
-    await Promise.resolve(); controller.abort(); expect(await pending).toEqual({ state: 'cancelled', matches: [] });
+    await vi.waitFor(() => expect(provider.propose).toHaveBeenCalled()); controller.abort(); expect(await pending).toEqual({ state: 'cancelled', matches: [] });
     const request = vi.mocked(provider.propose).mock.calls[0]![0]; const field = request.fields[0]!;
     resolveReply({ requestId: request.requestId, status: 'mapped', bindings: [{ ref: field.ref, fingerprint: field.fingerprint, path: 'basic.name', certainty: 'certain', evidence: 'label' }] });
     await Promise.resolve(); await Promise.resolve(); expect(cache.propose(prepared(s), s.scan, s.profile)).toBeUndefined();

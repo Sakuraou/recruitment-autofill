@@ -1,11 +1,17 @@
-import { loadProfile } from '../profile/storage';
+import { loadProfile, PROFILE_STORAGE_KEY } from '../profile/storage';
 import { projectProjectionRequestSchema, projectProfile } from '../profile/projection';
+import { AI_CONNECTION_KEY } from '../ai/connection';
+import { clearSessionSemanticRecipes } from '../ai/sessionRecipes';
 
 async function restrictStorage() {
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+  await chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 }
 chrome.runtime.onInstalled.addListener(() => { void restrictStorage().catch(() => console.error('[网申助手] 存储访问限制设置失败')); });
 chrome.runtime.onStartup.addListener(() => { void restrictStorage().catch(() => console.error('[网申助手] 存储访问限制设置失败')); });
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes[PROFILE_STORAGE_KEY] || changes[AI_CONNECTION_KEY])) void clearSessionSemanticRecipes();
+});
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: unknown) => void) => {
   const parsed = projectProjectionRequestSchema.safeParse(message);
