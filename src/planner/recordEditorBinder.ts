@@ -1,6 +1,6 @@
 import { fillScan, type FillScanInteractionTrace } from '../content/autofill';
 import type { RecordFieldReason } from '../matching/recordFieldReason';
-import { belongsToDocument, hasValue } from '../content/domUtils';
+import { belongsToDocument, hasValue, hiddenReason } from '../content/domUtils';
 import { booleanValue, createControlAdapter, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from '../content/controlAdapter';
 import { ariaComboboxFingerprint, controlFingerprint, describeAriaCombobox, describeControl, describeRadioGroup } from '../content/scanner';
 import { waitForDomStability } from '../content/domStability';
@@ -275,6 +275,15 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   if (!graph || !editor || !matchesIssuedRecordRunTarget(capture, plan.nextStep.editorRecordNodeId, editor)
     || !editor.isConnected || editor.ownerDocument !== scanState.document) return failure('field-map-mismatch');
   const graphNodes = new Map(graph.nodes.map(node => [node.id, node]));
+  const ownedFields = new Set(plan.nextStep.fieldNodeIds.map(id => {
+    const node = graphNodes.get(id); return node?.kind === 'field' ? node.fieldId : undefined;
+  }));
+  // Visible controls cannot be silently omitted just because a nested heading
+  // could not be assigned to this editor. No writes or saving grant in that case.
+  if (scanState.result.fields.some(field => {
+    const control = scanState.controls.get(field.id);
+    return control && composedContains(editor, control.node) && !hiddenReason(control.node) && !ownedFields.has(field.id);
+  })) return failure('field-semantic-unknown');
   const bindings: Binding[] = [];
   for (const fieldNodeId of plan.nextStep.fieldNodeIds) {
     const fieldNode = graphNodes.get(fieldNodeId);

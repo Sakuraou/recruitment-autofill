@@ -15,6 +15,7 @@ import {
 } from '../../shared/semanticGraph';
 import { semanticGraphProblems } from '../../shared/semanticGraphValidation';
 import { contextText } from '../domUtils';
+import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 import {
   detectRecordStructures,
@@ -314,6 +315,20 @@ interface SectionMatch {
   evidence: SectionLabelCandidate['evidence'][];
 }
 
+/** One explicit education question inside an education editor is not a new section. */
+function transparentEducationQuestion(container: Element): boolean {
+  if (!isEducationHighestQuestionGroup(container)) return false;
+  for (let ancestor = container.parentElement, depth = 0; ancestor && depth < 10; ancestor = ancestor.parentElement, depth++) {
+    if (!ancestor.matches('fieldset,section,form,[role="region"],[role="group"],[role="form"]')) continue;
+    const candidates = ancestor.matches('form') ? candidatesFor(ancestor).filter(item => item.evidence === 'aria-name') : candidatesFor(ancestor);
+    if (!candidates.length) continue;
+    const roles = new Set(candidates.map(candidate => classifySection([candidate]).role).filter(role => role !== 'other'));
+    if (!roles.size && ancestor.matches('form')) continue;
+    return roles.size === 1 && roles.has('education');
+  }
+  return false;
+}
+
 function sectionFor(element: Element, headingCache: HeadingLookupCache,
   supplementalHeading = ''): SectionMatch | undefined {
   const supplemental = classifySection(supplementalHeading ? [{ text: supplementalHeading, evidence: 'heading' }] : []);
@@ -324,6 +339,7 @@ function sectionFor(element: Element, headingCache: HeadingLookupCache,
   let current: Element | null = element;
   for (let depth = 0; current && depth < 10; depth++, current = current.parentElement) {
     if (current.matches('fieldset, section, form, [role="region"], [role="group"], [role="form"]')) {
+      if (transparentEducationQuestion(current)) continue;
       const isWholeForm = current.matches('form');
       if (isWholeForm && nearby.role !== 'other') continue;
       const candidates = isWholeForm

@@ -15,6 +15,7 @@ export type RecordRunCaptureFailureReason = RecordPlanHumanReason
   | 'record-target-outside-list'
   | 'record-target-ambiguous'
   | 'fields-changed-after-verification'
+  | 'editor-fields-unverified'
   | 'handle-limit-reached';
 
 export interface RecordRunCaptureFailure {

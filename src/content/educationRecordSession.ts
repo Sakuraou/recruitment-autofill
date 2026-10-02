@@ -1,6 +1,7 @@
 import { educationFillOrder } from '../profile/educationFillOrder';
 import { bindRecordEditor, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
 import { resolveBoundEducationField, resolveEducationField } from '../matching/educationFieldResolver';
+import { resolveEducationHighestField } from '../matching/educationHighestField';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
   type RecordRunCaptureSource } from '../planner/recordRunContext';
@@ -11,7 +12,7 @@ import { scanDocument, type ScanState } from './scanner';
 import { educationProjectionResponseSchema, type EducationProjectionResponse } from '../profile/educationProjection';
 import { educationCardComparator } from './educationRecordIdentity';
 import { hiddenReason } from './domUtils';
-import { recordObservationMatches } from './recordObservation';
+import { recordEditorCoverageComplete, recordObservationMatches } from './recordObservation';
 import { createEmptyProfile, type UserProfile } from '../profile/schema';
 import { createEducationSemanticContext, educationSemanticContextCurrent } from '../ai/educationSemanticContext';
 import { inferSemanticCandidates, type SemanticProvider } from '../ai/semanticCandidates';
@@ -90,6 +91,9 @@ class EducationDriver implements RecordOrchestratorDriver {
   capture(): RecordRunCapture | RecordRunCaptureFailure {
     const observation = this.#observe();
     if (!observation) return { status: 'request-human', snapshotVersion: 0, reason: 'record-list-unverified' };
+    if (!recordEditorCoverageComplete(observation.scan, observation.source.recordListNodeId)) {
+      return { status: 'request-human', snapshotVersion: 0, reason: 'editor-fields-unverified' };
+    }
     // Populate deliberately requires a new adjacent capture before Save. Do
     // not let that fresh capture erase evidence of silent value/field changes.
     if (this.#verifiedFields && !recordObservationMatches(this.#verifiedFields.observation.scan,
@@ -200,7 +204,9 @@ class EducationDriver implements RecordOrchestratorDriver {
       if (!field) return { status: 'request-human', reason: 'field-map-mismatch', writtenFieldCount: 0, rollbackComplete: true };
       const control = observation.scan.controls.get(field.id);
       const meaning = control && this.#semanticPaths.get(control.node);
-      const resolved = meaning ? resolveBoundEducationField(field, record, meaning) : resolveEducationField(field, record);
+      const highest = resolveEducationHighestField(field, this.#records, record.id);
+      const resolved = highest.status === 'not-applicable'
+        ? meaning ? resolveBoundEducationField(field, record, meaning) : resolveEducationField(field, record) : highest;
       if (resolved.status !== 'known') {
         if (resolved.reason === 'field-semantic-unknown') { unknown.add(field.id); continue; }
         return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };

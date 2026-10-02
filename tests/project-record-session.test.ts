@@ -50,6 +50,21 @@ function installPage(addLabel = '+', english = false, initial = [1, 0], relation
 
 afterEach(() => { document.body.innerHTML = ''; document.head.innerHTML = ''; window.history.replaceState({}, '', '/'); });
 
+it.each(['initial', 'dynamic'])('项目编辑器%s未归属字段阻止保存，不误报整条完成', async mode => {
+  const page = installPage('+', false, [], 'aria-controls');
+  page.add.addEventListener('click', () => {
+    const form = page.list.querySelector('form')!;
+    const orphan = () => form.insertAdjacentHTML('beforeend', '<fieldset><legend>额外业务问题</legend><label>未知问题<input required></label></fieldset>');
+    if (mode === 'initial') orphan();
+    else form.querySelector('input')!.addEventListener('input', () => setTimeout(orphan, 25), { once: true });
+  });
+  const session = createProjectRecordSession(document, projection);
+  let result = await session.advance(); if (result.status === 'advanced') result = await session.advance();
+  expect(result.status).toBe('request-human'); expect(page.counts.save).toBe(0);
+  expect(page.counts.submit).toBe(0); expect(page.counts.remove).toBe(0);
+  if (mode === 'initial') expect(page.list.querySelector<HTMLInputElement>('input')!.value).toBe('');
+});
+
 function unfamiliarProjects(mixed = false) {
   const page = installPage('+', false, [0], 'aria-controls');
   page.add.addEventListener('click', () => {

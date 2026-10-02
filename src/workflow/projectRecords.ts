@@ -24,6 +24,7 @@ const reasons: Readonly<Record<string, string>> = {
   'page-changed': '网页地址已变化，本轮已停止，请回到项目页重新启动。',
   'snapshot-stale': '网页内容在步骤间发生变化，已停止后续填写。',
   'fields-changed-after-verification': '字段核验后网页内容又发生变化，已停止保存并保留草稿。',
+  'editor-fields-unverified': '编辑框内有可见字段尚未归入当前记录，已停止填写和保存，请检查这些字段。',
   'identity-insufficient': '已有项目缺少可靠的身份信息，无法判断是否重复。',
   'save-result-uncertain': '保存结果无法确定，请检查网页，不能重复添加或保存。',
   'rollback-incomplete': '网页未能恢复部分填写内容，请先检查当前草稿。',

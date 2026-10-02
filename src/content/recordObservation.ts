@@ -1,6 +1,6 @@
 import type { SemanticNode } from '../shared/semanticGraph';
 import type { ScanState, ScannedControl } from './scanner';
-import { belongsToDocument } from './domUtils';
+import { belongsToDocument, hiddenReason } from './domUtils';
 import { stableAriaComboboxObservationMatches } from './controlAdapter';
 
 function subtree(scan: ScanState, listId: string): readonly SemanticNode[] | undefined {
@@ -20,6 +20,26 @@ function subtree(scan: ScanState, listId: string): readonly SemanticNode[] | und
   return queue.length ? undefined : nodes;
 }
 
+/** Reject scanned visible controls omitted by a nested, unrecognized section. */
+export function recordEditorCoverageComplete(scan: ScanState, listId: string): boolean {
+  const nodes = subtree(scan, listId); if (!nodes) return false;
+  return nodes.filter(node => node.kind === 'record' && node.state === 'creating').every(editorNode => {
+    const editor = scan.semanticTargets.get(editorNode.id); if (!editor?.isConnected) return false;
+    const owned = new Set(nodes.filter(node => node.kind === 'field' && node.parentId === editorNode.id)
+      .map(node => node.kind === 'field' ? node.fieldId : undefined));
+    return scan.result.fields.every(field => {
+      const control = scan.controls.get(field.id); if (!control || hiddenReason(control.node)) return true;
+      let current: Node | null = control.node;
+      for (let depth = 0; current && depth < 256; depth++) {
+        if (current === editor) return owned.has(field.id);
+        const root = current.getRootNode();
+        current = current.parentNode ?? ('host' in root ? (root as ShadowRoot).host : null);
+      }
+      return true;
+    });
+  });
+}
+
 /** Scan-local IDs are metadata; all other private fingerprint state remains exact. */
 function comparableFingerprint(control: ScannedControl): string | undefined {
   try {
@@ -34,7 +54,7 @@ function comparableFingerprint(control: ScannedControl): string | undefined {
 /** Page-local comparison only: no values, hashes or nodes are returned or logged. */
 export function recordObservationMatches(previous: ScanState, current: ScanState, listId: string): boolean {
   if (previous.document !== current.document || previous.result.url !== current.result.url
-    || current.document.URL !== current.result.url) return false;
+    || current.document.URL !== current.result.url || !recordEditorCoverageComplete(current, listId)) return false;
   const before = subtree(previous, listId); const after = subtree(current, listId);
   if (!before || !after || before.length !== after.length) return false;
   const byId = new Map(after.map(node => [node.id, node]));

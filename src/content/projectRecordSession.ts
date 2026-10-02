@@ -10,7 +10,7 @@ import { scanDocument, type ScanState } from './scanner';
 import { projectProjectionResponseSchema, type ProjectProjectionResponse } from '../profile/projection';
 import { projectCardComparator } from './projectRecordIdentity';
 import { hiddenReason } from './domUtils';
-import { recordObservationMatches } from './recordObservation';
+import { recordEditorCoverageComplete, recordObservationMatches } from './recordObservation';
 import { createEmptyProfile, type UserProfile } from '../profile/schema';
 import { createProjectSemanticContext, projectSemanticContextCurrent } from '../ai/projectSemanticContext';
 import { inferSemanticCandidates, type SemanticProvider } from '../ai/semanticCandidates';
@@ -86,6 +86,9 @@ class ProjectDriver implements RecordOrchestratorDriver {
   capture(): RecordRunCapture | RecordRunCaptureFailure {
     const observation = this.#observe();
     if (!observation) return { status: 'request-human', snapshotVersion: 0, reason: 'record-list-unverified' };
+    if (!recordEditorCoverageComplete(observation.scan, observation.source.recordListNodeId)) {
+      return { status: 'request-human', snapshotVersion: 0, reason: 'editor-fields-unverified' };
+    }
     // Populate deliberately requires a new adjacent capture before Save. Do
     // not let that fresh capture erase evidence of silent value/field changes.
     if (this.#verifiedFields && !recordObservationMatches(this.#verifiedFields.observation.scan,

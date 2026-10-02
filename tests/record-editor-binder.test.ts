@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { bindRecordEditor } from '../src/planner/recordEditorBinder';
 import { lifecycle } from './fixtures/record-editor-context';
+import { describeControl, controlFingerprint } from '../src/content/scanner';
 
 describe('记录编辑器脱敏绑定器', () => {
+  it.each(['project', 'education'] as const)('%s编辑器存在已扫描但未归属字段时，零写入且不签发回执', async type => {
+    const known = document.createElement('input'); const extra = document.createElement('input');
+    const state = lifecycle([known], undefined, undefined, 0, type);
+    state.fixture.editor.append(extra);
+    const descriptor = describeControl(extra, 'scan:orphan');
+    state.fixture.scanState.result.fields.push(descriptor);
+    state.fixture.scanState.controls.set(descriptor.id, { node: extra, fingerprint: controlFingerprint(extra, descriptor) });
+    let reads = 0;
+    const result = await bindRecordEditor({ plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
+      runContext: state.context, scanState: state.fixture.scanState,
+      provideValue: () => { reads++; return '不能先填'; }, rescan: () => state.context.capture(state.fixture.source) });
+    expect(result).toMatchObject({ status: 'request-human', reason: 'field-semantic-unknown', writtenFieldCount: 0 });
+    expect(known.value).toBe(''); expect(extra.value).toBe(''); expect(reads).toBe(0);
+  });
   it('第一字段事件停止事务后，不再写第二字段，即使稍后能回滚也不能先写', async () => {
     const first = document.createElement('input'); const second = document.createElement('textarea');
     const state = lifecycle([first, second]); let secondWrites = 0;
