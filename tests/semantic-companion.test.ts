@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { request as rawRequest, type Server } from 'node:http';
-import { SEMANTIC_BINDING_PATHS, SEMANTIC_BINDING_FORMAT, semanticRequestSchema } from '../src/ai/semanticProtocol';
+import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, SEMANTIC_BINDING_FORMAT, semanticRequestSchema } from '../src/ai/semanticProtocol';
 import { createResponsesProvider, type CompanionProvider, type CompanionResult } from '../src/companion/responsesProvider';
 import { createSemanticServer } from '../src/companion/server';
 
@@ -32,6 +32,18 @@ async function start(provider?: ReturnType<typeof createResponsesProvider>) {
 afterEach(async () => { await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => {
   server.close(error => error ? reject(error) : resolve()); server.closeAllConnections();
 }))); });
+
+it('教育请求使用独立严格格式，旧请求目录不变', async () => {
+  const supplied = { ...request(), protocol: 2, allowedPaths: [...EDUCATION_SEMANTIC_BINDING_PATHS],
+    fields: request().fields.map(field => ({ ...field, section: 'education', record: 'creating', label: '这一阶段在哪里学习' })) };
+  const answer = proposal(); answer.bindings[0]!.path = 'education.school';
+  const fetcher = vi.fn().mockResolvedValue(response(completed(answer)));
+  expect(await createResponsesProvider({ apiKey: 'fixture', model: 'fixture', fetcher })!(semanticRequestSchema.parse(supplied), new AbortController().signal))
+    .toMatchObject({ state: 'ready', proposal: { bindings: [{ path: 'education.school' }] } });
+  const body = JSON.parse(fetcher.mock.calls[0]![1].body);
+  expect(body.text.format.schema.properties.bindings.items.properties.path.enum).toEqual([...EDUCATION_SEMANTIC_BINDING_PATHS]);
+  expect(body.text.format.strict).toBe(true); expect(body.tools).toBeUndefined(); expect(body.store).toBe(false);
+});
 
 describe('shared minimal semantic request', () => {
   it('accepts only the same fixed catalogue and bounded, contiguous references as the extension', () => {

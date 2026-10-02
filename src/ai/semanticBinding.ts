@@ -1,4 +1,4 @@
-import { SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
+import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
 export { SEMANTIC_BINDING_PATHS, SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, type SemanticBindingPath } from './semanticProtocol';
 import { matchField, UNKNOWN_FIELD_REASON } from '../matching/ruleMatcher';
 import type { UserProfile } from '../profile/schema';
@@ -6,6 +6,7 @@ import type { SemanticNode, SemanticSectionRole } from '../shared/semanticGraph'
 import { isValidSemanticGraph } from '../shared/semanticGraphValidation';
 import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { semanticRedactor } from './semanticPrivacy';
+import { educationSemanticFieldIds, type EducationSemanticContext } from './educationSemanticContext';
 
 interface PublicField {
   readonly ref: string; readonly fingerprint: string;
@@ -16,7 +17,7 @@ interface PublicField {
   readonly options: readonly Readonly<{ ref: string; label: string }>[];
 }
 export interface SemanticBindingSession {
-  readonly request: Readonly<{ protocol: 1; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
+  readonly request: Readonly<{ protocol: 1 | 2; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
 }
 interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating' }
 interface LocalSession { snapshot: string; issuedAt: number; fields: ReadonlyMap<string, LocalField> }
@@ -75,17 +76,17 @@ export function semanticSessionObservations(session: SemanticBindingSession, sca
   const redact = semanticRedactor(profile); const descriptors = new Map(scan.fields.map(field => [field.id, field]));
   return new Map([...sessions.get(session)!.fields].map(([ref, field]) => [ref, recipeObservation(descriptors.get(field.fieldId)!, redact)]));
 }
-function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
+function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, recordType: 'project' | 'education' = 'project'): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
   let role: SemanticSectionRole = 'other'; let record: 'none' | 'creating' = 'none'; let allowed = true;
   let current: SemanticNode | undefined = node;
   while (current) {
     if (current.kind === 'record') { if (current.state !== 'creating') allowed = false; else record = 'creating'; }
-    if (current.kind === 'record-list' && current.recordType !== 'project') allowed = false;
+    if (current.kind === 'record-list' && current.recordType !== recordType) allowed = false;
     if (current.kind === 'section') role = current.role;
     current = current.parentId ? nodes.get(current.parentId) : undefined;
   }
-  if (!['basic', 'job-intent', 'project', 'skill', 'other'].includes(role)) allowed = false;
-  if (role === 'project' && record !== 'creating') allowed = false;
+  if (!(recordType === 'education' ? ['education'] : ['basic', 'job-intent', 'project', 'skill', 'other']).includes(role)) allowed = false;
+  if (['project', 'education'].includes(role) && record !== 'creating') allowed = false;
   return { role, record, allowed };
 }
 function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
@@ -93,9 +94,13 @@ function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
 }
 
 /** Read-only proposal preparation. No model invocation or execution capability is granted. */
-export function createSemanticBindingSession(scan: ScanResult, profile: UserProfile, excludedFieldIds?: ReadonlySet<string>): CreateResult {
+export function createSemanticBindingSession(scan: ScanResult, profile: UserProfile, excludedFieldIds?: ReadonlySet<string>,
+  educationContext?: EducationSemanticContext): CreateResult {
   try {
     if (!validGraph(scan)) return { ok: false, reason: 'invalid-graph' };
+    const educationFields = educationContext ? educationSemanticFieldIds(educationContext, scan, profile) : undefined;
+    if (educationContext && !educationFields) return { ok: false, reason: 'invalid-graph' };
+    const owned = educationFields ? new Set(educationFields) : undefined;
     const graph = scan.semanticGraph!;
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
     const descriptors = new Map(scan.fields.map(field => [field.id, field]));
@@ -103,8 +108,9 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
     const fields: PublicField[] = []; const local = new Map<string, LocalField>();
     for (const node of graph.nodes) {
       if (node.kind !== 'field' || fields.length >= 30) continue;
-      const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes);
+      const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes, educationContext ? 'education' : 'project');
       if (excludedFieldIds?.has(field.id)) continue;
+      if (owned && !owned.has(field.id)) continue;
       if (!ownership.allowed || field.blockedReason || field.disabled || field.readOnly || field.hasValue || field.kind === 'checkbox') continue;
       if (field.kind === 'input' && !['text', 'search', 'email', 'tel', 'url', 'number', 'date', 'month'].includes(field.type)) continue;
       const match = matchField(field, profile);
@@ -123,8 +129,8 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       local.set(ref, { fieldId: field.id, fingerprint: node.structuralFingerprint, role: ownership.role, record: ownership.record });
     }
     if (!fields.length) return { ok: false, reason: 'no-candidates' };
-    const request = Object.freeze({ protocol: 1 as const, requestId: crypto.randomUUID(),
-      allowedPaths: Object.freeze([...SEMANTIC_BINDING_PATHS]), fields: Object.freeze(fields) });
+    const request = Object.freeze({ protocol: educationContext ? 2 as const : 1 as const, requestId: crypto.randomUUID(),
+      allowedPaths: Object.freeze(educationContext ? [...EDUCATION_SEMANTIC_BINDING_PATHS] : [...SEMANTIC_BINDING_PATHS]), fields: Object.freeze(fields) });
     if (JSON.stringify(request).length > 40_000) return { ok: false, reason: 'request-too-large' };
     if (!semanticRequestSchema.safeParse(request).success) return { ok: false, reason: 'invalid-graph' };
     const session = Object.freeze({ request });
@@ -154,7 +160,7 @@ export function validateSemanticBindings(session: SemanticBindingSession, respon
     for (const binding of proposal.bindings) {
       const target = local.fields.get(binding.ref);
       if (!target || seen.has(binding.ref) || binding.fingerprint !== target.fingerprint) return { ok: false, reason: 'invalid-reference' };
-      if (!pathAllowed(binding.path, target)) return { ok: false, reason: 'ownership-conflict' };
+      if (!new Set<string>(session.request.allowedPaths).has(binding.path) || !pathAllowed(binding.path, target)) return { ok: false, reason: 'ownership-conflict' };
       if (binding.certainty !== 'certain') return { ok: false, reason: 'uncertain' };
       seen.add(binding.ref); bindings.push(Object.freeze({ fieldId: target.fieldId, path: binding.path }));
     }

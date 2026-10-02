@@ -1,4 +1,4 @@
-import { SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, parseSemanticProposal,
+import { SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, parseSemanticProposal,
   semanticRequestSchema, type SemanticProposal, type SemanticRequest } from '../ai/semanticProtocol';
 
 export type CompanionResult = { state: 'ready'; proposal: SemanticProposal }
@@ -54,7 +54,7 @@ export function createResponsesProvider(config: ProviderConfig): CompanionProvid
         headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: config.model, store: false, max_output_tokens: 8000,
           instructions: SEMANTIC_BINDING_INSTRUCTIONS, input: [{ role: 'user', content: JSON.stringify(request) }],
-          text: { format: SEMANTIC_BINDING_FORMAT } }),
+          text: { format: request.protocol === 2 ? EDUCATION_SEMANTIC_BINDING_FORMAT : SEMANTIC_BINDING_FORMAT } }),
       });
       if (!response.ok || response.redirected) return { state: 'unavailable', proposal: null };
       const output = await readBoundedJson(response);

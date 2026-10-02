@@ -56,6 +56,7 @@ export class SessionSemanticRecipes implements SemanticRecipes {
   }
   async propose(session: SemanticBindingSession, scan: ScanResult, profile: UserProfile, signal?: AbortSignal): Promise<SemanticProposal | undefined> {
     try {
+      if (session.request.protocol !== 1) return undefined;
       const observations = semanticSessionObservations(session, scan, profile); const scope = this.#scope(scan, profile);
       if (!observations || !scope || signal?.aborted) return undefined;
       return await trustedSession(async area => {
@@ -77,7 +78,8 @@ export class SessionSemanticRecipes implements SemanticRecipes {
   async remember(result: BindingValidation, scan: ScanResult, profile: UserProfile, signal?: AbortSignal): Promise<boolean> {
     try {
       const recipes = verifiedSemanticRecipes(result, scan, profile); const scope = this.#scope(scan, profile);
-      if (!recipes || !scope || signal?.aborted || !recipes.some(recipe => recipe.observation)) return false;
+      if (!recipes || !scope || signal?.aborted || !recipes.some(recipe => recipe.observation)
+        || recipes.some(recipe => recipe.field.section === 'education')) return false;
       return await trustedSession(async area => {
         const data = await area.get([SESSION_RECIPE_KEY, SESSION_RECIPE_SECRET]);
         if (signal?.aborted || !verifiedSemanticRecipes(result, scan, profile)) return false;
@@ -86,7 +88,9 @@ export class SessionSemanticRecipes implements SemanticRecipes {
         for (const recipe of recipes) {
           if (!recipe.observation) continue;
           const key = await digest(`${graph}\n${semanticRecipeFieldKey(recipe.field, recipe.observation)}`);
-          entries.delete(key); entries.set(key, { key, path: recipe.path, evidence: recipe.evidence, createdAt: Date.now() });
+          const parsed = entrySchema.safeParse({ key, path: recipe.path, evidence: recipe.evidence, createdAt: Date.now() });
+          if (!parsed.success) return false;
+          entries.delete(key); entries.set(key, parsed.data);
           while (entries.size > 100) entries.delete(entries.keys().next().value!);
         }
         const existingSecret = hex.safeParse(data[SESSION_RECIPE_SECRET]);

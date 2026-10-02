@@ -3,9 +3,9 @@ import { projectProjectionRequestSchema, projectProfile } from '../profile/proje
 import { educationProjectionRequestSchema, educationProfile } from '../profile/educationProjection';
 import { AI_CONNECTION_KEY } from '../ai/connection';
 import { clearSessionSemanticRecipes } from '../ai/sessionRecipes';
-import { createProjectSemanticPortHandler } from './projectSemanticPort';
+import { createRecordSemanticPortHandler } from './recordSemanticPort';
 
-chrome.runtime.onConnect.addListener(createProjectSemanticPortHandler());
+chrome.runtime.onConnect.addListener(createRecordSemanticPortHandler());
 
 async function restrictStorage() {
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });

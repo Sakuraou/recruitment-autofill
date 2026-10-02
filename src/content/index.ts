@@ -15,6 +15,8 @@ import { EducationRecordWorkflow } from './educationRecordWorkflow';
 import { ProjectRecordWorkflow } from './projectRecordWorkflow';
 import { createProjectRecordSession } from './projectRecordSession';
 import { createProjectSemanticClient } from './projectSemanticClient';
+import { createEducationRecordSession } from './educationRecordSession';
+import { createEducationSemanticClient } from './educationSemanticClient';
 import { createPageOperationPortHandler } from './pageOperationPort';
 import { fillRequestSchema } from '../shared/pageOperationProtocol';
 
@@ -56,7 +58,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
-  const educationWorkflow = new EducationRecordWorkflow(document, requestEducationProjection);
+  const educationWorkflow = new EducationRecordWorkflow(document, requestEducationProjection,
+    (doc, projection, refresh) => createEducationRecordSession(doc, projection, refresh, undefined, createEducationSemanticClient()));
   const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection,
     (doc, projection, refresh) => createProjectRecordSession(doc, projection, refresh, undefined, createProjectSemanticClient()));
   let projectProjection: Awaited<ReturnType<typeof requestProjectProjection>> | undefined;
