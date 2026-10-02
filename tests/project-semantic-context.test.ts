@@ -67,7 +67,7 @@ describe('planner-owned current project semantic values', () => {
     expect(createProjectSemanticContext(s.input)).toBeUndefined();
     expect(resolveSemanticCandidates(s.result, s.scan, s.profile, s.context)).toEqual({ ok: false, reason: 'invalid-project-context' });
   });
-  it.each(['stop', 'capture', 'revision', 'event', 'replace', 'silent-value', 'label', 'limit', 'control-map'])('invalidates a current project after %s', change => {
+  it.each(['stop', 'capture', 'revision', 'event', 'replace', 'silent-value', 'label', 'limit', 'control-map', 'editor-moved', 'list-replaced', 'list-map'])('invalidates a current project after %s', change => {
     const s = setup();
     if (change === 'stop') s.state.context.stop();
     if (change === 'capture') s.state.context.capture(s.state.fixture.source);
@@ -77,6 +77,13 @@ describe('planner-owned current project semantic values', () => {
     if (change === 'silent-value') (s.state.fixture.controls[0]!.node as HTMLInputElement).value = '手工内容';
     if (change === 'label') s.state.fixture.controls[0]!.node.setAttribute('aria-label', '新问题');
     if (change === 'limit') (s.state.fixture.controls[0]!.node as HTMLInputElement).maxLength = 2;
+    if (change === 'editor-moved') document.body.append(s.state.fixture.editor);
+    if (change === 'list-replaced') {
+      const list = s.state.fixture.scanState.semanticTargets.get(s.state.populatePlan.recordListNodeId)!;
+      const replacement = list.cloneNode(false); list.replaceWith(replacement); replacement.appendChild(s.state.fixture.editor);
+    }
+    if (change === 'list-map') s.state.fixture.scanState.semanticTargets.set(s.state.populatePlan.recordListNodeId,
+      s.state.fixture.scanState.semanticTargets.get(s.state.populatePlan.recordListNodeId)!.cloneNode(true) as Element);
     if (change === 'control-map') {
       const original = s.state.fixture.controls[0]!; const clone = original.node.cloneNode(true) as HTMLInputElement; original.node.after(clone);
       s.state.fixture.scanState.controls.set(s.scan.fields[0]!.id, { node: clone, fingerprint: original.fingerprint });

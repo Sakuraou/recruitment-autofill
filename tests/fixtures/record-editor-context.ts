@@ -31,7 +31,7 @@ function action(id: string, parentId: string, kind: 'add-record' | 'save-record'
   };
 }
 
-function closedSource(list: HTMLElement, existingCount = 0): RecordRunCaptureSource {
+function closedSource(list: HTMLElement, existingCount = 0, recordType: 'project' | 'education' = 'project'): RecordRunCaptureSource {
   const add = document.createElement('button');
   const cards = Array.from({ length: existingCount }, () => document.createElement('article'));
   list.replaceChildren(...cards, add);
@@ -41,10 +41,10 @@ function closedSource(list: HTMLElement, existingCount = 0): RecordRunCaptureSou
     structuralFingerprint: fingerprint, evidence: [],
   }, {
     kind: 'section', id: 'section:0', parentId: 'page:0', childIds: ['record-list:0'], order: 0,
-    structuralFingerprint: fingerprint, evidence: ['heading'], heading: '项目经历', role: 'project', confidence: 1,
+    structuralFingerprint: fingerprint, evidence: ['heading'], heading: recordType === 'education' ? '教育经历' : '项目经历', role: recordType, confidence: 1,
   }, action('action:10', 'record-list:0', 'add-record', 'record-list:0'), {
     kind: 'record-list', id: 'record-list:0', parentId: 'section:0', childIds: [...cardIds, 'action:10'], order: 0,
-    structuralFingerprint: fingerprint, evidence: ['repeated-structure'], recordType: 'project',
+    structuralFingerprint: fingerprint, evidence: ['repeated-structure'], recordType,
     existingRecordCount: existingCount, editorState: 'closed',
   }];
   cards.forEach((_, index) => nodes.push({ kind: 'record', id: cardIds[index]!, parentId: 'record-list:0', childIds: [], order: index,
@@ -53,7 +53,7 @@ function closedSource(list: HTMLElement, existingCount = 0): RecordRunCaptureSou
     graph: { schemaVersion: SEMANTIC_GRAPH_SCHEMA_VERSION, rootId: 'page:0', nodes },
     expectedFieldIds: [],
     semanticTargets: new Map([['record-list:0', list], ['action:10', add], ...cards.map((card, index): [string, Element] => [cardIds[index]!, card])]),
-    recordType: 'project', recordListNodeId: 'record-list:0',
+    recordType, recordListNodeId: 'record-list:0',
   };
 }
 
@@ -65,7 +65,7 @@ interface CreatingFixture {
 }
 
 function creatingFixture(list: HTMLElement, elements: readonly (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[],
-  radioMembers: ReadonlyMap<HTMLInputElement, HTMLInputElement[]> = new Map()): CreatingFixture {
+  radioMembers: ReadonlyMap<HTMLInputElement, HTMLInputElement[]> = new Map(), recordType: 'project' | 'education' = 'project'): CreatingFixture {
   const editor = document.createElement('div');
   const save = document.createElement('button');
   const controls = new Map<string, ScannedControl>();
@@ -93,7 +93,7 @@ function creatingFixture(list: HTMLElement, elements: readonly (HTMLInputElement
     structuralFingerprint: fingerprint, evidence: [],
   }, {
     kind: 'section', id: 'section:0', parentId: 'page:0', childIds: ['record-list:0'], order: 0,
-    structuralFingerprint: fingerprint, evidence: ['heading'], heading: '项目经历', role: 'project', confidence: 1,
+    structuralFingerprint: fingerprint, evidence: ['heading'], heading: recordType === 'education' ? '教育经历' : '项目经历', role: recordType, confidence: 1,
   }, {
     kind: 'record', id: 'record:99', parentId: 'record-list:0', childIds: [...fieldIds, 'action:20'], order: 0,
     structuralFingerprint: fingerprint, evidence: ['editor-actions'], index: cards.length, state: 'creating',
@@ -102,7 +102,7 @@ function creatingFixture(list: HTMLElement, elements: readonly (HTMLInputElement
     structuralFingerprint: fingerprint, evidence: ['visible-label'], fieldId: field.id,
   })), action('action:20', 'record:99', 'save-record', 'record:99'), {
     kind: 'record-list', id: 'record-list:0', parentId: 'section:0', childIds: [...cards.map((_, index) => `record:${index}`), 'record:99'], order: 0,
-    structuralFingerprint: fingerprint, evidence: ['repeated-structure'], recordType: 'project',
+    structuralFingerprint: fingerprint, evidence: ['repeated-structure'], recordType,
     existingRecordCount: cards.length, editorState: 'creating',
   }];
   cards.forEach((_, index) => nodes.push({ kind: 'record', id: `record:${index}`, parentId: 'record-list:0', childIds: [], order: index,
@@ -110,7 +110,7 @@ function creatingFixture(list: HTMLElement, elements: readonly (HTMLInputElement
   const graph = { schemaVersion: SEMANTIC_GRAPH_SCHEMA_VERSION, rootId: 'page:0', nodes } satisfies PageSemanticGraph;
   return {
     source: { graph, expectedFieldIds: fields.map(field => field.id), semanticTargets: targets,
-      recordType: 'project', recordListNodeId: 'record-list:0' },
+      recordType, recordListNodeId: 'record-list:0' },
     scanState: {
       result: { scanId: 'scan', url: document.URL, title: '', fields, semanticGraph: graph, warnings: [] },
       document, controls, semanticTargets: targets,
@@ -129,7 +129,7 @@ function capture(context: RecordRunContext, source: RecordRunCaptureSource): Rec
 function plan(captured: RecordRunCapture, active?: ActiveRecordTransaction, intentCount = 1): ReadyRecordPlan {
   const result = planRepeatableRecords({
     snapshot: captured.snapshot, profileRevision: captured.profileRevision,
-    intents: Array.from({ length: intentCount }, (_, intentIndex) => ({ intentIndex, recordType: 'project', identityReady: true })),
+    intents: Array.from({ length: intentCount }, (_, intentIndex) => ({ intentIndex, recordType: captured.snapshot.recordType, identityReady: true })),
     candidates: captured.candidates.map(candidate => ({ ...candidate, identityReady: true })),
     identityComparisons: captured.candidates.flatMap(candidate => Array.from({ length: intentCount }, (_, intentIndex) => ({
       runToken: captured.runToken, snapshotToken: captured.snapshotToken, intentIndex, recordNodeId: candidate.recordNodeId,
@@ -143,15 +143,16 @@ function plan(captured: RecordRunCapture, active?: ActiveRecordTransaction, inte
 }
 
 export function lifecycle(elements: readonly (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[],
-  radioMembers?: ReadonlyMap<HTMLInputElement, HTMLInputElement[]>, existingList?: HTMLElement, existingCount = 0) {
+  radioMembers?: ReadonlyMap<HTMLInputElement, HTMLInputElement[]>, existingList?: HTMLElement, existingCount = 0,
+  recordType: 'project' | 'education' = 'project') {
   if (!existingList) document.body.innerHTML = '';
   const list = existingList ?? document.createElement('section');
   if (!existingList) document.body.append(list);
   const context = new RecordRunContext();
-  const initial = capture(context, closedSource(list, existingCount));
+  const initial = capture(context, closedSource(list, existingCount, recordType));
   const active = recordAddInvoked(plan(initial, undefined, existingCount + 1));
   if ('status' in active) throw new Error(active.reason);
-  const fixture = creatingFixture(list, elements, radioMembers);
+  const fixture = creatingFixture(list, elements, radioMembers, recordType);
   const editing = capture(context, fixture.source);
   return { context, fixture, editing, active, populatePlan: plan(editing, active, existingCount + 1) };
 }

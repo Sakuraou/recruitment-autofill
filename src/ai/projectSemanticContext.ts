@@ -11,7 +11,7 @@ interface Input {
   readonly plan: ReadyRecordPlan; readonly capture: RecordRunCapture; readonly activeTransaction: ActiveRecordTransaction;
   readonly runContext: RecordRunContext; readonly scanState: ScanState; readonly profile: UserProfile;
 }
-interface Local { readonly input: Input; readonly snapshot: string; readonly fields: ReadonlySet<string>; readonly editor: Element;
+interface Local { readonly input: Input; readonly snapshot: string; readonly fields: ReadonlySet<string>; readonly editor: Element; readonly list: Element;
   readonly targets: readonly { readonly nodeId: string; readonly fieldId: string; readonly node: Element }[] }
 const contexts = new WeakMap<ProjectSemanticContext, Local>();
 const snapshot = (scan: ScanResult, profile: UserProfile) => JSON.stringify({ scan, profile });
@@ -31,6 +31,8 @@ function current(local: Local, scan: ScanResult, profile: UserProfile): boolean 
     && isRecordTransactionCurrentForPlan(activeTransaction, plan, 'populate-editor')
     && scanState.document.URL === scan.url && local.editor.isConnected && local.editor.ownerDocument === scanState.document
     && matchesIssuedRecordRunTarget(capture, plan.nextStep.editorRecordNodeId, local.editor)
+    && local.list.isConnected && local.list.ownerDocument === scanState.document && local.list !== local.editor && inside(local.list, local.editor)
+    && scanState.semanticTargets.get(plan.recordListNodeId) === local.list && matchesIssuedRecordRunTarget(capture, plan.recordListNodeId, local.list)
     && local.targets.every(target => target.node.isConnected && target.node.ownerDocument === scanState.document && inside(local.editor, target.node)
       && scanState.semanticTargets.get(target.nodeId) === target.node && scanState.controls.get(target.fieldId)?.node === target.node
       && matchesIssuedRecordRunTarget(capture, target.nodeId, target.node))
@@ -46,7 +48,8 @@ export function createProjectSemanticContext(input: Input): ProjectSemanticConte
     if (!profileSchema.safeParse(profile).success || plan.nextStep.kind !== 'populate-editor'
       || !Number.isInteger(activeTransaction.intentIndex) || activeTransaction.intentIndex < 0 || !profile.projects[activeTransaction.intentIndex]
       || new Set(profile.projects.map(project => project.id)).size !== profile.projects.length) return undefined;
-    const editor = scanState.semanticTargets.get(plan.nextStep.editorRecordNodeId); if (!editor) return undefined;
+    const editor = scanState.semanticTargets.get(plan.nextStep.editorRecordNodeId);
+    const list = scanState.semanticTargets.get(plan.recordListNodeId); if (!editor || !list) return undefined;
     const graph = scanState.result.semanticGraph; if (!graph) return undefined;
     const fields = new Set<string>(); const targets: Local['targets'][number][] = [];
     for (const nodeId of plan.nextStep.fieldNodeIds) {
@@ -56,7 +59,7 @@ export function createProjectSemanticContext(input: Input): ProjectSemanticConte
       fields.add(node.fieldId); targets.push(Object.freeze({ nodeId, fieldId: node.fieldId, node: target }));
     }
     if (!fields.size || fields.size !== plan.nextStep.fieldNodeIds.length) return undefined;
-    const local: Local = { input: Object.freeze({ ...input }), fields, editor, targets: Object.freeze(targets), snapshot: snapshot(scanState.result, profile) };
+    const local: Local = { input: Object.freeze({ ...input }), fields, editor, list, targets: Object.freeze(targets), snapshot: snapshot(scanState.result, profile) };
     if (!current(local, scanState.result, profile)) return undefined;
     const context = Object.freeze({ recordType: 'project' as const }); contexts.set(context, local); return context;
   } catch { return undefined; }
