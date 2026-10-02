@@ -65,6 +65,10 @@ export function projectSemanticContextCurrent(context: ProjectSemanticContext, s
   try { const local = contexts.get(context); return !!local && current(local, scan, profile) && fieldIds.every(id => local.fields.has(id)); }
   catch { return false; }
 }
+/** Local request scope only; IDs never confer authority or identify a profile record. */
+export function projectSemanticFieldIds(context: ProjectSemanticContext, scan: ScanResult, profile: UserProfile): readonly string[] | undefined {
+  return projectSemanticContextCurrent(context, scan, profile, []) ? Object.freeze([...contexts.get(context)!.fields]) : undefined;
+}
 export function resolveCurrentProjectField(context: ProjectSemanticContext, scan: ScanResult, profile: UserProfile, fieldId: string, path: string): ProjectFieldResolution | undefined {
   if (!projectSemanticContextCurrent(context, scan, profile, [fieldId])) return undefined;
   const local = contexts.get(context)!; const field = scan.fields.find(item => item.id === fieldId);

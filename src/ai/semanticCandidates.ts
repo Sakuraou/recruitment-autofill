@@ -7,7 +7,7 @@ import { resolveProfileValue } from '../matching/profileResolver';
 import { createSemanticBindingSession, semanticBindingsCurrent, validateSemanticBindings,
   type BindingValidation, type SemanticBindingPath, type SemanticBindingSession } from './semanticBinding';
 import type { SemanticRecipes } from './semanticRecipes';
-import { projectSemanticContextCurrent, resolveCurrentProjectField, type ProjectSemanticContext } from './projectSemanticContext';
+import { projectSemanticContextCurrent, projectSemanticFieldIds, resolveCurrentProjectField, type ProjectSemanticContext } from './projectSemanticContext';
 
 type CandidateResult = { ok: true; matches: MatchResult[] } | { ok: false; reason: 'stale-binding' | 'invalid-profile' | 'invalid-project-context' };
 function incompatibleControl(field: FieldDescriptor, path: SemanticBindingPath): boolean {
@@ -63,6 +63,7 @@ export interface SemanticInferenceOptions {
   timeoutMs?: number; signal?: AbortSignal;
   excludedFieldIds?: ReadonlySet<string>;
   recipes?: SemanticRecipes;
+  projectContext?: ProjectSemanticContext;
   currentContext?: () => { scan: ScanResult; profile: UserProfile } | Promise<{ scan: ScanResult; profile: UserProfile }>;
 }
 export interface SemanticInferenceResult {
@@ -76,7 +77,15 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
   options: SemanticInferenceOptions = {}): Promise<SemanticInferenceResult> {
   if (options.signal?.aborted) return empty('cancelled');
   if (!provider) return empty('disabled');
-  const created = createSemanticBindingSession(scan, profile, options.excludedFieldIds);
+  const projectFields = options.projectContext ? projectSemanticFieldIds(options.projectContext, scan, profile) : undefined;
+  if (options.projectContext && !projectFields) return empty('rejected');
+  const excluded = new Set(options.excludedFieldIds);
+  if (projectFields) {
+    const owned = new Set(projectFields);
+    for (const field of scan.fields) if (!owned.has(field.id)) excluded.add(field.id);
+  }
+  const projectCurrent = () => !options.projectContext || projectSemanticContextCurrent(options.projectContext, scan, profile, []);
+  const created = createSemanticBindingSession(scan, profile, excluded);
   if (!created.ok) return empty(created.reason === 'no-candidates' ? 'no-candidates' : 'rejected');
   const controller = new AbortController();
   const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(100, Math.min(options.timeoutMs!, 30_000)) : 15_000;
@@ -87,17 +96,21 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
   const timer = setTimeout(() => { finish(empty('timeout')); controller.abort(); }, timeoutMs);
   const operation = Promise.resolve().then(async (): Promise<SemanticInferenceResult> => {
     if (controller.signal.aborted) return empty('cancelled');
+    if (!projectCurrent()) return empty('rejected');
     const cached = options.recipes ? await options.recipes.propose(created.session, scan, profile, controller.signal) : undefined;
     if (controller.signal.aborted) return empty('cancelled');
+    if (!projectCurrent()) return empty('rejected');
     const response = cached ?? await provider.propose(created.session.request, controller.signal);
     if (controller.signal.aborted) return empty('cancelled');
+    if (!projectCurrent()) return empty('rejected');
     const current = options.currentContext ? await options.currentContext() : { scan, profile };
     if (controller.signal.aborted) return empty('cancelled');
     const validated = validateSemanticBindings(created.session, response, current.scan, current.profile);
     if (!validated.ok) return empty('rejected');
-    const candidates = resolveSemanticCandidates(validated, current.scan, current.profile);
+    const candidates = resolveSemanticCandidates(validated, current.scan, current.profile, options.projectContext);
     if (candidates.ok && options.recipes) await options.recipes.remember(validated, current.scan, current.profile, controller.signal);
     if (controller.signal.aborted) return empty('cancelled');
+    if (!semanticBindingsCurrent(validated, current.scan, current.profile) || !projectCurrent()) return empty('rejected');
     return candidates.ok ? { state: 'ready', matches: candidates.matches } : empty('rejected');
   }).catch(() => empty('unavailable'));
   try { return await Promise.race([operation, cancelled]); }

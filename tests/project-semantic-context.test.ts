@@ -1,13 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { lifecycle } from './fixtures/record-editor-context';
 import { createEmptyProfile, type UserProfile } from '../src/profile/schema';
 import { createSemanticBindingSession, validateSemanticBindings, type SemanticBindingPath } from '../src/ai/semanticBinding';
-import { resolveSemanticCandidates } from '../src/ai/semanticCandidates';
+import { inferSemanticCandidates, resolveSemanticCandidates, type SemanticProvider } from '../src/ai/semanticCandidates';
+import { SemanticRecipeCache, type SemanticRecipes } from '../src/ai/semanticRecipes';
+import { describeControl, controlFingerprint } from '../src/content/scanner';
+import { EXTENSION_VERSION } from '../src/shared/version';
 import { createProjectSemanticContext } from '../src/ai/projectSemanticContext';
 import { bindRecordEditor } from '../src/planner/recordEditorBinder';
 
 function setup(paths: readonly SemanticBindingPath[] = ['projects.name', 'projects.description'],
-  configure?: (profile: UserProfile, elements: (HTMLInputElement | HTMLSelectElement)[]) => void) {
+  configure?: (profile: UserProfile, elements: (HTMLInputElement | HTMLSelectElement)[]) => void, foreign = false) {
   const elements: (HTMLInputElement | HTMLSelectElement)[] = paths.map((_, index) => Object.assign(document.createElement('input'), { ariaLabel: `这项工作叫什么${index}` }));
   const profile = createEmptyProfile(); profile.revision = crypto.randomUUID();
   profile.projects = [
@@ -16,13 +19,23 @@ function setup(paths: readonly SemanticBindingPath[] = ['projects.name', 'projec
   ]; configure?.(profile, elements);
   const state = lifecycle(elements, undefined, undefined, 1);
   const scan = state.fixture.scanState.result;
+  scan.contentVersion = EXTENSION_VERSION;
+  if (foreign) {
+    const node = Object.assign(document.createElement('input'), { ariaLabel: '如何称呼您' }); document.body.append(node);
+    const field = describeControl(node, 'outside:0'); scan.fields.push(field);
+    scan.semanticGraph!.nodes.find(item => item.kind === 'page')!.childIds.push('outside-field:0');
+    scan.semanticGraph!.nodes.push({ kind: 'field', id: 'outside-field:0', parentId: 'page:0', childIds: [], order: 30,
+      structuralFingerprint: '0123456789abcdef', evidence: ['visible-label'], fieldId: field.id });
+    state.fixture.scanState.controls.set(field.id, { node, fingerprint: controlFingerprint(node, field) });
+    state.fixture.scanState.semanticTargets.set('outside-field:0', node);
+  }
   const input = { plan: state.populatePlan, capture: state.editing, activeTransaction: state.active,
     runContext: state.context, scanState: state.fixture.scanState, profile };
   const context = createProjectSemanticContext(input); expect(context).toBeDefined();
   const prepared = createSemanticBindingSession(scan, profile); if (!prepared.ok) throw new Error(prepared.reason);
   const result = validateSemanticBindings(prepared.session, { requestId: prepared.session.request.requestId, status: 'mapped',
     bindings: prepared.session.request.fields.map((field, index) => ({ ref: field.ref, fingerprint: field.fingerprint,
-      path: paths[index]!, certainty: 'certain', evidence: 'label' })) }, scan, profile);
+      path: paths[index] ?? 'basic.name', certainty: 'certain', evidence: 'label' })) }, scan, profile);
   expect(result.ok).toBe(true); return { state, profile, scan, input, context: context!, result };
 }
 describe('planner-owned current project semantic values', () => {
@@ -116,5 +129,79 @@ describe('planner-owned current project semantic values', () => {
         innerHTML: '<option value="">请选择</option><option value="opaque-present">Present</option>' });
     });
     expect(resolveSemanticCandidates(s.result, s.scan, s.profile, s.context)).toMatchObject({ ok: true, matches: [{ value: 'opaque-present', source: 'llm' }] });
+  });
+});
+
+function providerForProjects(): SemanticProvider {
+  return { propose: vi.fn(async (request: Parameters<SemanticProvider['propose']>[0]) => ({ requestId: request.requestId, status: 'mapped',
+    bindings: request.fields.map((field, index) => ({ ref: field.ref, fingerprint: field.fingerprint,
+      path: index === 0 ? 'projects.name' : 'projects.description', certainty: 'certain', evidence: 'label' })) })) };
+}
+
+describe('bounded asynchronous current project inference', () => {
+  it('sends only current editor fields, excludes unrelated basic fields, and returns the second project locally', async () => {
+    const s = setup(undefined, undefined, true); const provider = providerForProjects();
+    expect(resolveSemanticCandidates(s.result, s.scan, s.profile, s.context)).toEqual({ ok: false, reason: 'invalid-project-context' });
+    expect(await inferSemanticCandidates(s.scan, s.profile, provider, { projectContext: s.context })).toMatchObject({ state: 'ready', matches: [
+      { value: '虚构项目二', source: 'llm', status: 'review' }, { value: '第二条说明', source: 'llm', status: 'review' },
+    ] });
+    const request = vi.mocked(provider.propose).mock.calls[0]![0]; expect(request.fields).toHaveLength(2);
+    expect(request.fields.every(field => field.section === 'project' && field.record === 'creating')).toBe(true);
+    expect(JSON.stringify(request)).not.toMatch(/虚构项目|第二条说明|如何称呼您|intentIndex|outside:0/);
+    expect(document.querySelectorAll('input')).toHaveLength(3);
+    expect([...document.querySelectorAll('input')].every(node => node.value === '')).toBe(true);
+  });
+  it.each(['clone', 'stop', 'replace'])('rejects %s before cache access or a provider call', async change => {
+    const s = setup(); const provider = providerForProjects();
+    if (change === 'stop') s.state.context.stop();
+    if (change === 'replace') s.state.fixture.controls[0]!.node.replaceWith(s.state.fixture.controls[0]!.node.cloneNode(true));
+    const recipes: SemanticRecipes = { propose: vi.fn(), remember: vi.fn() };
+    const projectContext = change === 'clone' ? structuredClone(s.context) : s.context;
+    expect(await inferSemanticCandidates(s.scan, s.profile, provider, { projectContext, recipes })).toEqual({ state: 'rejected', matches: [] });
+    expect(recipes.propose).not.toHaveBeenCalled(); expect(provider.propose).not.toHaveBeenCalled();
+  });
+  it.each(['stop', 'silent-value', 'profile', 'capture', 'replace'])('rejects %s while the provider is pending and never learns stale meanings', async change => {
+    const s = setup(); let reply!: (response: unknown) => void;
+    const provider: SemanticProvider = { propose: vi.fn(() => new Promise(resolve => { reply = resolve; })) };
+    const recipes: SemanticRecipes = { propose: vi.fn(), remember: vi.fn() };
+    const pending = inferSemanticCandidates(s.scan, s.profile, provider, { projectContext: s.context, recipes });
+    await vi.waitFor(() => expect(provider.propose).toHaveBeenCalledOnce());
+    if (change === 'stop') s.state.context.stop();
+    if (change === 'silent-value') (s.state.fixture.controls[0]!.node as HTMLInputElement).value = '手工草稿';
+    if (change === 'profile') s.profile.projects[1]!.name = '手工修改资料';
+    if (change === 'capture') s.state.context.capture(s.state.fixture.source);
+    if (change === 'replace') s.state.fixture.controls[0]!.node.replaceWith(s.state.fixture.controls[0]!.node.cloneNode(true));
+    const request = vi.mocked(provider.propose).mock.calls[0]![0];
+    reply(await providerForProjects().propose(request, new AbortController().signal));
+    expect(await pending).toEqual({ state: 'rejected', matches: [] }); expect(recipes.remember).not.toHaveBeenCalled();
+  });
+  it.each(['lookup', 'remember'])('rejects silent edits during asynchronous recipe %s', async phase => {
+    const s = setup(); const provider = providerForProjects();
+    const change = () => { (s.state.fixture.controls[0]!.node as HTMLInputElement).value = '保留手工草稿'; };
+    const recipes: SemanticRecipes = { propose: vi.fn(async () => { if (phase === 'lookup') change(); return undefined; }),
+      remember: vi.fn(async () => { change(); return false; }) };
+    expect(await inferSemanticCandidates(s.scan, s.profile, provider, { projectContext: s.context, recipes })).toEqual({ state: 'rejected', matches: [] });
+    expect(provider.propose).toHaveBeenCalledTimes(phase === 'lookup' ? 0 : 1);
+    expect((s.state.fixture.controls[0]!.node as HTMLInputElement).value).toBe('保留手工草稿');
+  });
+  it('a recipe hit still reads the current planner project locally with zero provider calls', async () => {
+    const s = setup(); const cache = new SemanticRecipeCache(); expect(cache.remember(s.result, s.scan, s.profile)).toBe(true);
+    const provider = providerForProjects();
+    expect(await inferSemanticCandidates(s.scan, s.profile, provider, { projectContext: s.context, recipes: cache })).toMatchObject({ state: 'ready', matches: [
+      { value: '虚构项目二', source: 'llm' }, { value: '第二条说明', source: 'llm' },
+    ] }); expect(provider.propose).not.toHaveBeenCalled();
+  });
+  it('cancels a pending project proposal and rejects its late result without learning or writing', async () => {
+    const s = setup(); const signal = s.state.context.beginStep();
+    let reply!: (response: unknown) => void;
+    const provider: SemanticProvider = { propose: vi.fn(() => new Promise(resolve => { reply = resolve; })) };
+    const recipes: SemanticRecipes = { propose: vi.fn(), remember: vi.fn() };
+    const pending = inferSemanticCandidates(s.scan, s.profile, provider, { projectContext: s.context, recipes, signal });
+    await vi.waitFor(() => expect(provider.propose).toHaveBeenCalledOnce()); s.state.context.stop();
+    expect(await pending).toEqual({ state: 'cancelled', matches: [] });
+    const [request, providerSignal] = vi.mocked(provider.propose).mock.calls[0]!; expect(providerSignal.aborted).toBe(true);
+    reply(await providerForProjects().propose(request, new AbortController().signal));
+    await Promise.resolve(); await Promise.resolve(); expect(recipes.remember).not.toHaveBeenCalled();
+    expect(s.state.fixture.controls.every(control => (control.node as HTMLInputElement).value === '')).toBe(true);
   });
 });
