@@ -173,7 +173,8 @@ export type RecordPlanHumanReason =
   | 'action-disabled'
   | 'action-risk-disallowed'
   | 'add-result-uncertain'
-  | 'save-result-uncertain';
+  | 'save-result-uncertain'
+  | 'editor-expansion-limit';
 
 interface RecordPlanSummary {
   readonly runToken: string;
@@ -236,6 +237,12 @@ const issuedFieldReceipts = new WeakSet<object>();
 const consumedFieldReceipts = new WeakSet<object>();
 const planSnapshots = new WeakMap<object, RecordPlannerSnapshot>();
 const snapshotsWithConsumedAdd = new WeakSet<object>();
+/** Two additional observations permit three bounded batches, never a new Add or Save. */
+export const MAX_RECORD_EDITOR_EXPANSIONS = 2;
+const expandedEditors = new WeakMap<object, Readonly<{
+  count: number; editorHandle: number; editorRevision: number; profileRevision: number;
+  fieldNodeIds: readonly string[]; sourcePlan: ReadyRecordPlan;
+}>>();
 
 /** A frozen, value-free projection. It can only be created by createRecordPlannerSnapshot. */
 export interface RecordPlannerSnapshot {
@@ -534,6 +541,10 @@ function transactionMatchesPlan(active: ActiveRecordTransaction, plan: ReadyReco
   if (!issuedTransactions.has(active) || consumedTransactions.has(active) || consumedPlans.has(plan)
     || !Object.isFrozen(active) || plan.nextStep.kind !== expectedStep) return false;
   const step = plan.nextStep;
+  const expanded = expandedEditors.get(active);
+  if (expanded && (step.editorHandle !== expanded.editorHandle
+    || expectedStep !== 'populate-editor' || step.kind !== 'populate-editor'
+    || !sameStringSet(step.fieldNodeIds, expanded.fieldNodeIds))) return false;
   return active.runToken === plan.runToken && active.recordType === plan.recordType
     && active.recordListNodeId === plan.recordListNodeId && active.intentIndex === step.intentIndex
     && active.transactionToken === step.transactionToken && active.sourceSnapshotVersion < plan.snapshotVersion;
@@ -655,6 +666,77 @@ export function recordFieldsVerified(plan: ReadyRecordPlan, active: ActiveRecord
   consumedTransactions.add(active);
   consumedFieldReceipts.add(receipt);
   return transaction;
+}
+
+/**
+ * A trusted binder may replan an expanded draft after reading back EVERY original field.
+ * This consumes the old capability and keeps the same record in add-invoked phase.
+ * It does not verify the new fields, permit saving, or permit another Add.
+ * DOM continuity and current values must be checked synchronously by the caller.
+ */
+export function recordEditorExpanded(plan: ReadyRecordPlan, active: ActiveRecordTransaction,
+  previous: FieldsVerificationCapture, next: FieldsVerificationCapture,
+  verifyOriginalField: (fieldNodeId: string) => boolean): ActiveRecordTransaction | RequestHumanRecordPlan {
+  const reject = (reason: RecordPlanHumanReason = 'editor-unverified') => rawRequestHuman(
+    isSnapshotVersion(next?.snapshotVersion) ? next.snapshotVersion : 0, reason);
+  if (!isIssuedReadyPlan(plan) || plan.nextStep.kind !== 'populate-editor' || plan.recordType !== 'project'
+    || active?.phase !== 'add-invoked' || !transactionMatchesPlan(active, plan, 'populate-editor')
+    || !previous || !next || !isRecordPlanCurrentForSnapshot(plan, previous.snapshot)
+    || previous.snapshotVersion !== plan.snapshotVersion || previous.snapshotToken !== plan.snapshotToken
+    || previous.runToken !== plan.runToken || previous.snapshot.snapshotToken !== previous.snapshotToken
+    || !validatedSnapshots.has(next.snapshot) || !Object.isFrozen(next.snapshot)
+    || next.runToken !== plan.runToken || next.snapshot.runToken !== plan.runToken
+    || next.snapshotToken !== next.snapshot.snapshotToken || next.snapshotToken === plan.snapshotToken
+    || next.snapshotVersion !== next.snapshot.snapshotVersion || next.snapshotVersion !== plan.snapshotVersion + 1
+    || !isRunLocalRevision(previous.profileRevision) || next.profileRevision !== previous.profileRevision
+    || next.snapshot.recordType !== plan.recordType || next.snapshot.recordListNodeId !== plan.recordListNodeId
+    || next.snapshot.editorState !== 'creating' || !next.snapshot.editor || !next.editorCandidate
+    || next.snapshot.editor.recordNodeId !== plan.nextStep.editorRecordNodeId
+    || next.editorCandidate.recordNodeId !== plan.nextStep.editorRecordNodeId
+    || next.editorCandidate.runToken !== next.runToken || next.editorCandidate.snapshotToken !== next.snapshotToken
+    || next.editorCandidate.editorHandle !== plan.nextStep.editorHandle
+    || !isRunLocalRevision(next.editorRevision) || next.editorCandidate.editorRevision !== next.editorRevision
+    || next.snapshot.existingRecordCount !== previous.snapshot.existingRecordCount
+    || next.snapshot.existingRecordCount !== active.baselineExistingRecordCount
+    || JSON.stringify(next.snapshot.summaries) !== JSON.stringify(previous.snapshot.summaries)
+    || JSON.stringify(next.snapshot.actions) !== JSON.stringify(previous.snapshot.actions)
+    || next.snapshot.editor.fieldNodeIds.length <= plan.nextStep.fieldNodeIds.length
+    || !plan.nextStep.fieldNodeIds.every(id => next.snapshot.editor!.fieldNodeIds.includes(id))
+    || typeof verifyOriginalField !== 'function') return reject();
+  const count = (expandedEditors.get(active)?.count ?? 0) + 1;
+  if (count > MAX_RECORD_EDITOR_EXPANSIONS) return reject('editor-expansion-limit');
+  for (const id of plan.nextStep.fieldNodeIds) {
+    let checked: unknown;
+    try { checked = verifyOriginalField(id); if (thenable(checked)) void Promise.resolve(checked).catch(() => undefined); }
+    catch { return reject(); }
+    if (checked !== true) return reject();
+  }
+  const transaction = freezeTransaction({
+    runToken: active.runToken, transactionToken: active.transactionToken,
+    recordListNodeId: active.recordListNodeId, recordType: active.recordType, intentIndex: active.intentIndex,
+    baselineExistingRecordCount: active.baselineExistingRecordCount,
+    baselineCandidateHandles: active.baselineCandidateHandles,
+    sourceSnapshotToken: plan.snapshotToken, sourceSnapshotVersion: plan.snapshotVersion, phase: 'add-invoked',
+  });
+  expandedEditors.set(transaction, Object.freeze({ count, editorHandle: next.editorCandidate.editorHandle,
+    editorRevision: next.editorRevision, profileRevision: next.profileRevision,
+    fieldNodeIds: Object.freeze([...next.snapshot.editor.fieldNodeIds]), sourcePlan: plan }));
+  consumedPlans.add(plan); consumedTransactions.add(active);
+  return transaction;
+}
+
+/** Value-free evidence for the orchestrator; cloned results cannot bypass the expansion transition. */
+export function isRecordEditorExpansionCurrent(active: ActiveRecordTransaction, plan: ReadyRecordPlan,
+  capture: FieldsVerificationCapture): boolean {
+  const anchor = active && expandedEditors.get(active);
+  return Boolean(anchor && anchor.sourcePlan === plan && issuedTransactions.has(active)
+    && !consumedTransactions.has(active) && consumedPlans.has(plan) && active.phase === 'add-invoked'
+    && validatedSnapshots.has(capture.snapshot) && capture.snapshotVersion === active.sourceSnapshotVersion + 1
+    && capture.runToken === active.runToken && capture.snapshot.recordListNodeId === active.recordListNodeId
+    && capture.snapshot.editorState === 'creating' && capture.snapshot.editor
+    && capture.editorCandidate?.editorHandle === anchor.editorHandle
+    && capture.editorRevision === anchor.editorRevision && capture.profileRevision === anchor.profileRevision
+    && sameStringSet(capture.snapshot.editor.fieldNodeIds, anchor.fieldNodeIds));
 }
 
 /** Called only after the executor has consumed the issued save-created plan once. */
@@ -983,6 +1065,14 @@ function validateActiveTransaction(input: RepeatableRecordPlannerInput,
   const { snapshot } = input;
   const intent = input.intents.find(item => item.intentIndex === active.intentIndex);
   const handles = active.baselineCandidateHandles;
+  const expanded = expandedEditors.get(active);
+  if (expanded && (snapshot.editorState !== 'creating'
+    || input.editorCandidate?.editorHandle !== expanded.editorHandle
+    || input.editorCandidate.editorRevision !== expanded.editorRevision
+    || input.profileRevision !== expanded.profileRevision || !snapshot.editor
+    || !sameStringSet(snapshot.editor.fieldNodeIds, expanded.fieldNodeIds))) {
+    return requestHuman(snapshot, 'active-transaction-mismatch', [active.intentIndex]);
+  }
   const editorHandleValid = active.phase === 'add-invoked'
     ? active.editorHandle === undefined
     : isRunLocalHandle(active.editorHandle) && isRunLocalRevision(active.editorRevision)

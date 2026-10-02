@@ -15,9 +15,10 @@ const token = 'b'.repeat(64); const requests = []; let mode = 'normal'; let pend
 const report = { startedAt: new Date().toISOString(), checks: [], externalRequests: [], errors: [] };
 const service = createSemanticServer({ token, provider: async (request, signal) => {
   requests.push(request);
-  if (mode === 'hold') await new Promise(done => { pending = done; signal.addEventListener('abort', () => { aborted++; done(); }, { once: true }); });
+  if (mode === 'hold' || mode === 'hold-tools' && request.fields.some(field => field.label.includes('工具'))) await new Promise(done => { pending = done; signal.addEventListener('abort', () => { aborted++; done(); }, { once: true }); });
   const bindings = request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint,
-    path: field.label.includes('叫什么') ? 'projects.name' : 'projects.description', certainty: 'certain', evidence: 'label' }));
+    path: field.label.includes('叫什么') ? 'projects.name' : field.label.includes('工具') ? 'projects.technologies'
+      : field.label.includes('产出') ? 'projects.achievements' : 'projects.description', certainty: 'certain', evidence: 'label' }));
   if (mode === 'invalid') bindings.push({ ...bindings[0], ref: 'field-29' });
   return { state: 'ready', proposal: { requestId: request.requestId, status: 'mapped', bindings } };
 } });
@@ -27,10 +28,38 @@ const html = raw.replace('data-ra-record-v2-fixture="v1"', '').replace(/<meta na
   .replace('data-schema="record-v2-six-projects-v1"', '').replace("add.textContent = '添加项目经历';", "add.textContent = '+';")
   .replace('name="fixture-project-name"', 'name="slot-a"').replace('name="fixture-project-description"', 'name="slot-b"')
   .replace("'<label>项目名称' + name + '</label><label>项目描述' + description + '</label>'",
-    "'<label>' + (window.fixtureSemanticMixed ? '项目名称' : '这项工作叫什么') + name + '</label><label>这项工作做了些什么' + description + '</label>'");
+    "'<label>' + (window.fixtureSemanticMixed ? '项目名称' : '这项工作叫什么') + name + '</label><label>这项工作做了些什么' + description + '</label>'")
+  .replace('form.innerHTML = fields +', `if (window.fixtureDynamic) fields += '<label>项目角色<select name="choice"><option value="">请选择</option><option value="developer">开发成员</option></select></label>'; form.innerHTML = fields +`)
+  .replace("form.querySelector('[data-save]').addEventListener", `
+    if (window.fixtureDynamic) {
+      form.querySelector('[name="choice"]').addEventListener('change', () => {
+        if (form.querySelector('[name="choice"]').value !== 'developer') return;
+        setTimeout(() => {
+          if (!form.isConnected) return;
+          const button = form.querySelector('[data-save]');
+          button.insertAdjacentHTML('beforebegin', '<label>这项工作用了什么工具<select name="stack"><option value="">请选择</option><option value="ts-code">TypeScript</option></select></label>');
+          form.querySelector('[name="stack"]').addEventListener('change', () => {
+            if (form.querySelector('[name="stack"]').value !== 'ts-code') return;
+            setTimeout(() => {
+              if (!form.isConnected) return;
+              button.insertAdjacentHTML('beforebegin', window.fixtureDynamic === 'limit'
+                ? '<label>这项工作有哪些产出<select name="output"><option value="">请选择</option><option value="passed">演示验证通过</option></select></label>'
+                : '<label>这项工作有哪些产出<input name="output"></label>');
+              if (window.fixtureDynamic === 'limit') form.querySelector('[name="output"]').addEventListener('change', () => {
+                if (form.querySelector('[name="output"]').value === 'passed') setTimeout(() => {
+                  if (form.isConnected) button.insertAdjacentHTML('beforebegin', '<label>所在公司<input name="extra"></label>');
+                }, 200);
+              });
+            }, 600);
+          });
+        }, 600);
+      });
+    }
+    form.querySelector('[data-save]').addEventListener`);
 const profile = JSON.parse(await readFile(resolve(root, 'examples/sample-profile.json'), 'utf8'));
 profile.projects = Array.from({ length: 6 }, (_, index) => ({ id: 'fictional-semantic-' + index,
-  name: '虚构测试项目 ' + (index + 1), description: '仅用于本地浏览器扩展验证的虚构项目 ' + (index + 1) + '。', technologies: [] }));
+  name: '虚构测试项目 ' + (index + 1), description: '仅用于本地浏览器扩展验证的虚构项目 ' + (index + 1) + '。',
+  role: '开发成员', technologies: ['TypeScript'], achievements: '演示验证通过', organization: '无' }));
 let context;
 try {
   await new Promise((res, rej) => { service.once('error', rej); service.listen(43127, '127.0.0.1', res); });
@@ -52,9 +81,10 @@ try {
   await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(profile));
   await options.getByRole('button', { name: '校验并载入预览' }).click(); await options.getByRole('button', { name: '保存档案' }).click();
   await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
-  async function pageFor(name, mixed = false) {
+  async function pageFor(name, mixed = false, dynamic = false) {
     const page = await context.newPage();
-    await page.addInitScript(value => { window.fixtureInitialCards = [0]; window.fixtureAddRelation = 'aria-controls'; window.fixtureSemanticMixed = value; }, mixed);
+    await page.addInitScript(value => { window.fixtureInitialCards = value.dynamic ? [0, 1, 2, 3, 4] : [0];
+      window.fixtureAddRelation = 'aria-controls'; window.fixtureSemanticMixed = value.mixed; window.fixtureDynamic = value.dynamic; }, { mixed, dynamic });
     await page.goto(origin + '/projects?case=' + name);
     const targets = (await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
     await cdp.send('Extensions.triggerAction', { id: extensionId, targetId: targets.find(item => item.url === page.url()).targetId });
@@ -127,6 +157,42 @@ try {
       saved.projects = restored; await chrome.storage.local.set({ [key]: saved }); }, profile.projects);
     if (change === 'connection') await worker.evaluate(async restored => chrome.storage.local.set({ 'recruitment.semantic.connection.v1': restored }), originalConnection);
   }
+  mode = 'normal'; const dynamicBefore = requests.length;
+  page = await pageFor('dynamic', false, 'normal'); popup = await popupFor(page); await start(popup);
+  await popup.getByText(completion).waitFor();
+  assert.deepEqual(await counts(page), { ...blocked, save: 1 });
+  assert.deepEqual(requests.slice(dynamicBefore).map(request => request.fields.length), [2, 1, 1]);
+  assert.deepEqual(await page.evaluate(() => window.fixture.savedFields), [{ index: 5, values: {
+    'slot-a': profile.projects[5].name, 'slot-b': profile.projects[5].description,
+    choice: 'developer', stack: 'ts-code', output: profile.projects[5].achievements,
+  } }]);
+  report.checks.push('Two delayed native choices reveal new unfamiliar fields; fresh batches reuse current-node meanings and save the same project exactly once after all three batches');
+  await popup.close(); await page.close();
+  mode = 'hold'; const dynamicPause = requests.length;
+  page = await pageFor('dynamic-pause', false, 'normal'); popup = await popupFor(page); await start(popup); await waitRequest(dynamicPause);
+  await popup.getByRole('button', { name: '暂停项目填写', exact: true }).click(); mode = 'normal'; pending();
+  await popup.getByText('项目填写已暂停', { exact: false }).waitFor();
+  assert.deepEqual(await counts(page), blocked); assert.equal(await page.locator('[name="stack"]').inputValue(), '');
+  await popup.close(); popup = await popupFor(page);
+  await popup.getByRole('button', { name: '继续项目填写', exact: true }).click(); await popup.getByText(completion).waitFor();
+  assert.deepEqual(await counts(page), { ...blocked, save: 1 }); assert.equal(requests.length - dynamicPause, 3);
+  report.checks.push('Pausing after a dynamic expansion retains the original project draft; reopen and resume replan new fields without a second Add');
+  await popup.close(); await page.close();
+  mode = 'hold-tools'; const dynamicManual = requests.length;
+  page = await pageFor('dynamic-manual', false, 'normal'); popup = await popupFor(page); await start(popup);
+  await waitRequest(dynamicManual + 1); await page.locator('form textarea').fill('保留联动期间的手工草稿');
+  mode = 'normal'; pending(); await popup.getByText('项目填写需要检查', { exact: false }).waitFor();
+  assert.deepEqual(await counts(page), blocked); assert.equal(requests.length - dynamicManual, 2);
+  assert.equal(await page.locator('form textarea').inputValue(), '保留联动期间的手工草稿'); assert.equal(await page.locator('[name="stack"]').inputValue(), '');
+  report.checks.push('Manual changes while a later dynamic semantic batch waits invalidate prior meanings and preserve the manual draft with zero Save');
+  await popup.close(); await page.close();
+  mode = 'normal'; const dynamicLimit = requests.length;
+  page = await pageFor('dynamic-limit', false, 'limit'); popup = await popupFor(page); await start(popup);
+  await popup.getByText('当前项目连续展开的问题超过三轮', { exact: false }).waitFor();
+  assert.deepEqual(await counts(page), blocked); assert.equal(requests.length - dynamicLimit, 3);
+  assert.equal(await page.locator('[name="extra"]').inputValue(), '');
+  report.checks.push('A fourth expanding batch exceeds the bounded project limit; it cannot reuse an old receipt or Save an incomplete record');
+  await popup.close(); await page.close();
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []); report.passed = true;
   console.info('Project semantic extension E2E passed (' + report.checks.length + ' checks)');
 } catch (error) { report.failure = error.stack ?? String(error); throw error; }

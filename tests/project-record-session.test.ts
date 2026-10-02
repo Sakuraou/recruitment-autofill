@@ -63,6 +63,106 @@ function unfamiliarProjects(mixed = false) {
   return { ...page, provider };
 }
 
+it('项目角色选择展开新字段后重新规划、补齐，再保存同一项目一次', async () => {
+  const page = installPage('+', false, [0, 1, 2, 3, 4], 'aria-controls');
+  const local = { ...projection, projects: projection.projects.map(project => ({ ...project, role: '开发成员', technologies: ['TypeScript'] })) };
+  let changes = 0;
+  page.add.addEventListener('click', () => {
+    const form = page.list.querySelector('form')!;
+    form.querySelector('button')!.insertAdjacentHTML('beforebegin', '<label>项目角色<select><option value="">请选择</option><option value="developer">开发成员</option></select></label>');
+    form.querySelector('select')!.addEventListener('change', () => {
+      changes++;
+      form.querySelector('button')!.insertAdjacentHTML('beforebegin', '<label>技术栈<input name="stack"></label>');
+    });
+  });
+  const session = createProjectRecordSession(document, local);
+  expect((await session.advance()).status).toBe('advanced');
+  expect((await session.advance()).status).toBe('advanced');
+  expect(page.counts.save).toBe(0);
+  expect((await session.advance()).status).toBe('advanced');
+  expect(page.list.querySelector<HTMLInputElement>('[name="stack"]')!.value).toBe('TypeScript');
+  expect((await session.advance()).status).toBe('advanced');
+  expect((await session.advance()).status).toBe('complete');
+  expect(page.counts).toEqual({ add: 1, save: 1, submit: 0, remove: 0 }); expect(changes).toBe(1);
+});
+
+function dynamicProject(delay = 0, unknown = false) {
+  const page = installPage('+', false, [0, 1, 2, 3, 4], 'aria-controls');
+  const local = { ...projection, projects: projection.projects.map(project => ({ ...project, role: '开发成员', technologies: ['TypeScript'] })) };
+  page.add.addEventListener('click', () => {
+    const form = page.list.querySelector('form')!;
+    if (unknown) {
+      const labels = form.querySelectorAll('label'); labels[0]!.firstChild!.textContent = '这项工作叫什么';
+      labels[1]!.firstChild!.textContent = '这项工作做了些什么';
+    }
+    form.querySelector('button')!.insertAdjacentHTML('beforebegin', '<label>项目角色<select><option value="">请选择</option><option value="developer">开发成员</option></select></label>');
+    form.querySelector('select')!.addEventListener('change', () => {
+      const reveal = () => { if (form.isConnected && form.querySelector('select')!.value === 'developer')
+        form.querySelector('button')!.insertAdjacentHTML('beforebegin', `<label>${unknown ? '这项工作用了什么工具' : '技术栈'}<input name="stack"></label>`); };
+      if (delay) setTimeout(reveal, delay); else reveal();
+    });
+  });
+  const provider: SemanticProvider = { propose: vi.fn(async (request: Parameters<SemanticProvider['propose']>[0]) => ({ requestId: request.requestId, status: 'mapped',
+    bindings: request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint,
+      path: field.label.includes('叫什么') ? 'projects.name' : field.label.includes('工具') ? 'projects.technologies' : 'projects.description',
+      certainty: 'certain', evidence: 'label' })) })) };
+  return { ...page, local, provider };
+}
+
+it('600ms 延迟展开的陌生字段使用新捕获，旧含义只绑定当前原节点且只写一次', async () => {
+  const p = dynamicProject(600, true); let originalChanges = 0;
+  p.add.addEventListener('click', () => p.list.querySelector('textarea')!.addEventListener('input', () => originalChanges++));
+  const session = createProjectRecordSession(document, p.local, undefined, undefined, p.provider);
+  for (let step = 0; step < 8; step++) { const result = await session.advance(); if (result.status === 'complete') break; expect(result.status).toBe('advanced'); }
+  expect(session.state).toBe('complete'); expect(p.provider.propose).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(p.provider.propose).mock.calls.map(([request]) => request.fields.length)).toEqual([2, 1]);
+  expect(originalChanges).toBe(1); expect(p.saved).toEqual([{ name: p.local.projects[5]!.name, description: p.local.projects[5]!.description }]);
+  expect(p.counts).toEqual({ add: 1, save: 1, submit: 0, remove: 0 });
+}, 10_000);
+
+it.each(['manual', 'replace', 'action', 'option', 'stop'])('联动等待期间%s不签发新规划或保存，保留手工内容', async mode => {
+  const p = dynamicProject(50);
+  const session = createProjectRecordSession(document, p.local);
+  await session.advance();
+  p.list.querySelector('select')!.addEventListener('change', () => {
+    if (p.list.querySelector('select')?.value !== 'developer') return;
+    setTimeout(() => {
+      const field = p.list.querySelector('textarea')!;
+      if (mode === 'manual') field.value = '手工保留的项目说明';
+      if (mode === 'replace') field.replaceWith(field.cloneNode(true));
+      if (mode === 'action') { const button = p.list.querySelector('form button')!; button.replaceWith(button.cloneNode(true)); }
+      if (mode === 'option') p.list.querySelector('select option[value="developer"]')!.textContent = '另一个职责';
+      if (mode === 'stop') session.stop();
+    }, 100);
+  });
+  const result = await session.advance();
+  expect(['request-human', 'stopped']).toContain(result.status);
+  expect(p.counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+  if (mode === 'manual') expect(p.list.querySelector('textarea')!.value).toBe('手工保留的项目说明');
+}, 10_000);
+
+it('展开的新字段缺少事实时停在草稿，不回到第一条项目或重复新增', async () => {
+  const p = dynamicProject(); p.local.projects[5]!.technologies = [];
+  const session = createProjectRecordSession(document, p.local);
+  await session.advance(); expect((await session.advance()).status).toBe('advanced');
+  expect(await session.advance()).toMatchObject({ status: 'request-human', reason: 'profile-value-missing' });
+  expect(p.list.querySelector('input')!.value).toBe(p.local.projects[5]!.name);
+  expect(p.counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+});
+
+it.each(['manual', 'new-field', 'profile'])('两轮之间%s不能借用上一轮保存的字段含义继续写入', async mode => {
+  const p = dynamicProject(0, true); let latest = p.local;
+  const session = createProjectRecordSession(document, p.local, async () => latest, undefined, p.provider);
+  await session.advance(); expect((await session.advance()).status).toBe('advanced');
+  if (mode === 'manual') p.list.querySelector('textarea')!.value = '两轮之间的手工草稿';
+  if (mode === 'new-field') p.list.querySelector('form')!.insertAdjacentHTML('afterbegin', '<label>项目地址<input></label>');
+  if (mode === 'profile') latest = { ...p.local, projects: p.local.projects.map(project => ({ ...project, name: '另一个项目' })) };
+  expect((await session.advance()).status).toBe('request-human');
+  expect(p.provider.propose).toHaveBeenCalledOnce(); expect(p.list.querySelector<HTMLInputElement>('[name="stack"]')!.value).toBe('');
+  expect(p.counts).toEqual({ add: 1, save: 0, submit: 0, remove: 0 });
+  if (mode === 'manual') expect(p.list.querySelector('textarea')!.value).toBe('两轮之间的手工草稿');
+});
+
 it.each([false, true])('陌生项目编辑器与已知字段混合=%s时逐条读取正确项目并只保存一次', async mixed => {
   const p = unfamiliarProjects(mixed);
   const session = createProjectRecordSession(document, projection, undefined, undefined, p.provider);

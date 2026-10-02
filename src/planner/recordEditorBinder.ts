@@ -3,12 +3,14 @@ import type { ProjectFieldReason } from '../matching/projectFieldResolver';
 import { belongsToDocument, hasValue } from '../content/domUtils';
 import { booleanValue, createControlAdapter, verifyNativeRadioGroup } from '../content/controlAdapter';
 import { controlFingerprint, describeControl, describeRadioGroup } from '../content/scanner';
+import { waitForDomStability } from '../content/domStability';
 import type { ScanState, ScannedControl } from '../content/scanner';
 import {
   isRecordPlanCurrentForSnapshot,
   isRecordTransactionCurrentForPlan,
   issueFieldsVerifiedReceipt,
   recordFieldsVerified,
+  recordEditorExpanded,
   type ActiveRecordTransaction,
   type ReadyRecordPlan,
   type RequestHumanRecordPlan,
@@ -43,11 +45,12 @@ export type RecordEditorBindReason =
   | 'step-aborted'
   | 'rescan-failed'
   | 'receipt-rejected'
+  | 'editor-expansion-limit'
   | 'rollback-incomplete';
 
 export type RecordEditorBindResult =
   | Readonly<{
-    status: 'advanced';
+    status: 'advanced' | 'expanded';
     capture: RecordRunCapture;
     activeTransaction: ActiveRecordTransaction;
     writtenFieldCount: number;
@@ -69,6 +72,8 @@ export interface RecordEditorBindInput {
   readonly scanState: ScanState;
   readonly provideValue: EditorFieldValueProvider;
   readonly rescan: () => RecordRunCapture | RecordRunCaptureFailure;
+  /** Current-project drafts only; legacy binders retain fixed-field behavior. */
+  readonly allowExpansion?: boolean;
 }
 
 interface Binding {
@@ -141,7 +146,8 @@ function bindingIdentity(control: ScannedControl): string {
   const field = control.adapter === 'radio-group' ? describeRadioGroup(control.members, '') : describeControl(control.node, '');
   const identity = { kind: field.kind, type: field.type, label: field.label, name: field.name,
     htmlId: field.htmlId, ariaLabel: field.ariaLabel, placeholder: field.placeholder, title: field.title,
-    tableHeader: field.tableHeader, required: field.required, disabled: field.disabled, readOnly: field.readOnly };
+    tableHeader: field.tableHeader, required: field.required, disabled: field.disabled, readOnly: field.readOnly,
+    options: field.options };
   // Controlled React inputs may update value/checked attributes as part of
   // their normal event chain. Those are state, not control identity.
   const attributes = Array.from(control.node.attributes).filter(attribute => !['value', 'checked', 'aria-invalid'].includes(attribute.name))
@@ -341,6 +347,21 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       items.length, rollbackComplete);
   }
 
+  // Native choices may reveal controls asynchronously. Observe only this editor;
+  // manual rewrites, replacement and cancellation cannot grant a saving capability.
+  if (input.allowExpansion === true && bindings.some(binding => !binding.preserved
+    && (binding.control.node.tagName === 'SELECT' || binding.control.adapter === 'radio-group'))) {
+    const quiet = await waitForDomStability({ root: editor, signal, quietWindowMs: 750, timeoutMs: 3_000,
+      predicate: () => bindings.every(binding => bindingIdentity(binding.control) === binding.rollbackIdentity
+        && currentValueMatches(binding.control, binding.value)) });
+    if (quiet.status !== 'stable') {
+      runContext.cancelStep();
+      const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+      return failure(rollbackComplete ? (quiet.status === 'aborted' ? 'step-aborted' : 'field-readback-failed')
+        : 'rollback-incomplete', items.length, rollbackComplete);
+    }
+  }
+
   let next: RecordRunCapture | RecordRunCaptureFailure;
   try {
     next = input.rescan();
@@ -355,12 +376,32 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     return failure(rollbackComplete ? 'rescan-failed' : 'rollback-incomplete', items.length, rollbackComplete);
   }
   const byNodeId = new Map(bindings.map(binding => [binding.fieldNodeId, binding]));
-  const receipt = issueFieldsVerifiedReceipt(plan, activeTransaction, next, fieldNodeId => {
+  const verifyField = (fieldNodeId: string): boolean => {
     const binding = byNodeId.get(fieldNodeId);
     return Boolean(binding && matchesIssuedRecordRunTarget(next, fieldNodeId, binding.control.node)
       && bindingIdentity(binding.control) === binding.rollbackIdentity
       && currentValueMatches(binding.control, binding.value));
-  });
+  };
+  if (input.allowExpansion === true && next.snapshot.editor
+    && next.snapshot.editor.fieldNodeIds.length > plan.nextStep.fieldNodeIds.length) {
+    const continuityIds = [plan.recordListNodeId, plan.nextStep.editorRecordNodeId,
+      ...capture.snapshot.summaries.map(summary => summary.recordNodeId),
+      ...capture.snapshot.actions.map(action => action.actionNodeId)];
+    if (continuityIds.some(id => {
+      const target = scanState.semanticTargets.get(id);
+      return !target || !matchesIssuedRecordRunTarget(next, id, target);
+    })) {
+      const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+      return failure(rollbackComplete ? 'field-target-replaced' : 'rollback-incomplete', items.length, rollbackComplete);
+    }
+    const expanded = recordEditorExpanded(plan, activeTransaction, capture, next, verifyField);
+    if (!('status' in expanded)) return Object.freeze({ status: 'expanded', capture: next, activeTransaction: expanded,
+      writtenFieldCount: items.length, preservedFieldCount: bindings.length - items.length });
+    const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
+    return failure(rollbackComplete ? (expanded.reason === 'editor-expansion-limit' ? 'editor-expansion-limit' : 'receipt-rejected')
+      : 'rollback-incomplete', items.length, rollbackComplete, expanded);
+  }
+  const receipt = issueFieldsVerifiedReceipt(plan, activeTransaction, next, verifyField);
   if (receipt.status !== 'ready') {
     const rollbackComplete = await rollbackBindings(scanState, bindings.filter(binding => !binding.preserved));
     return failure(rollbackComplete ? 'receipt-rejected' : 'rollback-incomplete', items.length, rollbackComplete,

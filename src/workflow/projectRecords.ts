@@ -28,6 +28,7 @@ const reasons: Readonly<Record<string, string>> = {
   'save-result-uncertain': '保存结果无法确定，请检查网页，不能重复添加或保存。',
   'rollback-incomplete': '网页未能恢复部分填写内容，请先检查当前草稿。',
   'action-limit': '本轮未能在预计步骤内完成，已停止，请检查网页。',
+  'editor-expansion-limit': '当前项目连续展开的问题超过三轮，已停止保存，请检查新字段和草稿。',
   'run-failed': '本轮操作未完成，请检查网页和当前草稿。',
 };
 export function projectWorkflowReason(reason?: string): string {

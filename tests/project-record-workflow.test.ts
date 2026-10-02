@@ -82,7 +82,25 @@ it('无限 advanced 被次数限制停止，不能变成无界点击循环', asy
   const flow = new ProjectRecordWorkflow(document, async () => projection, () => session);
   await flow.start(); await vi.waitFor(() => expect(flow.status().phase).toBe('review'));
   expect(flow.status().reason).toBe('action-limit');
-  expect(session.advance).toHaveBeenCalledTimes(4); expect(session.stop).toHaveBeenCalled(); flow.stop();
+  // One Add, up to three population batches, one Save, then a final observation.
+  expect(session.advance).toHaveBeenCalledTimes(6); expect(session.stop).toHaveBeenCalled(); flow.stop();
+});
+
+it('完整使用两次联动后仍允许最后一次完成观察', async () => {
+  let calls = 0;
+  const session = fakeSession(async () => ({ status: ++calls <= 5 ? 'advanced' : 'complete', snapshotVersion: calls }));
+  const flow = new ProjectRecordWorkflow(document, async () => projection, () => session);
+  await flow.start(); await vi.waitFor(() => expect(flow.status().phase).toBe('complete'));
+  expect(session.advance).toHaveBeenCalledTimes(6); expect(session.stop).not.toHaveBeenCalled();
+});
+
+it('多个项目的虚假无限进展仍被固定总上限停止', async () => {
+  const session = fakeSession(async () => ({ status: 'advanced', snapshotVersion: 1 }));
+  const several = { ...projection, projects: Array.from({ length: 6 }, (_, index) => ({ ...projection.projects[0]!, id: `bounded-${index}` })) };
+  const flow = new ProjectRecordWorkflow(document, async () => several, () => session);
+  await flow.start(); await vi.waitFor(() => expect(flow.status().phase).toBe('review'));
+  expect(flow.status().reason).toBe('action-limit');
+  expect(session.advance).toHaveBeenCalledTimes(31); expect(session.stop).toHaveBeenCalled(); flow.stop();
 });
 
 it('暂停后的迟到步骤不能推进下一条，恢复会等待旧步骤结束', async () => {

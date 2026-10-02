@@ -1,6 +1,7 @@
 import type { RecordEditorBindResult } from './recordEditorBinder';
 import {
   planRepeatableRecords,
+  isRecordEditorExpansionCurrent,
   type ActiveRecordTransaction,
   type ReadyRecordPlan,
   type RepeatableRecordPlannerInput,
@@ -160,7 +161,16 @@ export class RecordTransactionOrchestrator {
         return this.#requestHuman(current.snapshotVersion, 'step-driver-failed');
       }
       if (generation !== this.#generation) return this.#interruptedResult();
-      if (result.status !== 'advanced') {
+      if (result.status === 'expanded') {
+        if (plan.nextStep.kind !== 'populate-editor' || !isIssuedRecordRunCapture(result.capture)
+          || result.capture.snapshotVersion !== current.snapshotVersion + 1
+          || !isRecordEditorExpansionCurrent(result.activeTransaction, plan, result.capture)) {
+          return this.#requestHuman(current.snapshotVersion, 'step-result-mismatch');
+        }
+        this.#capture = result.capture; this.#active = result.activeTransaction; this.#state = 'ready';
+        return frozen({ status: 'advanced', step: 'populate-editor', snapshotVersion: result.capture.snapshotVersion });
+      }
+      if (result.status === 'request-human') {
         return this.#requestHuman(current.snapshotVersion, result.reason, result.plannerResult);
       }
       if (!validAdvance(current, result.capture, plan, result.activeTransaction)) {

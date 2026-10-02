@@ -3,6 +3,7 @@ import { projectProjectionResponseSchema } from '../profile/projection';
 import type { ProjectWorkflowPhase, ProjectWorkflowState } from '../workflow/projectRecords';
 import type { RecordV2Session } from './recordV2Gateway';
 import { createProjectRecordSession, projectRecordAvailability } from './projectRecordSession';
+import { MAX_RECORD_EDITOR_EXPANSIONS } from '../planner/recordPlanner';
 
 type ProjectionLoader = () => Promise<ProjectProjectionResponse>;
 type SessionFactory = (doc: Document, projection: ProjectProjectionResponse, refresh: ProjectionLoader) => RecordV2Session;
@@ -93,7 +94,7 @@ export class ProjectRecordWorkflow {
   }
 
   async #pump(generation: number): Promise<void> {
-    const limit = this.#total * 3 + 1;
+    const limit = this.#total * (3 + MAX_RECORD_EDITOR_EXPANSIONS) + 1;
     try {
       for (let step = 0; step < limit; step++) {
         if (generation !== this.#generation || !['running', 'pausing'].includes(this.status().phase) || !this.#session) return;
