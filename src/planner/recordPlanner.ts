@@ -679,7 +679,7 @@ export function recordEditorExpanded(plan: ReadyRecordPlan, active: ActiveRecord
   verifyOriginalField: (fieldNodeId: string) => boolean): ActiveRecordTransaction | RequestHumanRecordPlan {
   const reject = (reason: RecordPlanHumanReason = 'editor-unverified') => rawRequestHuman(
     isSnapshotVersion(next?.snapshotVersion) ? next.snapshotVersion : 0, reason);
-  if (!isIssuedReadyPlan(plan) || plan.nextStep.kind !== 'populate-editor' || plan.recordType !== 'project'
+  if (!isIssuedReadyPlan(plan) || plan.nextStep.kind !== 'populate-editor' || !['project', 'education'].includes(plan.recordType)
     || active?.phase !== 'add-invoked' || !transactionMatchesPlan(active, plan, 'populate-editor')
     || !previous || !next || !isRecordPlanCurrentForSnapshot(plan, previous.snapshot)
     || previous.snapshotVersion !== plan.snapshotVersion || previous.snapshotToken !== plan.snapshotToken

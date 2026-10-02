@@ -1,5 +1,5 @@
 import { fillScan, type FillScanInteractionTrace } from '../content/autofill';
-import type { ProjectFieldReason } from '../matching/projectFieldResolver';
+import type { RecordFieldReason } from '../matching/recordFieldReason';
 import { belongsToDocument, hasValue } from '../content/domUtils';
 import { booleanValue, createControlAdapter, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from '../content/controlAdapter';
 import { ariaComboboxFingerprint, controlFingerprint, describeAriaCombobox, describeControl, describeRadioGroup } from '../content/scanner';
@@ -31,7 +31,7 @@ export interface EditorFieldValueRequest {
 export type EditorFieldValueProvider = (request: EditorFieldValueRequest) => string | undefined;
 
 export type RecordEditorBindReason =
-  | ProjectFieldReason
+  | RecordFieldReason
   | 'invalid-bind-input'
   | 'duplicate-step'
   | 'snapshot-stale'
@@ -72,7 +72,7 @@ export interface RecordEditorBindInput {
   readonly scanState: ScanState;
   readonly provideValue: EditorFieldValueProvider;
   readonly rescan: () => RecordRunCapture | RecordRunCaptureFailure;
-  /** Current-project drafts only; legacy binders retain fixed-field behavior. */
+  /** Explicit current-project/education sessions only; legacy binders retain fixed-field behavior. */
   readonly allowExpansion?: boolean;
 }
 
