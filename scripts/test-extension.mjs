@@ -41,6 +41,20 @@ try {
         <label>已取得最高学位<input id="summary-earned"></label><label>是否最高学位<select id="summary-marker"><option value="">请选择</option><option value="y">是</option><option value="n">否</option></select></label>
         <label>最高学历<input id="summary-manual" value="人工原值"></label></section><button type="submit" id="summary-submit">提交</button>
         <script>window.summarySubmits=0;document.querySelector('#summary-submit').addEventListener('click',()=>window.summarySubmits++);</script></body>` });
+    else if (url.hostname === '127.0.0.1' && url.pathname === '/internship-facts') await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8',
+      body: `<!doctype html><body><section aria-label="实习经历"><h2>实习经历</h2>
+        <label>工作单位<input id="intern-company"></label><label>所在部门<input id="intern-department"></label><label>职务<input id="intern-role"></label>
+        <label>工作描述<textarea id="intern-description"></textarea></label><label>工作业绩<input id="intern-achievements"></label>
+        <label>入职日期<input type="date" id="intern-start"></label><label>离职日期<input type="date" id="intern-end"></label>
+        <label>活动经历类型<select id="intern-experience"><option value="">请选择</option><option value="intern">实习经历</option><option value="practice">社会实践</option></select></label>
+        <label>工作类型<select id="intern-work"><option value="">请选择</option><option value="i">实习</option><option value="p">兼职</option></select></label>
+        <label>企业性质<select id="intern-property"><option value="">请选择</option><option value="private">民营企业</option><option value="public">事业单位</option></select></label>
+        <label>税前月薪<select id="intern-salary"><option value="">请选择</option><option value="r1">1000-2000/月</option><option value="r2">2000-3000/月</option></select></label>
+        <label>是否有证明<select id="intern-proof"><option value="">请选择</option><option value="yes">是</option><option value="no">否</option></select></label>
+        <label>税前月薪范围（USD）<input id="intern-currency"></label><label>税前月薪范围<input type="number" id="intern-amount"></label>
+        <label>证明人联系电话<input id="intern-contact"></label><label>工作描述<input value="人工原值" id="intern-manual"></label>
+        <button type="button" id="intern-add">添加</button><button type="button" id="intern-save">保存</button><button type="submit" id="intern-submit">提交</button>
+        </section><script>window.internActions=0;document.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>window.internActions++));</script></body>` });
     else if (url.hostname !== '127.0.0.1') {
       report.externalRequests.push(route.request().url()); await route.abort();
     } else await route.continue();
@@ -518,6 +532,48 @@ try {
     }
     assert.equal(await page.evaluate(() => window.summarySubmits), 0);
     report.checks.push(mode + ': production ordinary popup resolves level/degree/full-time independently, protects missing facts, earned/boolean questions, ties and manual values');
+    await popup.close(); await page.close();
+  }
+  for (const mode of ['first', 'second', 'missing-description', 'multiple']) {
+    const records = [{ id: 'fictional-cloud', organization: '虚构云桥科技', department: '平台研发部', role: '软件开发实习生',
+      description: '维护课程演示服务并编写接口测试。', achievements: '完成课程接口交付。', startDate: '2025-07-01', endDate: '2025-09-30',
+      experienceType: '实习经历', workType: '实习', companyProperty: '民营企业', monthlySalary: '1000-2000/月', hasProof: '否' },
+    { id: 'fictional-library', organization: '虚构星河图书馆', department: '信息服务部', role: '信息整理实习生',
+      description: '核对检索记录并协助处理读者反馈。', achievements: '完成检索记录核对。', startDate: '2026-01-10', endDate: '2026-02-20',
+      experienceType: '社会实践', workType: '兼职', companyProperty: '事业单位', monthlySalary: '2000-3000/月', hasProof: '是' }];
+    const current = mode === 'second' ? records[1] : records[0];
+    if (mode === 'missing-description') delete current.description;
+    await worker.evaluate(async internships => { const key = 'recruitment.profile.v1'; const saved = (await chrome.storage.local.get(key))[key];
+      saved.internships = internships; saved.revision = crypto.randomUUID(); await chrome.storage.local.set({ [key]: saved }); }, mode === 'multiple' ? records : [current]);
+    const url = 'http://127.0.0.1:4173/internship-facts?case=' + mode;
+    const page = await context.newPage(); await page.goto(url);
+    const targets = (await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
+    await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: targets.find(target => target.url === url).targetId });
+    const popup = await context.newPage(); await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await worker.evaluate(async value => { const tab = (await chrome.tabs.query({})).find(item => item.url === value);
+      await chrome.tabs.update(tab.id, { active: true }); }, url);
+    await popup.getByRole('button', { name: '扫描页面', exact: true }).click();
+    await popup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+    const written = mode === 'multiple' ? 0 : mode === 'missing-description' ? 11 : 12;
+    if (Number((await popup.locator('.popup-stats strong').allTextContents())[1]) !== written) {
+      report.internshipDiagnostic = await popup.locator('.match-card').evaluateAll(cards => cards.map(card => ({
+        label: card.querySelector('.match-label')?.textContent, status: card.querySelector('.result-badge')?.textContent,
+        meta: card.querySelector('.match-meta')?.textContent, reason: card.querySelector('.match-reason')?.textContent,
+      })));
+    }
+    assert.equal(Number((await popup.locator('.popup-stats strong').allTextContents())[1]), written);
+    if (written) {
+      await popup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+      await popup.getByRole('status').filter({ hasText: new RegExp('已填写 ' + written + ' 项，跳过或未完成 0 项') }).waitFor();
+    } else assert.equal(await popup.getByRole('button', { name: '一键填写高置信度字段' }).isDisabled(), true);
+    const expected = { 'intern-company': current.organization, 'intern-department': current.department, 'intern-role': current.role,
+      'intern-description': current.description ?? '', 'intern-achievements': current.achievements, 'intern-start': current.startDate, 'intern-end': current.endDate,
+      'intern-experience': mode === 'second' ? 'practice' : 'intern', 'intern-work': mode === 'second' ? 'p' : 'i',
+      'intern-property': mode === 'second' ? 'public' : 'private', 'intern-salary': mode === 'second' ? 'r2' : 'r1', 'intern-proof': mode === 'second' ? 'yes' : 'no' };
+    for (const [id, value] of Object.entries(expected)) assert.equal(await page.locator('#' + id).inputValue(), mode === 'multiple' ? '' : value, mode + '/' + id);
+    for (const id of ['intern-currency', 'intern-amount', 'intern-contact']) assert.equal(await page.locator('#' + id).inputValue(), '');
+    assert.equal(await page.locator('#intern-manual').inputValue(), '人工原值'); assert.equal(await page.evaluate(() => window.internActions), 0);
+    report.checks.push(mode + ': production ordinary popup fills current internship facts, preserves missing description and ambiguous records, and rejects currency/amount/contact guessing; no Add/Save/Submit');
     await popup.close(); await page.close();
   }
   assert.deepEqual(report.externalRequests, []);

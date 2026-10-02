@@ -2,6 +2,7 @@ import type { FieldDescriptor, MatchResult } from '../shared/types';
 import { effectiveMaxLength } from './profileResolver';
 import { matchOption } from './optionMatcher';
 import { directTexts } from './fieldMatcher';
+import { internshipSalaryProblem } from './internshipSalary';
 
 /** Units are visible evidence, never inferred from a saved number or a model claim. */
 export function hasMeasurementUnits(field: FieldDescriptor, key: 'heightCm' | 'weightKg'): boolean {
@@ -15,6 +16,9 @@ export function hasMeasurementUnits(field: FieldDescriptor, key: 'heightCm' | 'w
 export function finalizeCandidateValue(field: FieldDescriptor, matched: MatchResult): MatchResult {
   if (matched.value === undefined) return matched;
   const value = matched.value;
+  if (/^internships\.(?:\d+|\*)\.monthlySalary$/u.test(matched.matchedProfileKey ?? '') && internshipSalaryProblem(field, value)) {
+    return { ...matched, value: undefined, status: 'review', reason: '档案仅保存税前月薪范围；金额、币种、税后或其他周期不能推算，请核对口径。' };
+  }
   const maxLength = effectiveMaxLength(field);
   if (maxLength !== null && value.length > maxLength) return { ...matched, status: 'review', value: undefined,
     reason: `档案原文超过 ${maxLength} 字限制，请人工改写；没有截断内容。` };

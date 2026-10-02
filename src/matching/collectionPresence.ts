@@ -1,6 +1,7 @@
 import { collectionPresence, type CollectionKey } from '../profile/facts';
 import type { UserProfile } from '../profile/schema';
 import type { FieldDescriptor, MatchResult } from '../shared/types';
+import { detectField } from './fieldMatcher';
 
 const normalize = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '');
 const questions = new Map<string, CollectionKey>();
@@ -16,6 +17,13 @@ for (const [key, captions] of Object.entries(labels)) for (const caption of capt
 export function matchCollectionPresence(field: FieldDescriptor, profile: UserProfile, blank: MatchResult): MatchResult | undefined {
   const primary = [field.label, field.ariaLabel, field.tableHeader].filter(text => !!text.trim());
   const captions = (primary.length ? primary : [field.title]).filter(Boolean).map(normalize);
+  // Proof is a fact of one internship, never evidence that the collection exists.
+  if (['select', 'radio'].includes(field.kind) && captions.length
+    && captions.every(caption => ['是否有证明', '是否有实习证明'].includes(caption))) {
+    const detected = detectField(field);
+    if (detected?.alias.scope === 'internships' && detected.alias.key === 'hasProof'
+      && !detected.ambiguous && detected.confidence >= 0.9) return undefined;
+  }
   const keys = captions.map(caption => questions.get(caption));
   if (!captions.some(caption => /^(?:是否有|是否具有)/u.test(caption))) return undefined;
   const key = keys[0];

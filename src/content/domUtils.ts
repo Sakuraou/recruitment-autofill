@@ -1,5 +1,6 @@
 import type { FieldOption } from '../shared/types';
 import { mobilePlaceholder } from './mobilePage';
+import { classifySection, type SectionLabelCandidate } from './semantic/sectionClassifier';
 
 export type FormControl = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 export const CONTROL_SELECTOR = 'input, textarea, select';
@@ -106,6 +107,26 @@ export function structuralLabel(node: FormControl): string {
   return '';
 }
 
+/** Own, finite section captions only; nested cards and unknown boundaries cannot supply ownership. */
+function ownedSectionCaption(section: Element): string {
+  if (hiddenReason(section)) return '';
+  const candidates: SectionLabelCandidate[] = [];
+  const headings = Array.from(section.children).filter(child => child.matches('h1,h2,h3,h4,h5,h6,[role="heading"]') && !hiddenReason(child));
+  if (headings.length > 1) return '';
+  if (headings[0]) candidates.push({ text: contextText(headings[0]), evidence: 'heading' });
+  const references = (section.getAttribute('aria-labelledby') ?? '').trim().split(/\s+/u).filter(Boolean);
+  if (references.length) {
+    const root = section.getRootNode() as Document | ShadowRoot;
+    const elements = references.map(id => root.getElementById(id));
+    if (elements.some(element => !element || hiddenReason(element))) return '';
+    candidates.push({ text: elements.map(element => contextText(element)).join(' '), evidence: 'aria-name' });
+  }
+  const aria = cleanText(section.getAttribute('aria-label'));
+  if (aria) candidates.push({ text: aria, evidence: 'aria-name' });
+  const roles = candidates.map(candidate => classifySection([candidate]).role);
+  return roles.length && !roles.includes('other') && new Set(roles).size === 1 ? candidates[0]!.text : '';
+}
+
 export function sectionText(node: FormControl): string {
   const fieldset = node.closest('fieldset');
   if (fieldset) {
@@ -115,6 +136,8 @@ export function sectionText(node: FormControl): string {
   }
   let target: Element | null = node;
   for (let depth = 0; target && depth < 6; depth++, target = target.parentElement) {
+    // Check the boundary before looking outside it for a preceding heading.
+    if (target.matches('section')) return ownedSectionCaption(target);
     let sibling = target.previousElementSibling;
     for (let distance = 0; sibling && distance < 5; distance++, sibling = sibling.previousElementSibling) {
       if (sibling.matches('h1, h2, h3, h4, h5, h6, legend, [role="heading"]')) return contextText(sibling);
