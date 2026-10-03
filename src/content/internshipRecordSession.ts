@@ -108,7 +108,7 @@ class InternshipDriver implements RecordOrchestratorDriver {
     // Value-free comparison results detect renamed/changed cards between
     // steps without storing their text or hashes of private values.
     return JSON.stringify(capture.candidates.map(candidate => {
-      const comparison = internshipCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId));
+      const comparison = internshipCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId), this.#records);
       return { ready: comparison.ready, results: this.#records.map(record => comparison.compare(record)) };
     }));
   }
@@ -117,7 +117,7 @@ class InternshipDriver implements RecordOrchestratorDriver {
     const observation = this.#observations.get(capture);
     if (!observation) throw new Error('internship observation missing');
     const comparisons = new Map(capture.candidates.map(candidate => [candidate.recordNodeId,
-      internshipCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId))]));
+      internshipCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId), this.#records)]));
     const candidates = capture.candidates.map((candidate) => {
       return { ...candidate, identityReady: comparisons.get(candidate.recordNodeId)!.ready };
     });

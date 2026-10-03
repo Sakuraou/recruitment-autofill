@@ -5,12 +5,13 @@ import { endDateState, ongoingCaption } from '../profile/facts';
 import type { RecordIdentitySignal, RecordIdentityVerdict } from '../planner/recordPlanner';
 import { hiddenReason } from './domUtils';
 import { recordSummaryText } from './recordSummaryText';
+import { internshipFillOrder } from '../profile/internshipFillOrder';
 
 export interface InternshipIdentityResult {
   readonly verdict: RecordIdentityVerdict; readonly signals: readonly RecordIdentitySignal[]; readonly provenance: 'rule';
 }
 type Key = 'organization' | 'role' | 'startDate' | 'endDate';
-interface Evidence { organization?: string; role?: string; startDate?: string; endDate?: string; bad?: boolean }
+interface Evidence { organization?: string; heading?: string; role?: string; startDate?: string; endDate?: string; bad?: boolean }
 const labels: Readonly<Record<Key, RegExp>> = {
   organization: /^(?:工作单位|实习单位|实习公司|公司名称|单位名称|所在公司|employer|company|organization)$/iu,
   role: /^(?:岗位|职位|职务|实习岗位|实习职位|实习职务|role|position|internship\s*role)$/iu,
@@ -43,13 +44,20 @@ function evidence(card?: Element): Evidence {
   const headings = Array.from(card.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]'))
     .map(heading => recordSummaryText(heading, card)).filter(Boolean);
   if (headings.length > 1 || headings.some(text => !complete(text))) bad = true;
-  if (headings.length === 1 && complete(headings[0])) values.organization.push(headings[0]);
-  const result: Evidence = { bad };
+  const result: Evidence = { bad, ...(headings.length === 1 ? { heading: headings[0] } : {}) };
   for (const key of Object.keys(values) as Key[]) {
     const distinct = [...new Set(values[key])]; if (distinct.length === 1) result[key] = distinct[0];
     if (distinct.length > 1) result.bad = true;
   }
   return result;
+}
+/** A heading may be a job title. Only a known company can supply an unlabelled employer. */
+function resolveHeading(observed: Evidence, records: readonly InternshipProjectionEntry[]): Evidence {
+  const companies = new Set(records.filter(record => complete(record.organization)).map(record => normalize(record.organization)));
+  const roles = new Set(records.filter(record => complete(record.role)).map(record => normalize(record.role)));
+  if (!observed.heading || !companies.has(observed.heading) || roles.has(observed.heading)) return observed;
+  if (observed.organization && observed.organization !== observed.heading) return { ...observed, bad: true };
+  return { ...observed, organization: observed.heading };
 }
 function compare(observed: Evidence, record: InternshipProjectionEntry): InternshipIdentityResult {
   const result = (verdict: RecordIdentityVerdict, signals: RecordIdentitySignal[] = []): InternshipIdentityResult =>
@@ -76,11 +84,13 @@ function compare(observed: Evidence, record: InternshipProjectionEntry): Interns
 }
 /** Only value-free conclusions leave this reader. No writes, selectors, model or action capabilities. */
 export function compareInternshipCard(card: Element | undefined, record: InternshipProjectionEntry): InternshipIdentityResult {
-  return compare(evidence(card), record);
+  const parsed = internshipProjectionEntrySchema.safeParse(record);
+  return compare(parsed.success ? resolveHeading(evidence(card), [parsed.data]) : { bad: true }, record);
 }
 /** Ephemeral evidence for one snapshot; later transaction steps must recapture. */
-export function internshipCardComparator(card: Element | undefined): Readonly<{ ready: boolean; compare: (record: InternshipProjectionEntry) => InternshipIdentityResult }> {
-  const observed = evidence(card);
+export function internshipCardComparator(card: Element | undefined, records?: readonly InternshipProjectionEntry[]): Readonly<{ ready: boolean; compare: (record: InternshipProjectionEntry) => InternshipIdentityResult }> {
+  const observed = records === undefined ? evidence(card) : internshipFillOrder(records).status === 'ready'
+    ? resolveHeading(evidence(card), records) : { bad: true };
   return Object.freeze({ ready: !observed.bad && complete(observed.organization),
     compare: (record: InternshipProjectionEntry) => compare(observed, record) });
 }

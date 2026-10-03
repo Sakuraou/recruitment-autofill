@@ -15,6 +15,58 @@ const role = `<p>岗位：${record.role}</p>`;
 const dates = '<p>入职日期：2025-07-01</p><p>离职日期：2025-09-30</p>';
 beforeEach(() => { document.body.innerHTML = ''; });
 describe('可见实习记录身份', () => {
+  it.each([record.role, '实习经历', '未标注公司'])('没有明确公司标签的标题 %s 不作为不同公司的证据', caption => {
+    const element = card(`<h3>${caption}</h3>${role}${dates}`);
+    expect(compareInternshipCard(element, record).verdict).toBe('insufficient');
+    expect(internshipCardComparator(element).ready).toBe(false);
+  });
+  it('明确工作单位允许卡片以岗位作标题', () => {
+    const element = card(`<h3>${record.role}</h3><p>工作单位：${record.organization}</p>${role}${dates}`);
+    expect(compareInternshipCard(element, record).verdict).toBe('same');
+  });
+  it('完整可信集合中的公司标题可以独立区分另一条来源记录', () => {
+    const element = card(`<h3>${secondInternship.organization}</h3><p>岗位：${secondInternship.role}</p>`);
+    const comparator = internshipCardComparator(element, [record, secondInternship]);
+    expect(comparator.ready).toBe(true);
+    expect(comparator.compare(record)).toEqual({ verdict: 'different', signals: ['primary'], provenance: 'rule' });
+    expect(comparator.compare(secondInternship).verdict).toBe('same');
+    expect(compareInternshipCard(element, record).verdict).toBe('insufficient');
+  });
+  it.each(['另一公司', `${record.organization} / ${record.role}`, '实习经历'])('未核对公司标题 %s 不因来源集合完整就取得主证据', caption => {
+    const comparator = internshipCardComparator(card(`<h3>${caption}</h3>${role}${dates}`), [record, secondInternship]);
+    expect(comparator.ready).toBe(false); expect(comparator.compare(record).verdict).toBe('insufficient');
+  });
+  it('只有无上下文的公司标题不能对任意来源判不同，明确标签不受此限制', () => {
+    const withoutContext = internshipCardComparator(card(`${heading}${role}`));
+    expect(withoutContext.ready).toBe(false); expect(withoutContext.compare(record).verdict).toBe('insufficient');
+    const explicit = internshipCardComparator(card(`<h3>实习经历</h3><p>工作单位：${record.organization}</p>${role}`));
+    expect(explicit.ready).toBe(true); expect(explicit.compare(record).verdict).toBe('same');
+  });
+  it('公司原文同时是另一条岗位名时，未标注标题仍有歧义', () => {
+    const source = [record, { ...secondInternship, role: record.organization }];
+    const comparator = internshipCardComparator(card(`${heading}${role}`), source);
+    expect(comparator.ready).toBe(false); expect(comparator.compare(record).verdict).toBe('insufficient');
+    const explicit = internshipCardComparator(card(`${heading}<p>工作单位：${record.organization}</p>${role}`), source);
+    expect(explicit.ready).toBe(true); expect(explicit.compare(record).verdict).toBe('same');
+  });
+  it('已核对的公司标题与明确单位冲突，不选其中一个', () => {
+    const comparator = internshipCardComparator(card(`<h3>${secondInternship.organization}</h3><p>工作单位：${record.organization}</p>${role}`), [record, secondInternship]);
+    expect(comparator.ready).toBe(false); expect(comparator.compare(record).verdict).toBe('insufficient');
+  });
+  it('集合公司证据与可见标题只保留于私有快照，源改动不会改写旧判断', () => {
+    const source = [{ ...record }, { ...secondInternship }];
+    const element = card(`${heading}${role}`); const comparator = internshipCardComparator(element, source);
+    source[0]!.organization = '虚构变更公司'; element.querySelector('h3')!.textContent = '虚构变更公司';
+    expect(comparator.compare(record).verdict).toBe('same');
+    expect(internshipCardComparator(element, [record, secondInternship]).ready).toBe(false);
+    expect(JSON.stringify(comparator)).not.toMatch(/云桥|实习生|2025|fictional/iu);
+    expect(Object.isFrozen(comparator)).toBe(true);
+  });
+  it.each([null, {}, [null], [record, record], [{ ...record, organization: undefined }],
+    [{ ...record, certifierContact: 'fictional-forbidden' }], Array.from({ length: 101 }, (_, index) => ({ ...record, id: 'fictional-' + index }))])('无效完整上下文不授权标题或明确公司：%j', source => {
+    const comparator = internshipCardComparator(card(`${heading}<p>工作单位：${record.organization}</p>${role}`), source as unknown as InternshipProjectionEntry[]);
+    expect(comparator.ready).toBe(false); expect(comparator.compare(record).verdict).toBe('insufficient');
+  });
   it.each([`${heading}${role}`, `<dl><dt>工作单位</dt><dd>${record.organization}</dd><dt>职务</dt><dd>${record.role}</dd></dl>`,
     `<table><tr><th>实习公司</th><td>${record.organization}</td></tr><tr><th>实习岗位</th><td>${record.role}</td></tr></table>`])('三种布局同卡公司与岗位可以核对', html => {
     expect(compareInternshipCard(card(html), record)).toEqual({ verdict: 'same', signals: ['primary', 'secondary'], provenance: 'rule' });
@@ -24,10 +76,10 @@ describe('可见实习记录身份', () => {
   });
   it('公司不同是独立主证据；同公司只有名称不能判重复', () => {
     expect(compareInternshipCard(card(heading), record)).toEqual({ verdict: 'insufficient', signals: ['primary'], provenance: 'rule' });
-    expect(compareInternshipCard(card(`<h3>${secondInternship.organization}</h3>`), record)).toEqual({ verdict: 'different', signals: ['primary'], provenance: 'rule' });
+    expect(compareInternshipCard(card(`<p>工作单位：${secondInternship.organization}</p>`), record)).toEqual({ verdict: 'different', signals: ['primary'], provenance: 'rule' });
   });
   it('同公司不同岗位可以区分，不把第一条用于全部经历', () => {
-    const comparator = internshipCardComparator(card(`${heading}${role}`));
+    const comparator = internshipCardComparator(card(`${heading}${role}`), [record]);
     expect(comparator.ready).toBe(true); expect(comparator.compare(record).verdict).toBe('same');
     expect(comparator.compare({ ...record, id: 'another', role: secondInternship.role }).verdict).toBe('different');
   });
@@ -43,7 +95,7 @@ describe('可见实习记录身份', () => {
   });
   it('公司可规范空白和全角，数字和名称标点不被删掉', () => {
     expect(compareInternshipCard(card('<h3>ＡＣＭＥ　Studio</h3><p>岗位：开发实习生</p>'), { id: 'fictional-ascii', organization: 'ACME Studio', role: '开发实习生' }).verdict).toBe('same');
-    expect(compareInternshipCard(card('<h3>虚构 A.B 科技</h3><p>岗位：开发实习生</p>'), { id: 'fictional-dot', organization: '虚构 AB 科技', role: '开发实习生' }).verdict).toBe('different');
+    expect(compareInternshipCard(card('<p>工作单位：虚构 A.B 科技</p><p>岗位：开发实习生</p>'), { id: 'fictional-dot', organization: '虚构 AB 科技', role: '开发实习生' }).verdict).toBe('different');
   });
   it('日日期的点和斜杠分隔可以核对，但不补日期', () => {
     expect(compareInternshipCard(card(`${heading}<p>开始日期：2025.07.01</p><p>结束日期：2025/09/30</p>`), record).verdict).toBe('same');

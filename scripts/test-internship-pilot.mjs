@@ -12,7 +12,13 @@ await build({ entryPoints: [resolve(root, 'tests/fixtures/internship-session-pag
   globalName: 'InternshipFixture', platform: 'browser', target: 'chrome114', outfile: bundle });
 const code = await readFile(bundle, 'utf8');
 const html = `<!doctype html><body><script>${code}</script><script>
-window.fixture = InternshipFixture.installInternshipSessionPage(document, InternshipFixture.internshipSessionProfile);
+const identityCase = new URL(location.href).searchParams.get('case');
+window.fixture = InternshipFixture.installInternshipSessionPage(document, InternshipFixture.internshipSessionProfile,
+  identityCase?.startsWith('identity-') ? [0] : []);
+if (identityCase?.startsWith('identity-')) {
+  fixture.cards[0].querySelector('h3').textContent = identityCase.includes('role') ? InternshipFixture.internshipSessionProfile.internships[0].role : identityCase === 'identity-unknown' ? '未标注公司' : '实习经历';
+  if (identityCase.includes('labelled')) { const employer = document.createElement('p'); employer.textContent = '工作单位：' + InternshipFixture.internshipSessionProfile.internships[0].organization; fixture.cards[0].append(employer); }
+}
 const projectSection = document.createElement('section'); projectSection.setAttribute('aria-label', '项目经历');
 projectSection.innerHTML = '<h2>项目经历</h2><div role="list" id="project-items"><p role="status">暂无项目经历</p><button type="button" aria-controls="project-items">+</button></div>';
 window.projectActions = 0; projectSection.querySelector('button').addEventListener('click', () => window.projectActions++); document.querySelector('main').append(projectSection);
@@ -106,6 +112,22 @@ try {
     }
     assert.equal((await counts(page)).projectActions, 0); assert.equal((await counts(page)).submit, 0);
     report.checks.push(mode + ': production controls keep accurate state, no other-column or unsafe action'); await popup.close(); await page.close();
+  }
+  for (const mode of ['identity-role', 'identity-generic', 'identity-unknown', 'identity-labelled-role', 'identity-labelled-generic']) {
+    const page = await context.newPage(); await page.goto(`${origin}/internship?case=${mode}`); popup = await popupFor(page);
+    await popup.getByRole('button', { name: '连续填写全部实习经历', exact: true }).click();
+    if (mode.includes('labelled')) {
+      await popup.getByText(/全部 2 条实习经历已处理并核验/).waitFor();
+      await popup.getByRole('button', { name: '连续填写全部实习经历', exact: true }).click();
+      await popup.getByText(/全部 2 条实习经历已处理并核验/).waitFor();
+      assert.deepEqual(await counts(page), { ...expected, add: 1, save: 1 });
+      assert.equal(await page.evaluate(() => window.fixture.saved[0].organization), profile.internships[1].organization);
+    } else {
+      await popup.getByText(/已有实习经历缺少可靠的身份信息/).waitFor();
+      assert.deepEqual(await counts(page), { ...expected, add: 0, save: 0 });
+      assert.equal(await page.locator('form').count(), 0);
+    }
+    report.checks.push(mode + ': verified employer evidence before Add, restart never duplicates'); await popup.close(); await page.close();
   }
   assert.deepEqual(report.errors, []); assert.deepEqual(report.externalRequests, []); report.passed = true;
   console.info('Internship pilot MV3 checks passed (' + report.checks.length + ' checks)');

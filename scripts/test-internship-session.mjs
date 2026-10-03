@@ -20,7 +20,7 @@ try {
   const page = await context.newPage(); page.on('pageerror', error => report.errors.push(error.message));
   await page.goto(url); await page.addScriptTag({ content: code });
   const windowlessProfile = await page.evaluate(() => window.InternshipSessionTest.internshipSessionProfile);
-  for (const mode of ['complete', 'partial', 'same-company', 'same-company-dates', 'restart', 'manual', 'replace-save', 'wrong-card', 'stop', 'profile', 'unknown', 'contact', 'missing-description', 'missing-proof', 'orphan', 'dynamic']) {
+  for (const mode of ['complete', 'partial', 'same-company', 'same-company-dates', 'restart', 'manual', 'replace-save', 'wrong-card', 'stop', 'profile', 'unknown', 'contact', 'missing-description', 'missing-proof', 'orphan', 'dynamic', 'identity-role', 'identity-generic', 'identity-labelled-role']) {
     const result = await page.evaluate(async mode => {
       const api = window.InternshipSessionTest; const source = structuredClone(api.internshipSessionProfile);
       if (mode.startsWith('same-company')) source.internships.forEach(record => {
@@ -28,7 +28,11 @@ try {
       });
       if (mode === 'missing-description') source.internships.forEach(record => { delete record.description; });
       if (mode === 'missing-proof') source.internships.forEach(record => { delete record.hasProof; });
-      const original = JSON.stringify(source); const page = api.installInternshipSessionPage(document, source, ['partial', 'same-company', 'same-company-dates'].includes(mode) ? [0] : []);
+      const original = JSON.stringify(source); const page = api.installInternshipSessionPage(document, source, ['partial', 'same-company', 'same-company-dates'].includes(mode) || mode.startsWith('identity-') ? [0] : []);
+      if (mode.startsWith('identity-')) {
+        page.cards[0].querySelector('h3').textContent = mode.includes('role') ? source.internships[0].role : '实习经历';
+        if (mode.includes('labelled')) { const employer = document.createElement('p'); employer.textContent = '工作单位：' + source.internships[0].organization; page.cards[0].append(employer); }
+      }
       let latest = source; const session = api.createInternshipRecordSession(document, source, async () => latest);
       page.add.addEventListener('click', () => {
         const form = page.list.querySelector('form');
@@ -57,15 +61,15 @@ try {
       return { outcome, counts: page.counts, saved: page.saved, unchanged: JSON.stringify(source) === original,
         manualPreserved: page.list.querySelector('input')?.value === '用户手改', knownEmpty: page.list.querySelector('input')?.value === '' };
     }, mode);
-    const good = ['complete', 'partial', 'same-company', 'same-company-dates', 'restart', 'dynamic'].includes(mode);
+    const good = ['complete', 'partial', 'same-company', 'same-company-dates', 'restart', 'dynamic', 'identity-labelled-role'].includes(mode);
     assert.equal(result.outcome.status, good ? 'complete' : mode === 'stop' ? 'stopped' : 'request-human', mode);
-    const count = good ? ['partial', 'same-company', 'same-company-dates'].includes(mode) ? 1 : 2 : mode === 'wrong-card' ? 1 : 0;
-    assert.equal(result.counts.save, count, mode); assert.equal(result.counts.add, good ? count : 1, mode);
+    const count = good ? ['partial', 'same-company', 'same-company-dates', 'identity-labelled-role'].includes(mode) ? 1 : 2 : mode === 'wrong-card' ? 1 : 0;
+    assert.equal(result.counts.save, count, mode); assert.equal(result.counts.add, good ? count : mode.startsWith('identity-') ? 0 : 1, mode);
     assert.equal(result.counts.submit + result.counts.remove + result.counts.cancel, 0, mode); assert.equal(result.unchanged, true, mode);
     if (mode === 'manual') assert.equal(result.manualPreserved, true);
     if (['unknown', 'contact', 'missing-description', 'missing-proof', 'orphan'].includes(mode)) assert.equal(result.knownEmpty, true);
     if (good) {
-      const expected = ['partial', 'same-company', 'same-company-dates'].includes(mode) ? [1] : [0, 1];
+      const expected = ['partial', 'same-company', 'same-company-dates', 'identity-labelled-role'].includes(mode) ? [1] : [0, 1];
       expected.forEach((sourceIndex, index) => {
         const source = windowlessProfile.internships[sourceIndex];
         assert.equal(result.saved[index].organization, mode.startsWith('same-company') ? '虚构共同公司' : source.organization, mode);

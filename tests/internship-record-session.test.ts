@@ -3,6 +3,21 @@ import { createInternshipRecordSession, internshipRecordAvailability } from '../
 import { internshipSessionProfile as profile, installInternshipSessionPage } from './fixtures/internship-session-page';
 
 afterEach(() => { document.body.innerHTML = ''; document.head.innerHTML = ''; window.history.replaceState({}, '', '/'); });
+it.each(['软件开发实习生', '实习经历', '未标注公司'])('已有卡片仅有岗位或泛标题 %s，不能判成另一家公司再新增', async caption => {
+  const page = installInternshipSessionPage(document, profile, [0]);
+  page.cards[0]!.querySelector('h3')!.textContent = caption;
+  const result = await createInternshipRecordSession(document, profile).advance();
+  expect(result.status).toBe('request-human');
+  expect(page.counts).toEqual({ add: 0, save: 0, submit: 0, remove: 0, cancel: 0 });
+});
+it.each(['role', 'generic'])('已有卡片以%s作标题、有明确公司，只补另一条且重启不重复', async mode => {
+  const page = installInternshipSessionPage(document, profile, [0]); const first = page.cards[0]!;
+  first.querySelector('h3')!.textContent = mode === 'role' ? profile.internships[0]!.role! : '实习经历';
+  const employer = document.createElement('p'); employer.textContent = `工作单位：${profile.internships[0]!.organization}`; first.append(employer);
+  await finish(createInternshipRecordSession(document, profile)); await finish(createInternshipRecordSession(document, profile));
+  expect(page.saved).toHaveLength(1); expect(page.saved[0]!.organization).toBe(profile.internships[1]!.organization);
+  expect(page.counts).toEqual({ add: 1, save: 1, submit: 0, remove: 0, cancel: 0 });
+}, 15_000);
 async function finish(session: ReturnType<typeof createInternshipRecordSession>) {
   for (let step = 0; step < 15; step++) {
     const result = await session.advance(); if (result.status === 'complete') return;
