@@ -1,6 +1,6 @@
 {
   "name": "recruitment-autofill",
-  "version": "0.6.19",
+  "version": "0.6.20",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,7 +13,7 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs",
+    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs",
     "test:record-v2": "node scripts/test-record-v2.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "serve:example": "node scripts/serve-example.mjs",
