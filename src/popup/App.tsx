@@ -12,6 +12,7 @@ import { Results } from './Results';
 import { MobileWorkflowControls } from './MobileWorkflow';
 import { ProjectRecordControls } from './ProjectRecords';
 import { EducationRecordControls } from './EducationRecords';
+import { InternshipRecordControls } from './InternshipRecords';
 
 export function PopupApp() {
   const [plan, setPlan] = useState<PagePlan>();
@@ -119,6 +120,7 @@ export function PopupApp() {
     {plan && <div className="scan-host">{new URL(plan.scan.url).host || '本地文件'} · {plan.scan.title}</div>}
     <MobileWorkflowControls />
     <EducationRecordControls />
+    <InternshipRecordControls />
     <ProjectRecordControls />
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>

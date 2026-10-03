@@ -10,8 +10,9 @@ import { EXTENSION_VERSION } from '../shared/version';
 import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
-import { requestEducationProjection, requestProjectProjection } from './profileProjectionClient';
+import { requestEducationProjection, requestProjectProjection, requestInternshipProjection } from './profileProjectionClient';
 import { EducationRecordWorkflow } from './educationRecordWorkflow';
+import { InternshipRecordWorkflow } from './internshipRecordWorkflow';
 import { ProjectRecordWorkflow } from './projectRecordWorkflow';
 import { createProjectRecordSession } from './projectRecordSession';
 import { createProjectSemanticClient } from './projectSemanticClient';
@@ -50,6 +51,11 @@ const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_EDUCATION_RECORD_PAUSE') }).strict(),
   z.object({ type: z.literal('RA_EDUCATION_RECORD_RESUME') }).strict(),
   z.object({ type: z.literal('RA_EDUCATION_RECORD_STOP') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_START') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_STATUS') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_PAUSE') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_STOP') }).strict(),
   z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema }).strict(),
 ]);
 
@@ -58,6 +64,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
+  const internshipWorkflow = new InternshipRecordWorkflow(document, requestInternshipProjection);
   const educationWorkflow = new EducationRecordWorkflow(document, requestEducationProjection,
     (doc, projection, refresh) => createEducationRecordSession(doc, projection, refresh, undefined, createEducationSemanticClient()));
   const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection,
@@ -74,7 +81,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   chrome.runtime.onConnect.addListener(createPageOperationPortHandler({
     extensionId: chrome.runtime.id, extensionUrl: path => chrome.runtime.getURL(path),
     acquire: () => {
-      if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
+      if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
         throw new Error('page occupied');
       filling = true;
       return () => { filling = false; };
@@ -105,9 +112,12 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     if (request.type === 'RA_PROJECT_RECORD_START' || request.type === 'RA_PROJECT_RECORD_STATUS'
       || request.type === 'RA_PROJECT_RECORD_PAUSE' || request.type === 'RA_PROJECT_RECORD_RESUME' || request.type === 'RA_PROJECT_RECORD_STOP'
       || request.type === 'RA_EDUCATION_RECORD_START' || request.type === 'RA_EDUCATION_RECORD_STATUS'
-      || request.type === 'RA_EDUCATION_RECORD_PAUSE' || request.type === 'RA_EDUCATION_RECORD_RESUME' || request.type === 'RA_EDUCATION_RECORD_STOP') {
-      const targetWorkflow = request.type.startsWith('RA_EDUCATION_') ? educationWorkflow : projectWorkflow;
-      const otherWorkflow = targetWorkflow === educationWorkflow ? projectWorkflow : educationWorkflow;
+      || request.type === 'RA_EDUCATION_RECORD_PAUSE' || request.type === 'RA_EDUCATION_RECORD_RESUME' || request.type === 'RA_EDUCATION_RECORD_STOP'
+      || request.type === 'RA_INTERNSHIP_RECORD_START' || request.type === 'RA_INTERNSHIP_RECORD_STATUS'
+      || request.type === 'RA_INTERNSHIP_RECORD_PAUSE' || request.type === 'RA_INTERNSHIP_RECORD_RESUME' || request.type === 'RA_INTERNSHIP_RECORD_STOP') {
+      const targetWorkflow = request.type.startsWith('RA_EDUCATION_') ? educationWorkflow
+        : request.type.startsWith('RA_INTERNSHIP_') ? internshipWorkflow : projectWorkflow;
+      const otherWorkflows = [educationWorkflow, projectWorkflow, internshipWorkflow].filter(flow => flow !== targetWorkflow);
       const operation = request.type.slice(request.type.lastIndexOf('_') + 1);
       try {
         if (operation === 'STATUS') {
@@ -118,7 +128,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
           sendResponse({ ok: true, data: operation === 'STOP' ? targetWorkflow.stop() : targetWorkflow.pause() }); return false;
         }
         if (!['START', 'RESUME'].includes(operation)) throw new Error('无效的栏目操作');
-        if (filling || otherWorkflow.holdsPage() || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
+        if (filling || otherWorkflows.some(flow => flow.holdsPage()) || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
           || ['ready', 'running', 'paused'].includes(recordV2.status().state)) {
           throw new Error('另一个填写任务尚未结束，请先停止该任务');
         }
@@ -139,7 +149,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_RECORD_V2_STOP') {
       try {
         if (request.type !== 'RA_RECORD_V2_STATUS' && request.type !== 'RA_RECORD_V2_STOP'
-          && (educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
+          && (educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
         if (request.type === 'RA_RECORD_V2_STATUS') {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
@@ -182,6 +192,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return false;
     }
     if (filling) { sendResponse({ ok: false, error: '正在填写，请等待完成后再操作' }); return false; }
+    if (internshipWorkflow.holdsPage()) { sendResponse({ ok: false, error: '实习任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (educationWorkflow.holdsPage()) { sendResponse({ ok: false, error: '教育任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (projectWorkflow.holdsPage()) { sendResponse({ ok: false, error: '项目任务尚未结束，请在扩展中暂停或停止；其它填写模式需先停止项目任务' }); return false; }
     if (request.type === 'RA_WORKFLOW_START' || request.type === 'RA_WORKFLOW_RESUME') {

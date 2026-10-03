@@ -2,6 +2,21 @@ import { projectProjectionRequestSchema, projectProjectionResponseSchema,
   type ProjectProjectionResponse } from '../profile/projection';
 import { educationProjectionRequestSchema, educationProjectionResponseSchema,
   type EducationProjectionResponse } from '../profile/educationProjection';
+import { internshipProjectionRequestSchema, internshipProjectionResponseSchema,
+  type InternshipProjectionResponse } from '../profile/internshipProjection';
+
+/** Fixed current-page request. No profile values, record index or page selector is accepted. */
+export async function requestInternshipProjection(): Promise<InternshipProjectionResponse> {
+  const request = internshipProjectionRequestSchema.parse({ type: 'RA_PROFILE_INTERNSHIP' });
+  const response = await chrome.runtime.sendMessage(request) as unknown;
+  if (!response || typeof response !== 'object' || (response as { ok?: unknown }).ok !== true)
+    throw new Error('无法读取实习档案投影');
+  const parsed = internshipProjectionResponseSchema.safeParse((response as { data?: unknown }).data);
+  if (!parsed.success) throw new Error('实习档案投影格式无效');
+  return Object.freeze({ ...parsed.data, internships: Object.freeze(parsed.data.internships.map(record => Object.freeze({ ...record,
+    ...(record.endDateFact ? { endDateFact: Object.freeze({ ...record.endDateFact }) } : {}),
+  }))) });
+}
 
 /** Requests only the fixed project projection; no caller-provided path or selector is accepted. */
 export async function requestProjectProjection(): Promise<ProjectProjectionResponse> {

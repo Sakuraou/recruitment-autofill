@@ -3,6 +3,8 @@ import { experienceSchema, type UserProfile } from './schema';
 import { checkDateRange, profileDateSchema } from './calendarDates';
 import { endDateFactSchema } from './facts';
 
+export const internshipProjectionRequestSchema = z.object({ type: z.literal('RA_PROFILE_INTERNSHIP') }).strict();
+
 const text = z.string().max(20_000).optional();
 /** Explicit allowlist: Experience also contains third-party proof/contact fields. */
 export const internshipProjectionEntrySchema = z.object({

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProfile } from '../src/profile/schema';
 import { educationSessionProfile } from './fixtures/education-session-page';
+import { internshipSessionProfile } from './fixtures/internship-session-page';
 
 type Listener = (message: unknown, sender: chrome.runtime.MessageSender, respond: (response: unknown) => void) => boolean | undefined;
 let listener: Listener;
@@ -35,6 +36,32 @@ beforeEach(async () => {
 });
 
 describe('后台档案投影消息', () => {
+  it('实习固定空消息只返回当前集合，证明联系人及其他资料不返回', async () => {
+    const profile = createEmptyProfile(); profile.updatedAt = 'fictional-internship-revision';
+    profile.basic.name = '不得返回的姓名'; profile.projects = [{ id: 'private-project', name: '不得返回的项目', technologies: [] }];
+    profile.internships = internshipSessionProfile.internships.map(record => ({ ...record,
+      certifierName: '不得返回的证明人', certifierContact: '不得返回的电话' }));
+    get.mockResolvedValueOnce({ ['recruitment.profile.v1']: profile });
+    const response = vi.fn(); const source = { ...sender({ id: extensionId, url: 'https://jobs.example/app', tab: { id: 7 } }), frameId: 0 };
+    for (const extra of [{ payload: {} }, { selector: 'button' }, { index: 0 }, { internships: profile.internships }]) {
+      expect(listener({ type: 'RA_PROFILE_INTERNSHIP', ...extra }, source, response)).toBe(false);
+    }
+    expect(response).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
+    expect(listener({ type: 'RA_PROFILE_INTERNSHIP' }, source, response)).toBe(true);
+    await vi.waitFor(() => expect(response).toHaveBeenCalledOnce());
+    const result = response.mock.calls[0]![0] as { ok: boolean; data: unknown };
+    expect(result).toEqual({ ok: true, data: internshipSessionProfile });
+    expect(JSON.stringify(result)).not.toContain('不得返回');
+  });
+  it.each(['foreign', 'no-tab', 'internal', 'frame', 'missing-frame', 'negative-tab', 'fractional-tab'])('实习投影拒绝%s来源而不读存储', mode => {
+    const response = vi.fn();
+    const source = { ...sender({ id: mode === 'foreign' ? 'other' : extensionId,
+      url: mode === 'internal' ? 'chrome-extension://other/page' : 'https://jobs.example',
+      ...(mode !== 'no-tab' ? { tab: { id: mode === 'negative-tab' ? -7 : mode === 'fractional-tab' ? 1.5 : 7 } } : {}) }),
+      ...(mode !== 'missing-frame' ? { frameId: mode === 'frame' ? 1 : 0 } : {}) };
+    expect(listener({ type: 'RA_PROFILE_INTERNSHIP' }, source, response)).toBe(false);
+    expect(response).toHaveBeenCalledWith({ ok: false, error: '不可信的档案投影请求' }); expect(get).not.toHaveBeenCalled();
+  });
   it('教育请求仅返回教育与修订号，保持源顺序，不返回基本信息和项目', async () => {
     const profile = createEmptyProfile(); profile.updatedAt = '2026-10-02T00:00:00.000Z';
     profile.basic.name = '不得返回的姓名'; profile.education = educationSessionProfile.education.map(record => ({ ...record }));

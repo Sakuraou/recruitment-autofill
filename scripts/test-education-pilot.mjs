@@ -91,7 +91,7 @@ try {
       if (mode === 'pause') {
         await popup.getByRole('button', { name: '暂停教育填写', exact: true }).click();
         await popup.getByText('教育填写已暂停，请检查网页后继续。').waitFor();
-        for (const command of ['RA_PROJECT_RECORD_START', 'RA_WORKFLOW_RESUME', 'RA_RECORD_V2_START', 'RA_SCAN_SETTLED']) assert.equal((await message(popup, command)).ok, false, command);
+        for (const command of ['RA_PROJECT_RECORD_START', 'RA_INTERNSHIP_RECORD_START', 'RA_WORKFLOW_RESUME', 'RA_RECORD_V2_START', 'RA_SCAN_SETTLED']) assert.equal((await message(popup, command)).ok, false, command);
         await popup.close(); popup = await popupFor(page); await popup.getByText('教育填写已暂停，请检查网页后继续。').waitFor();
         await popup.getByRole('button', { name: '继续教育填写', exact: true }).click(); await popup.getByText(/全部 2 段教育经历已处理并核验/).waitFor();
         assert.deepEqual(await counts(page), expected);

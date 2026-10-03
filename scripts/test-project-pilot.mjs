@@ -146,6 +146,7 @@ try {
   await popup.getByText('项目填写已暂停，请检查网页后继续。', { exact: true }).waitFor();
   const pausedCounts = await counts(paused);
   assert.deepEqual((await message(popup, 'RA_FILL', { scanId: 'stale', items: [] })).ok, false);
+  for (const command of ['RA_EDUCATION_RECORD_START', 'RA_INTERNSHIP_RECORD_START']) assert.equal((await message(popup, command)).ok, false, command);
   await popup.close(); popup = await popupFor(paused);
   await popup.getByText('项目填写已暂停，请检查网页后继续。', { exact: true }).waitFor();
   assert.deepEqual(await counts(paused), pausedCounts);

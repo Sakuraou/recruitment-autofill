@@ -21,7 +21,7 @@ it('教育启动拒绝附带值/选择器，仅接受固定空消息', async () 
   expect(page.counts.add).toBe(0);
   expect((await message('RA_EDUCATION_RECORD_START')).ok).toBe(true);
 });
-it.each(['RA_PROJECT_RECORD_START', 'RA_WORKFLOW_RESUME', 'RA_RECORD_V2_START', 'RA_SCAN_SETTLED'])('教育运行占用页面时%s被拒绝，停止状态仍可查询', async type => {
+it.each(['RA_PROJECT_RECORD_START', 'RA_INTERNSHIP_RECORD_START', 'RA_WORKFLOW_RESUME', 'RA_RECORD_V2_START', 'RA_SCAN_SETTLED'])('教育运行占用页面时%s被拒绝，停止状态仍可查询', async type => {
   expect((await message('RA_EDUCATION_RECORD_START')).ok).toBe(true);
   expect((await message(type)).ok).toBe(false);
   expect((await message('RA_EDUCATION_RECORD_STATUS')).ok).toBe(true);
