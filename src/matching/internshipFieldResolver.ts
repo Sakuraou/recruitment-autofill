@@ -1,3 +1,4 @@
+import { weakMeaningEvidenceAgrees } from './weakMeaningEvidence';
 import { internshipProjectionEntrySchema, type InternshipProjectionEntry } from '../profile/internshipProjection';
 import type { FieldDescriptor, MatchResult } from '../shared/types';
 import { detectField } from './fieldMatcher';
@@ -87,4 +88,23 @@ function resolveValue(field: FieldDescriptor, record: InternshipProjectionEntry,
     value = result.value;
   }
   return Object.freeze({ status: 'known', key: `internships.${key}`, value, confidence });
+}
+
+export type InternshipWeakMeaningQualification = Readonly<{status:'confirm';path:string}>
+  | Readonly<{status:'blocked';reason:'not-weak'|'conflicting-evidence'|'local-value-unavailable'}>;
+/** Pure eligibility only: no answer, provenance or permission to write is returned. */
+export function qualifyInternshipWeakMeaning(field: FieldDescriptor, record: InternshipProjectionEntry): InternshipWeakMeaningQualification {
+  const blocked=(reason:'not-weak'|'conflicting-evidence'|'local-value-unavailable'):InternshipWeakMeaningQualification=>Object.freeze({status:'blocked',reason});
+  if (field.hasValue || field.disabled || field.readOnly || fieldProblem(field)) return blocked('not-weak');
+  const direct=[field.label,field.ariaLabel,field.tableHeader,field.title,field.placeholder].join(' ');
+  if (/是否|有无|有没有|不是|并非|不属于|不包含|无需|已取得|已获得|已经获得|\b(?:not|without|whether|earned|obtained)\b/iu.test(direct)) return blocked('not-weak');
+  const local=resolveInternshipField(field,record);
+  const detected=internshipMeaning(field);
+  if (local.status!=='request-human' || local.reason!=='field-semantic-ambiguous' || !detected || detected.ambiguous
+    || detected.confidence>=AUTO_CONFIDENCE || detected.alias.scope!=='internships' || !allowed.has(detected.alias.key)
+    || ['hasProof','monthlySalary'].includes(detected.alias.key)) return blocked('not-weak');
+  if (!weakMeaningEvidenceAgrees(field,'internships',detected.alias.key)) return blocked('conflicting-evidence');
+  const path='internships.'+detected.alias.key;
+  if (resolveBoundInternshipField(field,record,path).status!=='known') return blocked('local-value-unavailable');
+  return Object.freeze({status:'confirm',path});
 }
