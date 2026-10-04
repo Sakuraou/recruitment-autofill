@@ -17,22 +17,30 @@ const keys = ['organization', 'department', 'role', 'startDate', 'endDate', 'des
 type Key = typeof keys[number];
 const allowed: ReadonlySet<string> = new Set(keys);
 const captions = new Set(['实习', '实习经历', '工作经历', 'internship', 'internships', 'internship experience', 'work experience'].map(normalize));
+const proofCaptions = new Set(['是否有证明', '有无证明', '是否有实习证明', 'hasproof']);
 function fieldProblem(field: FieldDescriptor): RecordFieldReason | undefined {
   const direct = [field.label, field.ariaLabel, field.tableHeader, field.title, field.placeholder].join(' ');
   if (field.blockedReason || field.disabled || field.kind === 'checkbox'
     || field.readOnly && !['date', 'month'].includes(field.type)
     || /隐私协议|用户协议|我同意|授权|承诺|声明|验证码|校验码|证明人|联系人|上传|附件|签名|consent|signature|i\s+agree|verification\s+code|captcha|referee|certifier|contact|upload|attachment/iu.test(direct)) return 'field-unsupported';
+  const primary = [field.label, field.ariaLabel, field.tableHeader].filter(text => text.trim());
+  const labels = primary.length ? primary : [field.title, field.placeholder].filter(text => text.trim());
+  if (labels.some(text => /是否(?:有|具有)|有无(?:实习|工作|项目|经历)|do\s+you\s+have|have\s+you|any\s+(?:internship|work)\s+experience/iu.test(text.normalize('NFKC')))
+    && !labels.every(text => proofCaptions.has(text.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\s]/gu, '')))) return 'field-semantic-ambiguous';
   return undefined;
 }
-/** Pure formatting only for an explicit current internship record in an already-owned editor. */
-export function resolveInternshipField(field: FieldDescriptor, record: InternshipProjectionEntry): InternshipFieldResolution {
-  const problem = fieldProblem(field); if (problem) return reject(problem);
+function internshipMeaning(field: FieldDescriptor) {
   const withoutCaption = (text: string) => captions.has(normalize(text)) ? '' : text;
   const scoped = { ...field, label: withoutCaption(field.label), ariaLabel: withoutCaption(field.ariaLabel),
     tableHeader: withoutCaption(field.tableHeader), title: withoutCaption(field.title), placeholder: withoutCaption(field.placeholder) };
   const labelled = [scoped.label, scoped.ariaLabel, scoped.tableHeader].some(text => text.trim());
-  const detected = detectField({ ...scoped, sectionText: '实习经历', previousText: '', parentText: '',
+  return detectField({ ...scoped, sectionText: '实习经历', previousText: '', parentText: '',
     ...(labelled ? { name: '', htmlId: '', title: '', placeholder: '' } : {}) });
+}
+/** Pure formatting only for an explicit current internship record in an already-owned editor. */
+export function resolveInternshipField(field: FieldDescriptor, record: InternshipProjectionEntry): InternshipFieldResolution {
+  const problem = fieldProblem(field); if (problem) return reject(problem);
+  const detected = internshipMeaning(field);
   if (!detected || detected.alias.scope !== 'internships' || !allowed.has(detected.alias.key)) return reject('field-semantic-unknown');
   if (detected.ambiguous || detected.confidence < AUTO_CONFIDENCE) return reject('field-semantic-ambiguous');
   return resolveValue(field, record, detected.alias.key as Key, detected.confidence, detected.source);
@@ -42,6 +50,8 @@ export function resolveBoundInternshipField(field: FieldDescriptor, record: Inte
   const key = path.startsWith('internships.') ? path.slice(12) : '';
   if (!allowed.has(key)) return reject('field-semantic-unknown');
   const problem = fieldProblem(field); if (problem) return reject(problem);
+  const detected = internshipMeaning(field);
+  if (detected && (detected.ambiguous || detected.alias.scope !== 'internships' || detected.alias.key !== key)) return reject('field-semantic-ambiguous');
   return resolveValue(field, record, key as Key, 0.9, 'rule');
 }
 function resolveValue(field: FieldDescriptor, record: InternshipProjectionEntry, key: Key,

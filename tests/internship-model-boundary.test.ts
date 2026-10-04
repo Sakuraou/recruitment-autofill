@@ -1,0 +1,9 @@
+import {expect,it} from 'vitest';
+import {resolveBoundInternshipField,resolveInternshipField} from '../src/matching/internshipFieldResolver';
+import {firstInternship,secondInternship,internshipField as field} from './fixtures/internship-facts';
+const options=[{label:'是',value:'opaque-y',disabled:false},{label:'否',value:'opaque-n',disabled:false}];
+it.each(['是否有实习经历','是否具有实习经历','是否有实习经历或项目经历','是否有工作经历','有无实习经历','Do you have internship experience?'])('当前条证明不能回答集合问题%s',label=>{for(const record of [firstInternship,secondInternship]){const question=field(label,{kind:'select',type:'select-one',options});expect(resolveBoundInternshipField(question,record,'internships.hasProof').status).toBe('request-human');expect(resolveInternshipField(question,record).status).toBe('request-human');}});
+it.each(['姓名','手机号','毕业院校','项目名称','家庭住址'])('模型不能把明确的%s映到当前实习单位',label=>{expect(resolveBoundInternshipField(field(label),firstInternship,'internships.organization').status).toBe('request-human');});
+it.each([['工作单位','internships.role'],['所在部门','internships.organization'],['职务','internships.organization'],['是否有证明','internships.description']])('已知%s不能被路径%s替换',(label,path)=>{expect(resolveBoundInternshipField(field(label),firstInternship,path).status).toBe('request-human');});
+it.each([firstInternship,secondInternship])('明确证明问题继续用各条自己的事实 $id',record=>{expect(resolveBoundInternshipField(field('是否有证明',{kind:'select',type:'select-one',options}),record,'internships.hasProof')).toMatchObject({status:'known',value:record.hasProof==='是'?'opaque-y':'opaque-n'});});
+it('真正未知的单位语义可以纯格式化；冲突的直接范围仍拒绝',()=>{expect(resolveBoundInternshipField(field('当时服务的实体'),secondInternship,'internships.organization')).toMatchObject({status:'known',value:secondInternship.organization});expect(resolveBoundInternshipField(field('是否有证明',{ariaLabel:'是否有实习经历',kind:'select',type:'select-one',options}),secondInternship,'internships.hasProof').status).toBe('request-human');});

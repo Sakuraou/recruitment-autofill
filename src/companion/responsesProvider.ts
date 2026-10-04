@@ -48,6 +48,9 @@ export function createResponsesProvider(config: ProviderConfig): CompanionProvid
   return async (request, signal) => {
     if (signal.aborted) return { state: 'cancelled', proposal: null };
     if (!semanticRequestSchema.safeParse(request).success) return { state: 'invalid-output', proposal: null };
+    // Protocol 3 is an internal catalog until the internship transport and
+    // production inference are verified. Never send it with the legacy format.
+    if (request.protocol === 3) return { state: 'unavailable', proposal: null };
     try {
       const response = await fetcher('https://api.openai.com/v1/responses', {
         method: 'POST', redirect: 'error', signal,

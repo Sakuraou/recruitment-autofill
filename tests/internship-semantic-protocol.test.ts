@@ -1,0 +1,26 @@
+import {expect,it,vi} from 'vitest';
+import { createResponsesProvider } from '../src/companion/responsesProvider';
+import { projectSemanticRequestSchema } from '../src/ai/projectPortProtocol';
+import { educationSemanticRequestSchema } from '../src/ai/educationPortProtocol';
+import {SEMANTIC_BINDING_PATHS,EDUCATION_SEMANTIC_BINDING_PATHS,INTERNSHIP_SEMANTIC_BINDING_PATHS,INTERNSHIP_SEMANTIC_BINDING_FORMAT,semanticRequestSchema,parseSemanticProposal,semanticPathAllowed} from '../src/ai/semanticProtocol';
+const paths=['organization','department','role','startDate','endDate','description','achievements','experienceType','workType','companyProperty','monthlySalary','hasProof'].map(key=>'internships.'+key);
+function request(){return {protocol:3,requestId:crypto.randomUUID(),allowedPaths:[...paths],fields:[{ref:'field-0',fingerprint:'0123456789abcdef',kind:'input',type:'text',section:'internship',record:'creating',label:'当时服务的实体',ariaLabel:'',tableHeader:'',title:'',placeholder:'',options:[] as Array<{ref:string;label:string}>}]};}
+it('固定十二实习目录只用于协议3新增实习字段',()=>{expect(INTERNSHIP_SEMANTIC_BINDING_PATHS).toEqual(paths);expect(semanticRequestSchema.safeParse(request()).success).toBe(true);expect(SEMANTIC_BINDING_PATHS.some(path=>String(path).startsWith('internships.'))).toBe(false);expect(EDUCATION_SEMANTIC_BINDING_PATHS.some(path=>String(path).startsWith('internships.'))).toBe(false);});
+it.each([1,2])('旧协议%s的原目录和栏目继续有效',protocol=>{const value=request();value.protocol=protocol;value.allowedPaths=protocol===1?[...SEMANTIC_BINDING_PATHS]:[...EDUCATION_SEMANTIC_BINDING_PATHS];value.fields[0]!.section=protocol===1?'project':'education';expect(semanticRequestSchema.safeParse(value).success).toBe(true);});
+it.each(['version','directory','order','index','id','endFact','contact','mixed-section','summary','record-index','profile','value','selector','request-reference','option-reference'])('实习请求拒绝%s',mode=>{const value=request();if(mode==='version')value.protocol=2;if(mode==='directory')value.allowedPaths=[...SEMANTIC_BINDING_PATHS];if(mode==='order')value.allowedPaths.reverse();if(mode==='index')value.allowedPaths[0]='internships.0.organization';if(mode==='id')value.allowedPaths[0]='internships.id';if(mode==='endFact')value.allowedPaths[0]='internships.endDateFact';if(mode==='contact')value.allowedPaths[0]='internships.certifierContact';if(mode==='mixed-section')value.fields[0]!.section='education';if(mode==='summary')value.fields[0]!.record='none';if(mode==='request-reference')value.fields[0]!.ref='field-1';if(mode==='option-reference')value.fields[0]!.options=[{ref:'option-3',label:'是'}];const supplied=mode==='record-index'?{...value,intentIndex:0}:mode==='profile'?{...value,profile:{internships:[]}}:mode==='value'?{...value,value:'虚构公司'}:mode==='selector'?{...value,selector:'button'}:value;expect(semanticRequestSchema.safeParse(supplied).success).toBe(false);});
+it.each(paths)('实习响应允许当前目录%s',path=>{const parsed=semanticRequestSchema.parse(request());const field=parsed.fields[0]!;expect(parseSemanticProposal({requestId:parsed.requestId,status:'mapped',bindings:[{ref:field.ref,fingerprint:field.fingerprint,path,certainty:'certain',evidence:'label'}]},parsed)).toBeDefined();});
+it.each(['projects.name','education.school','basic.name','internships.0.organization','internships.certifierContact','internships.endDateFact'])('响应不能借%s指定其他资料',path=>{const parsed=semanticRequestSchema.parse(request());const field=parsed.fields[0]!;expect(parseSemanticProposal({requestId:parsed.requestId,status:'mapped',bindings:[{ref:field.ref,fingerprint:field.fingerprint,path,certainty:'certain',evidence:'label'}]},parsed)).toBeUndefined();});
+it('严格输出格式只有十二路径，路径不赋予其他栏目权限',()=>{expect(INTERNSHIP_SEMANTIC_BINDING_FORMAT.schema.properties.bindings.items.properties.path.enum).toEqual(paths);for(const path of INTERNSHIP_SEMANTIC_BINDING_PATHS){expect(semanticPathAllowed(path,'internship','creating')).toBe(true);expect(semanticPathAllowed(path,'education','creating')).toBe(false);expect(semanticPathAllowed(path,'internship','none')).toBe(false);}expect(semanticPathAllowed('basic.name','internship','none')).toBe(false);});
+
+it.each([1,2])('旧协议%s不开放实习栏目，即使目录使用旧路径',protocol=>{const value=request();value.protocol=protocol;value.allowedPaths=protocol===1?[...SEMANTIC_BINDING_PATHS]:[...EDUCATION_SEMANTIC_BINDING_PATHS];expect(semanticRequestSchema.safeParse(value).success).toBe(false);});
+it('内部实习协议不能借现有项目或教育端口调用模型', () => {
+ const value = semanticRequestSchema.parse(request());
+ expect(projectSemanticRequestSchema.safeParse({ type: 'RA_PROJECT_SEMANTIC', request: value }).success).toBe(false);
+ expect(educationSemanticRequestSchema.safeParse({ type: 'RA_EDUCATION_SEMANTIC', request: value }).success).toBe(false);
+});
+it('生产实习闭环未接通前，伴随服务不将协议3按旧格式发往模型', async () => {
+ const fetcher = vi.fn(); const provider = createResponsesProvider({ apiKey: 'fictional-key', model: 'fictional-model', fetcher });
+ expect(provider).toBeDefined();
+ expect(await provider!(semanticRequestSchema.parse(request()), new AbortController().signal)).toEqual({ state: 'unavailable', proposal: null });
+ expect(fetcher).not.toHaveBeenCalled();
+});

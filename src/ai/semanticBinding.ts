@@ -17,7 +17,7 @@ interface PublicField {
   readonly options: readonly Readonly<{ ref: string; label: string }>[];
 }
 export interface SemanticBindingSession {
-  readonly request: Readonly<{ protocol: 1 | 2; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
+  readonly request: Readonly<{ protocol: 1 | 2 | 3; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
 }
 interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating' }
 interface LocalSession { snapshot: string; issuedAt: number; fields: ReadonlyMap<string, LocalField> }
