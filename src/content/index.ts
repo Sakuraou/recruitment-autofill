@@ -13,6 +13,8 @@ import { createRecordV2FixtureSession } from './recordV2FixtureSession';
 import { requestEducationProjection, requestProjectProjection, requestInternshipProjection } from './profileProjectionClient';
 import { EducationRecordWorkflow } from './educationRecordWorkflow';
 import { InternshipRecordWorkflow } from './internshipRecordWorkflow';
+import { createInternshipRecordSession } from './internshipRecordSession';
+import { createInternshipSemanticClient } from './internshipSemanticClient';
 import { ProjectRecordWorkflow } from './projectRecordWorkflow';
 import { createProjectRecordSession } from './projectRecordSession';
 import { createProjectSemanticClient } from './projectSemanticClient';
@@ -64,7 +66,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
-  const internshipWorkflow = new InternshipRecordWorkflow(document, requestInternshipProjection);
+  const internshipWorkflow = new InternshipRecordWorkflow(document, requestInternshipProjection,
+    (doc, projection, refresh) => createInternshipRecordSession(doc, projection, refresh, undefined, createInternshipSemanticClient()));
   const educationWorkflow = new EducationRecordWorkflow(document, requestEducationProjection,
     (doc, projection, refresh) => createEducationRecordSession(doc, projection, refresh, undefined, createEducationSemanticClient()));
   const projectWorkflow = new ProjectRecordWorkflow(document, requestProjectProjection,

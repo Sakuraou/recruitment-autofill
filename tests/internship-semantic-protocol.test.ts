@@ -18,9 +18,12 @@ it('内部实习协议不能借现有项目或教育端口调用模型', () => {
  expect(projectSemanticRequestSchema.safeParse({ type: 'RA_PROJECT_SEMANTIC', request: value }).success).toBe(false);
  expect(educationSemanticRequestSchema.safeParse({ type: 'RA_EDUCATION_SEMANTIC', request: value }).success).toBe(false);
 });
-it('生产实习闭环未接通前，伴随服务不将协议3按旧格式发往模型', async () => {
- const fetcher = vi.fn(); const provider = createResponsesProvider({ apiKey: 'fictional-key', model: 'fictional-model', fetcher });
- expect(provider).toBeDefined();
- expect(await provider!(semanticRequestSchema.parse(request()), new AbortController().signal)).toEqual({ state: 'unavailable', proposal: null });
- expect(fetcher).not.toHaveBeenCalled();
+it('协议3使用独立实习严格格式，旧格式不会承接新目录',async()=>{
+ const value=semanticRequestSchema.parse(request());const field=value.fields[0]!;
+ const proposal={requestId:value.requestId,status:'mapped',bindings:[{ref:field.ref,fingerprint:field.fingerprint,path:'internships.organization',certainty:'certain',evidence:'label'}]};
+ const fetcher=vi.fn(async()=>new Response(JSON.stringify({status:'completed',output:[{type:'message',status:'completed',role:'assistant',content:[{type:'output_text',text:JSON.stringify(proposal)}]}]}),{status:200}));
+ const provider=createResponsesProvider({apiKey:'fictional-key',model:'fictional-model',fetcher});
+ expect(await provider!(value,new AbortController().signal)).toEqual({state:'ready',proposal});
+ expect(fetcher).toHaveBeenCalledOnce();const [url,options]=vi.mocked(fetcher).mock.calls[0]! as unknown as [string,RequestInit];expect(url).toBe('https://api.openai.com/v1/responses');
+ const body=JSON.parse(options.body as string);expect(body.text.format).toEqual(INTERNSHIP_SEMANTIC_BINDING_FORMAT);expect(body.store).toBe(false);expect(body.tools).toBeUndefined();expect(body.instructions).toContain('existence question is not internships.hasProof');expect(body.input[0].content).toBe(JSON.stringify(value));
 });

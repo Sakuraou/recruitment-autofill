@@ -1,4 +1,4 @@
-import { SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, parseSemanticProposal,
+import { SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, INTERNSHIP_SEMANTIC_BINDING_FORMAT, INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS, SEMANTIC_BINDING_INSTRUCTIONS, parseSemanticProposal,
   semanticRequestSchema, type SemanticProposal, type SemanticRequest } from '../ai/semanticProtocol';
 
 export type CompanionResult = { state: 'ready'; proposal: SemanticProposal }
@@ -48,16 +48,13 @@ export function createResponsesProvider(config: ProviderConfig): CompanionProvid
   return async (request, signal) => {
     if (signal.aborted) return { state: 'cancelled', proposal: null };
     if (!semanticRequestSchema.safeParse(request).success) return { state: 'invalid-output', proposal: null };
-    // Protocol 3 is an internal catalog until the internship transport and
-    // production inference are verified. Never send it with the legacy format.
-    if (request.protocol === 3) return { state: 'unavailable', proposal: null };
     try {
       const response = await fetcher('https://api.openai.com/v1/responses', {
         method: 'POST', redirect: 'error', signal,
         headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: config.model, store: false, max_output_tokens: 8000,
-          instructions: SEMANTIC_BINDING_INSTRUCTIONS, input: [{ role: 'user', content: JSON.stringify(request) }],
-          text: { format: request.protocol === 2 ? EDUCATION_SEMANTIC_BINDING_FORMAT : SEMANTIC_BINDING_FORMAT } }),
+          instructions: request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS : SEMANTIC_BINDING_INSTRUCTIONS, input: [{ role: 'user', content: JSON.stringify(request) }],
+          text: { format: request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_FORMAT : request.protocol === 2 ? EDUCATION_SEMANTIC_BINDING_FORMAT : SEMANTIC_BINDING_FORMAT } }),
       });
       if (!response.ok || response.redirected) return { state: 'unavailable', proposal: null };
       const output = await readBoundedJson(response);

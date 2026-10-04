@@ -1,7 +1,7 @@
 import { internshipFillOrder } from '../profile/internshipFillOrder';
 import { internshipIdentityReady } from '../profile/internshipIdentityFacts';
-import { bindRecordEditor, type RecordEditorBindResult } from '../planner/recordEditorBinder';
-import { resolveInternshipField } from '../matching/internshipFieldResolver';
+import { bindRecordEditor, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
+import { resolveInternshipField, resolveBoundInternshipField } from '../matching/internshipFieldResolver';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
   type RecordRunCaptureSource } from '../planner/recordRunContext';
@@ -13,6 +13,9 @@ import { internshipProjectionResponseSchema, type InternshipProjectionResponse }
 import { internshipCardComparator } from './internshipRecordIdentity';
 import { hiddenReason } from './domUtils';
 import { recordEditorCoverageComplete, recordObservationMatches } from './recordObservation';
+import { createEmptyProfile, type UserProfile } from '../profile/schema';
+import { createInternshipSemanticContext, internshipSemanticContextCurrent } from '../ai/internshipSemanticContext';
+import { inferSemanticCandidates, type SemanticProvider } from '../ai/semanticCandidates';
 
 interface InternshipObservation {
   readonly scan: ScanState;
@@ -63,15 +66,24 @@ class InternshipDriver implements RecordOrchestratorDriver {
   readonly #context: RecordRunContext;
   readonly #observe: () => InternshipObservation | undefined;
   readonly #records: readonly InternshipProjectionResponse['internships'][number][];
+  readonly #profile: UserProfile;
+  readonly #provider?: SemanticProvider;
+  readonly #verifyProfile: () => Promise<boolean>;
+  #semanticPaths = new WeakMap<Element, string>();
   readonly #observations = new WeakMap<RecordRunCapture, InternshipObservation>();
   readonly #identities = new WeakMap<RecordRunCapture, string>();
   #verifiedFields?: { readonly observation: InternshipObservation; readonly capture: RecordRunCapture };
 
   constructor(context: RecordRunContext, projection: InternshipProjectionResponse,
-    observer: () => InternshipObservation | undefined) {
+    observer: () => InternshipObservation | undefined, verifyProfile: () => Promise<boolean>, provider?: SemanticProvider) {
     this.#observe = observer;
     this.#context = context;
     this.#records = projection.internships;
+    this.#profile = createEmptyProfile(); this.#profile.updatedAt = projection.profileRevision;
+    this.#profile.internships = projection.internships.map(record => ({ ...record,
+      ...(record.endDateFact ? { endDateFact: { ...record.endDateFact } } : {}),
+    }));
+    this.#provider = provider; this.#verifyProfile = verifyProfile;
   }
 
   capture(): RecordRunCapture | RecordRunCaptureFailure {
@@ -144,6 +156,7 @@ class InternshipDriver implements RecordOrchestratorDriver {
   executeAction(plan: ReadyRecordPlan, capture: RecordRunCapture, active?: ActiveRecordTransaction) {
     const observation = this.#observations.get(capture);
     if (!observation) throw new Error('internship observation missing');
+    if (plan.nextStep.kind === 'open-create') this.#semanticPaths = new WeakMap();
     const list = observation.scan.semanticTargets.get(plan.recordListNodeId);
     // The executor immediately checks the issued Save capability, clicks once,
     // then captures the expected closed editor. That capture must no longer be
@@ -181,14 +194,47 @@ class InternshipDriver implements RecordOrchestratorDriver {
     const record = this.#records[active.intentIndex];
     if (!record) return { status: 'request-human', reason: 'profile-value-missing', writtenFieldCount: 0, rollbackComplete: true };
     const values = new Map<string, string>();
+    const semanticPaths = new Map<Element, string>();
+    const unknown = new Set<string>();
     for (const nodeId of plan.nextStep.fieldNodeIds) {
       const node = observation.scan.result.semanticGraph?.nodes.find(candidate => candidate.id === nodeId);
       const field = node?.kind === 'field' ? observation.scan.result.fields.find(candidate => candidate.id === node.fieldId) : undefined;
       if (!field) return { status: 'request-human', reason: 'field-map-mismatch', writtenFieldCount: 0, rollbackComplete: true };
-      const resolved = resolveInternshipField(field, record);
-      if (resolved.status !== 'known') return { status: 'request-human', reason: resolved.reason,
-        writtenFieldCount: 0, rollbackComplete: true };
+      const control = observation.scan.controls.get(field.id);
+      const meaning = control && this.#semanticPaths.get(control.node);
+      const resolved = meaning ? resolveBoundInternshipField(field, record, meaning) : resolveInternshipField(field, record);
+      if (resolved.status !== 'known') {
+        if (resolved.reason === 'field-semantic-unknown') { unknown.add(field.id); continue; }
+        return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
+      }
       values.set(field.id, resolved.value);
+    }
+    if (unknown.size) {
+      const reject = (reason: RecordEditorBindReason = 'field-semantic-unknown'): RecordEditorBindResult => ({ status: 'request-human', reason, writtenFieldCount: 0, rollbackComplete: true });
+      if (!this.#provider) return reject();
+      const internshipContext = createInternshipSemanticContext({ plan, capture, activeTransaction: active,
+        runContext: this.#context, scanState: observation.scan, profile: this.#profile });
+      if (!internshipContext) return reject('snapshot-stale');
+      const signal = this.#context.beginStep();
+      const candidates = await inferSemanticCandidates(observation.scan.result, this.#profile, this.#provider, {
+        signal, internshipContext, excludedFieldIds: new Set(observation.scan.result.fields.filter(field => !unknown.has(field.id)).map(field => field.id)),
+        currentContext: async () => {
+          if (!await this.#verifyProfile() || !this.validateCapture(capture)) throw new Error('实习观察已变化');
+          return { scan: observation.scan.result, profile: this.#profile };
+        },
+      });
+      if (signal.aborted || !internshipSemanticContextCurrent(internshipContext, observation.scan.result, this.#profile, [...unknown])) return reject('snapshot-stale');
+      if (candidates.state !== 'ready' || candidates.matches.length !== unknown.size) return reject();
+      const seen = new Set<string>();
+      for (const match of candidates.matches) {
+        if (!unknown.has(match.fieldId) || seen.has(match.fieldId) || match.source !== 'llm' || match.status !== 'review'
+          || match.confidence < 0.9 || match.value === undefined || !match.matchedProfileKey?.startsWith('internships.')) return reject();
+        seen.add(match.fieldId); values.set(match.fieldId, match.value);
+        const control = observation.scan.controls.get(match.fieldId);
+        if (!control) return reject('field-map-mismatch');
+        semanticPaths.set(control.node, match.matchedProfileKey!);
+      }
+      // Meaning proposals cannot issue actions; the atomic binder verifies every local answer below.
     }
     // The current draft was checked before this call. Its rescan must observe
     // the new answers instead of comparing them with the previous draft.
@@ -204,6 +250,7 @@ class InternshipDriver implements RecordOrchestratorDriver {
       allowExpansion: true,
     });
     if (result.status === 'advanced' || result.status === 'expanded') {
+      for (const [node, path] of semanticPaths) this.#semanticPaths.set(node, path);
       const verified = this.#observations.get(result.capture);
       if (verified) this.#verifiedFields = { observation: verified, capture: result.capture };
     }
@@ -214,7 +261,7 @@ class InternshipDriver implements RecordOrchestratorDriver {
 /** Internal factory: selectors, values and page eligibility never come from runtime messages. */
 export function createInternshipRecordSession(doc: Document, projection: InternshipProjectionResponse,
   refreshProjection?: () => Promise<InternshipProjectionResponse>,
-  additionalEligibility?: (doc: Document) => boolean): RecordV2Session {
+  additionalEligibility?: (doc: Document) => boolean, semanticProvider?: SemanticProvider): RecordV2Session {
   const initial = observe(doc);
   if (internshipPageProblem(doc, initial) || additionalEligibility?.(doc) === false) {
     throw new Error('当前页面没有唯一、可验证且已关闭编辑器的实习列表');
@@ -237,8 +284,17 @@ export function createInternshipRecordSession(doc: Document, projection: Interns
   const context = new RecordRunContext();
   let stoppedForProfileChange = false;
   const originalProjection = JSON.stringify(parsed.data);
+  const verifyProfile = async (): Promise<boolean> => {
+    if (stoppedForProfileChange || context.stopped) return false;
+    if (!refreshProjection) return true;
+    try {
+      const latest = internshipProjectionResponseSchema.safeParse(await refreshProjection());
+      if (latest.success && JSON.stringify(latest.data) === originalProjection) return true;
+    } catch { /* Never change the current record table during inference. */ }
+    stoppedForProfileChange = true; context.stop(); return false;
+  };
   const orchestrator = new RecordTransactionOrchestrator(context, new InternshipDriver(context, { ...parsed.data,
-    internships: order.indices.map(index => parsed.data.internships[index]!) }, observer));
+    internships: order.indices.map(index => parsed.data.internships[index]!) }, observer, verifyProfile, semanticProvider));
   return {
     get state() { return orchestrator.state; },
     get snapshotVersion() { return orchestrator.snapshotVersion; },

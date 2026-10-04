@@ -3,6 +3,7 @@ import { loadAiConnection, type AiConnection } from '../ai/connection';
 import { createLoopbackProvider } from '../ai/loopbackProvider';
 import { PROJECT_SEMANTIC_PORT, PROJECT_SEMANTIC_DEADLINE_MS, projectSemanticRequestSchema } from '../ai/projectPortProtocol';
 import { EDUCATION_SEMANTIC_PORT, educationSemanticRequestSchema } from '../ai/educationPortProtocol';
+import { INTERNSHIP_SEMANTIC_PORT, internshipSemanticRequestSchema } from '../ai/internshipPortProtocol';
 import { parseSemanticProposal, semanticRequestSchema } from '../ai/semanticProtocol';
 import { semanticRedactor } from '../ai/semanticPrivacy';
 import type { UserProfile } from '../profile/schema';
@@ -17,14 +18,14 @@ export interface RecordSemanticPortDependencies {
 }
 
 /** Trusted background only. One bounded request per real top-frame port; no credentials or values are returned. */
-export function createRecordSemanticPortHandler(dependencies?: RecordSemanticPortDependencies, only?: 'project' | 'education'): (port: chrome.runtime.Port) => void {
+export function createRecordSemanticPortHandler(dependencies?: RecordSemanticPortDependencies, only?: 'project' | 'education' | 'internship'): (port: chrome.runtime.Port) => void {
   const deps: RecordSemanticPortDependencies = dependencies ?? { extensionId: chrome.runtime.id, connection: loadAiConnection, profile: loadProfile,
     tab: id => chrome.tabs.get(id), provider: connection => createLoopbackProvider({ protocol: 1, token: connection.token }) };
   const active = new Map<number, chrome.runtime.Port>();
   return port => {
-    const recordType = port.name === PROJECT_SEMANTIC_PORT ? 'project' : port.name === EDUCATION_SEMANTIC_PORT ? 'education' : undefined;
+    const recordType = port.name === PROJECT_SEMANTIC_PORT ? 'project' : port.name === EDUCATION_SEMANTIC_PORT ? 'education' : port.name === INTERNSHIP_SEMANTIC_PORT ? 'internship' : undefined;
     if (!recordType || only && only !== recordType) return;
-    const requestSchema = recordType === 'education' ? educationSemanticRequestSchema : projectSemanticRequestSchema;
+    const requestSchema = recordType === 'internship' ? internshipSemanticRequestSchema : recordType === 'education' ? educationSemanticRequestSchema : projectSemanticRequestSchema;
     const sender = port.sender;
     const tabId = sender?.tab?.id; const url = sender?.url;
     if (sender?.id !== deps.extensionId || !Number.isSafeInteger(tabId) || tabId! < 0 || sender.frameId !== 0

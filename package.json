@@ -1,6 +1,6 @@
 {
   "name": "recruitment-autofill",
-  "version": "0.6.27",
+  "version": "0.6.28",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,9 +11,9 @@
     "build": "tsc --noEmit && node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run",
+    "test": "vitest run --reporter=default --reporter=json --outputFile=artifacts/unit-results.json",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-record-radio-ownership.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-internship-semantic-context.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-internship-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs",
+    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-record-radio-ownership.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-internship-semantic-context.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-internship-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-internship-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs",
     "test:record-v2": "node scripts/test-record-v2.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "serve:example": "node scripts/serve-example.mjs",

@@ -4,7 +4,7 @@ import type { ScanResult } from '../shared/types';
 import type { ScanState } from '../content/scanner';
 import { currentControlFingerprint } from '../content/controlObservation';
 import { nativeRadioGroupCurrent } from '../content/controlAdapter';
-import { resolveBoundInternshipField, type InternshipFieldResolution } from '../matching/internshipFieldResolver';
+import { resolveInternshipField, resolveBoundInternshipField, type InternshipFieldResolution } from '../matching/internshipFieldResolver';
 import { isRecordPlanCurrentForSnapshot, isRecordTransactionCurrentForPlan,
   type ActiveRecordTransaction, type ReadyRecordPlan } from '../planner/recordPlanner';
 import { matchesIssuedRecordRunTarget, RecordRunContext, type RecordRunCapture } from '../planner/recordRunContext';
@@ -97,4 +97,13 @@ export function resolveCurrentInternshipField(context: InternshipSemanticContext
   if (!internshipSemanticContextCurrent(context, scan, profile, [fieldId])) return undefined;
   const local = contexts.get(context)!; const field = scan.fields.find(item => item.id === fieldId);
   return field ? resolveBoundInternshipField(field, profile.internships[local.input.activeTransaction.intentIndex]!, path) : undefined;
+}
+
+/** Only genuinely unknown meanings may be proposed; known missing facts remain local. */
+export function internshipSemanticUnknownField(context: InternshipSemanticContext, scan: ScanResult, profile: UserProfile, fieldId: string): boolean {
+  if (!internshipSemanticContextCurrent(context, scan, profile, [fieldId])) return false;
+  const local = contexts.get(context)!; const field = scan.fields.find(item => item.id === fieldId);
+  if (!field) return false;
+  const result = resolveInternshipField(field, profile.internships[local.input.activeTransaction.intentIndex]!);
+  return result.status === "request-human" && result.reason === "field-semantic-unknown";
 }

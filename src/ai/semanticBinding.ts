@@ -1,4 +1,4 @@
-import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
+import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, INTERNSHIP_SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
 export { SEMANTIC_BINDING_PATHS, SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, type SemanticBindingPath } from './semanticProtocol';
 import { matchField, UNKNOWN_FIELD_REASON } from '../matching/ruleMatcher';
 import type { UserProfile } from '../profile/schema';
@@ -7,6 +7,7 @@ import { isValidSemanticGraph } from '../shared/semanticGraphValidation';
 import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { semanticRedactor } from './semanticPrivacy';
 import { educationSemanticFieldIds, type EducationSemanticContext } from './educationSemanticContext';
+import { internshipSemanticFieldIds, internshipSemanticUnknownField, type InternshipSemanticContext } from './internshipSemanticContext';
 
 interface PublicField {
   readonly ref: string; readonly fingerprint: string;
@@ -76,7 +77,7 @@ export function semanticSessionObservations(session: SemanticBindingSession, sca
   const redact = semanticRedactor(profile); const descriptors = new Map(scan.fields.map(field => [field.id, field]));
   return new Map([...sessions.get(session)!.fields].map(([ref, field]) => [ref, recipeObservation(descriptors.get(field.fieldId)!, redact)]));
 }
-function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, recordType: 'project' | 'education' = 'project'): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
+function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, recordType: 'project' | 'education' | 'internship' = 'project'): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
   let role: SemanticSectionRole = 'other'; let record: 'none' | 'creating' = 'none'; let allowed = true;
   let current: SemanticNode | undefined = node;
   while (current) {
@@ -85,8 +86,8 @@ function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, rec
     if (current.kind === 'section') role = current.role;
     current = current.parentId ? nodes.get(current.parentId) : undefined;
   }
-  if (!(recordType === 'education' ? ['education'] : ['basic', 'job-intent', 'project', 'skill', 'other']).includes(role)) allowed = false;
-  if (['project', 'education'].includes(role) && record !== 'creating') allowed = false;
+  if (!(recordType === 'internship' ? ['internship'] : recordType === 'education' ? ['education'] : ['basic', 'job-intent', 'project', 'skill', 'other']).includes(role)) allowed = false;
+  if (['project', 'education', 'internship'].includes(role) && record !== 'creating') allowed = false;
   return { role, record, allowed };
 }
 function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
@@ -95,12 +96,15 @@ function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
 
 /** Read-only proposal preparation. No model invocation or execution capability is granted. */
 export function createSemanticBindingSession(scan: ScanResult, profile: UserProfile, excludedFieldIds?: ReadonlySet<string>,
-  educationContext?: EducationSemanticContext): CreateResult {
+  educationContext?: EducationSemanticContext, internshipContext?: InternshipSemanticContext): CreateResult {
   try {
-    if (!validGraph(scan)) return { ok: false, reason: 'invalid-graph' };
+    if (!validGraph(scan) || educationContext && internshipContext) return { ok: false, reason: 'invalid-graph' };
+    const internshipFields = internshipContext ? internshipSemanticFieldIds(internshipContext, scan, profile) : undefined;
+    if (internshipContext && !internshipFields) return { ok: false, reason: 'invalid-graph' };
     const educationFields = educationContext ? educationSemanticFieldIds(educationContext, scan, profile) : undefined;
     if (educationContext && !educationFields) return { ok: false, reason: 'invalid-graph' };
-    const owned = educationFields ? new Set(educationFields) : undefined;
+    const ownedFields = internshipFields ?? educationFields;
+    const owned = ownedFields ? new Set(ownedFields) : undefined;
     const graph = scan.semanticGraph!;
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
     const descriptors = new Map(scan.fields.map(field => [field.id, field]));
@@ -108,11 +112,12 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
     const fields: PublicField[] = []; const local = new Map<string, LocalField>();
     for (const node of graph.nodes) {
       if (node.kind !== 'field' || fields.length >= 30) continue;
-      const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes, educationContext ? 'education' : 'project');
+      const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes, internshipContext ? 'internship' : educationContext ? 'education' : 'project');
       if (excludedFieldIds?.has(field.id)) continue;
       if (owned && !owned.has(field.id)) continue;
       if (!ownership.allowed || field.blockedReason || field.disabled || field.readOnly || field.hasValue || field.kind === 'checkbox') continue;
       if (field.kind === 'input' && !['text', 'search', 'email', 'tel', 'url', 'number', 'date', 'month'].includes(field.type)) continue;
+      if (internshipContext && !internshipSemanticUnknownField(internshipContext, scan, profile, field.id)) continue;
       const match = matchField(field, profile);
       // A known label with a missing answer, ambiguous owner or a protective explanation is not a semantic gap.
       if (match.status !== 'missing' || match.matchedProfileKey || match.reason !== UNKNOWN_FIELD_REASON) continue;
@@ -129,8 +134,8 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       local.set(ref, { fieldId: field.id, fingerprint: node.structuralFingerprint, role: ownership.role, record: ownership.record });
     }
     if (!fields.length) return { ok: false, reason: 'no-candidates' };
-    const request = Object.freeze({ protocol: educationContext ? 2 as const : 1 as const, requestId: crypto.randomUUID(),
-      allowedPaths: Object.freeze(educationContext ? [...EDUCATION_SEMANTIC_BINDING_PATHS] : [...SEMANTIC_BINDING_PATHS]), fields: Object.freeze(fields) });
+    const request = Object.freeze({ protocol: internshipContext ? 3 as const : educationContext ? 2 as const : 1 as const, requestId: crypto.randomUUID(),
+      allowedPaths: Object.freeze(internshipContext ? [...INTERNSHIP_SEMANTIC_BINDING_PATHS] : educationContext ? [...EDUCATION_SEMANTIC_BINDING_PATHS] : [...SEMANTIC_BINDING_PATHS]), fields: Object.freeze(fields) });
     if (JSON.stringify(request).length > 40_000) return { ok: false, reason: 'request-too-large' };
     if (!semanticRequestSchema.safeParse(request).success) return { ok: false, reason: 'invalid-graph' };
     const session = Object.freeze({ request });

@@ -107,6 +107,8 @@ export const SEMANTIC_BINDING_INSTRUCTIONS = [
   'No personal profile values are provided. Do not infer or generate factual answers.',
 ].join('\n');
 
+export const INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS = SEMANTIC_BINDING_INSTRUCTIONS + ' Map only current creating internship field meanings. An experience existence question is not internships.hasProof; hasProof describes evidence for this individual record. Refuse concepts outside the fixed catalog. Never invent a personal fact, record index or page action.';
+
 const publicFieldSchema = z.object({
   ref: z.string().regex(/^field-\d{1,2}$/u), fingerprint: z.string().regex(/^[a-f\d]{16,64}$/u),
   kind: z.enum(['input', 'textarea', 'select', 'radio']),

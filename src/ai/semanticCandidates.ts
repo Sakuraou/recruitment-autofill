@@ -10,14 +10,16 @@ import type { SemanticRecipes } from './semanticRecipes';
 import { projectSemanticContextCurrent, projectSemanticFieldIds, resolveCurrentProjectField, type ProjectSemanticContext } from './projectSemanticContext';
 import { educationSemanticContextCurrent, educationSemanticFieldIds, resolveCurrentEducationField, type EducationSemanticContext } from './educationSemanticContext';
 
-type RecordSemanticContext = ProjectSemanticContext | EducationSemanticContext;
-type CandidateResult = { ok: true; matches: MatchResult[] } | { ok: false; reason: 'stale-binding' | 'invalid-profile' | 'invalid-project-context' | 'invalid-education-context' };
+import { internshipSemanticContextCurrent, internshipSemanticFieldIds, resolveCurrentInternshipField, type InternshipSemanticContext } from './internshipSemanticContext';
+
+type RecordSemanticContext = ProjectSemanticContext | EducationSemanticContext | InternshipSemanticContext;
+type CandidateResult = { ok: true; matches: MatchResult[] } | { ok: false; reason: 'stale-binding' | 'invalid-profile' | 'invalid-project-context' | 'invalid-education-context' | 'invalid-internship-context' };
 function incompatibleControl(field: FieldDescriptor, path: SemanticBindingPath): boolean {
   if (field.type === 'email') return path !== 'basic.email';
   if (field.type === 'tel') return path !== 'basic.phone';
   if (field.type === 'url') return !path.startsWith('links.') && path !== 'projects.url';
   if (field.type === 'date' || field.type === 'month') return ![
-    'basic.birthday', 'jobPreferences.earliestStartDate', 'projects.startDate', 'projects.endDate', 'education.startDate', 'education.endDate',
+    'basic.birthday', 'jobPreferences.earliestStartDate', 'projects.startDate', 'projects.endDate', 'education.startDate', 'education.endDate', 'internships.startDate', 'internships.endDate',
   ].includes(path);
   return false;
 }
@@ -26,6 +28,9 @@ function incompatibleControl(field: FieldDescriptor, path: SemanticBindingPath):
 export function resolveSemanticCandidates(result: BindingValidation, scan: ScanResult, profile: UserProfile, recordContext?: RecordSemanticContext): CandidateResult {
   if (!result.ok || !semanticBindingsCurrent(result, scan, profile)) return { ok: false, reason: 'stale-binding' };
   if (!profileSchema.safeParse(profile).success) return { ok: false, reason: 'invalid-profile' };
+  const internshipContext = recordContext?.recordType === 'internship' ? recordContext : undefined;
+  if (internshipContext && !internshipSemanticContextCurrent(internshipContext, scan, profile, result.bindings.map(binding => binding.fieldId)))
+    return { ok: false, reason: 'invalid-internship-context' };
   const projectContext = recordContext?.recordType === 'project' ? recordContext : undefined;
   const educationContext = recordContext?.recordType === 'education' ? recordContext : undefined;
   if (projectContext && !projectSemanticContextCurrent(projectContext, scan, profile, result.bindings.map(binding => binding.fieldId)))
@@ -41,6 +46,13 @@ export function resolveSemanticCandidates(result: BindingValidation, scan: ScanR
     if ((binding.path === 'basic.heightCm' || binding.path === 'basic.weightKg')
       && !hasMeasurementUnits(field, binding.path === 'basic.heightCm' ? 'heightCm' : 'weightKg'))
       return { ...base, reason: '测量单位未唯一明确为厘米或千克，不能按模型提议推算。' };
+    if (binding.path.startsWith('internships.')) {
+      const resolved = internshipContext ? resolveCurrentInternshipField(internshipContext, scan, profile, field.id, binding.path) : undefined;
+      if (!resolved) return { ...base, reason: '实习字段需要当前经历上下文，不能默认第一条。' };
+      return resolved.status === 'known' ? { ...base, value: resolved.value, confidence: resolved.confidence,
+        reason: '从当前实习经历读取，并通过本地日期、长度与选项校验。' }
+        : { ...base, confidence: 0, reason: '当前实习字段未通过本地校验：' + resolved.reason };
+    }
     if (binding.path.startsWith('education.')) {
       const resolved = educationContext ? resolveCurrentEducationField(educationContext, scan, profile, field.id, binding.path) : undefined;
       if (!resolved) return { ...base, reason: '教育字段需要规划器明确当前经历；模型绑定不会默认第一条或最高记录。' };
@@ -78,6 +90,7 @@ export interface SemanticInferenceOptions {
   recipes?: SemanticRecipes;
   projectContext?: ProjectSemanticContext;
   educationContext?: EducationSemanticContext;
+  internshipContext?: InternshipSemanticContext;
   currentContext?: () => { scan: ScanResult; profile: UserProfile } | Promise<{ scan: ScanResult; profile: UserProfile }>;
 }
 export interface SemanticInferenceResult {
@@ -91,19 +104,22 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
   options: SemanticInferenceOptions = {}): Promise<SemanticInferenceResult> {
   if (options.signal?.aborted) return empty('cancelled');
   if (!provider) return empty('disabled');
-  if (options.projectContext && options.educationContext) return empty('rejected');
+  if ([options.projectContext, options.educationContext, options.internshipContext].filter(Boolean).length > 1) return empty('rejected');
+  const internshipFields = options.internshipContext ? internshipSemanticFieldIds(options.internshipContext, scan, profile) : undefined;
+  if (options.internshipContext && !internshipFields) return empty('rejected');
   const projectFields = options.projectContext ? projectSemanticFieldIds(options.projectContext, scan, profile) : undefined;
   if (options.projectContext && !projectFields) return empty('rejected');
   const educationFields = options.educationContext ? educationSemanticFieldIds(options.educationContext, scan, profile) : undefined;
   if (options.educationContext && !educationFields) return empty('rejected');
   const excluded = new Set(options.excludedFieldIds);
-  if (projectFields || educationFields) {
-    const owned = new Set(projectFields ?? educationFields);
+  if (projectFields || educationFields || internshipFields) {
+    const owned = new Set(internshipFields ?? projectFields ?? educationFields);
     for (const field of scan.fields) if (!owned.has(field.id)) excluded.add(field.id);
   }
   const projectCurrent = () => (!options.projectContext || projectSemanticContextCurrent(options.projectContext, scan, profile, []))
-    && (!options.educationContext || educationSemanticContextCurrent(options.educationContext, scan, profile, []));
-  const created = createSemanticBindingSession(scan, profile, excluded, options.educationContext);
+    && (!options.educationContext || educationSemanticContextCurrent(options.educationContext, scan, profile, []))
+    && (!options.internshipContext || internshipSemanticContextCurrent(options.internshipContext, scan, profile, []));
+  const created = createSemanticBindingSession(scan, profile, excluded, options.educationContext, options.internshipContext);
   if (!created.ok) return empty(created.reason === 'no-candidates' ? 'no-candidates' : 'rejected');
   const controller = new AbortController();
   const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(100, Math.min(options.timeoutMs!, 30_000)) : 15_000;
@@ -125,7 +141,7 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
     if (controller.signal.aborted) return empty('cancelled');
     const validated = validateSemanticBindings(created.session, response, current.scan, current.profile);
     if (!validated.ok) return empty('rejected');
-    const candidates = resolveSemanticCandidates(validated, current.scan, current.profile, options.educationContext ?? options.projectContext);
+    const candidates = resolveSemanticCandidates(validated, current.scan, current.profile, options.internshipContext ?? options.educationContext ?? options.projectContext);
     if (candidates.ok && options.recipes) await options.recipes.remember(validated, current.scan, current.profile, controller.signal);
     if (controller.signal.aborted) return empty('cancelled');
     if (!semanticBindingsCurrent(validated, current.scan, current.profile) || !projectCurrent()) return empty('rejected');
