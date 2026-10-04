@@ -512,3 +512,27 @@ it.each([2, 3])('在真实项目步骤 %s 后协作暂停，保留收据且恢�
   await vi.waitFor(() => expect(flow.status().phase).toBe('complete'), { timeout: 10_000 });
   expect(counts).toEqual({ add: 4, save: 4, submit: 0, remove: 0 });
 }, 15_000);
+
+it.each(['开发成员', '项目经历', '未标注项目'])('已有项目标题 %s 不证明名称，添加前停止', async heading => {
+  const page = installPage('+', false, [0], 'aria-controls');
+  page.list.querySelector('article h3')!.textContent = heading;
+  const result = await createProjectRecordSession(document, projection).advance();
+  expect(result).toMatchObject({ status: 'request-human', reason: 'identity-insufficient' });
+  expect(page.counts).toEqual({ add: 0, save: 0, submit: 0, remove: 0 });
+});
+it.each(['开发成员', '项目经历'])('已有明确项目名称加 %s 标题只补其他五条且重启不重复', async heading => {
+  const page = installPage('+', false, [0], 'aria-controls');
+  const card = page.list.querySelector('article')!; card.querySelector('h3')!.textContent = heading;
+  const name = document.createElement('p'); name.textContent = `项目名称：${projection.projects[0]!.name}`; card.append(name);
+  async function finishHeadingSession() {
+    const session = createProjectRecordSession(document, projection);
+    for (let step = 0; step < 22; step++) {
+      const result = await session.advance(); if (result.status === 'complete') return;
+      expect(result.status).toBe('advanced');
+    }
+    throw new Error('fictional heading session did not complete');
+  }
+  await finishHeadingSession(); await finishHeadingSession();
+  expect(page.saved.map(record => record.name)).toEqual(projection.projects.slice(1).map(record => record.name));
+  expect(page.counts).toEqual({ add: 5, save: 5, submit: 0, remove: 0 });
+}, 20_000);

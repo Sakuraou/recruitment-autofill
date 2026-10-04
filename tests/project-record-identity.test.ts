@@ -35,7 +35,7 @@ describe('页面内项目身份比较', () => {
     expect(compareProjectCard(card(`<h3>${project.name}</h3>${html}`), project).verdict).toBe('insufficient');
   });
   it('不同名称独立判别，比较结果不携带私密原值', () => {
-    const result = compareProjectCard(card('<h3>另一虚构平台</h3>'), project);
+    const result = compareProjectCard(card('<p>项目名称：另一虚构平台</p>'), project);
     expect(result).toEqual({ verdict: 'different', signals: ['primary'], provenance: 'rule' });
     expect(JSON.stringify(result)).not.toMatch(/虚构|检索|2026/u);
   });

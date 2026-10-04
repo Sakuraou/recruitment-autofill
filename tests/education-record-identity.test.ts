@@ -22,7 +22,7 @@ describe('页面内教育身份', () => {
     expect(compareEducationCard(card(html), bachelor)).toMatchObject({ verdict: 'same', provenance: 'rule' });
   });
   it('同校本科与硕士分别匹配，不能拿第一条充当所有条目', () => {
-    const compare = educationCardComparator(card(`<h3>${master.school}</h3><p>学历：硕士研究生</p><p>专业：人工智能</p>`));
+    const compare = educationCardComparator(card(`<h3>${master.school}</h3><p>学历：硕士研究生</p><p>专业：人工智能</p>`), [bachelor, master]);
     expect(compare.ready).toBe(true); expect(compare.compare(master).verdict).toBe('same'); expect(compare.compare(bachelor).verdict).toBe('different');
     expect(JSON.stringify(compare.compare(master))).not.toMatch(/青岚|人工智能|2024|fictional/u);
   });
@@ -31,7 +31,7 @@ describe('页面内教育身份', () => {
   });
   it('仅学校不授予相同身份；不同明确学校独立区分', () => {
     expect(compareEducationCard(card(`<h3>${bachelor.school}</h3>`), bachelor).verdict).toBe('insufficient');
-    expect(compareEducationCard(card('<h3>另一所虚构大学</h3>'), bachelor).verdict).toBe('different');
+    expect(compareEducationCard(card('<p>学校：另一所虚构大学</p>'), bachelor).verdict).toBe('different');
   });
   it('无效源日期或倒置区间不能参与身份比较', () => {
     const element = card(`<h3>${bachelor.school}</h3><p>学历：本科</p>`);

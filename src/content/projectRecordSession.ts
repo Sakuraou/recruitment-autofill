@@ -117,7 +117,7 @@ class ProjectDriver implements RecordOrchestratorDriver {
     // Value-free comparison results detect renamed/changed cards between
     // steps without storing their text or hashes of private values.
     return JSON.stringify(capture.candidates.map(candidate => {
-      const comparison = projectCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId));
+      const comparison = projectCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId), this.#records);
       return { ready: comparison.ready, results: this.#records.map(record => comparison.compare(record)) };
     }));
   }
@@ -126,7 +126,7 @@ class ProjectDriver implements RecordOrchestratorDriver {
     const observation = this.#observations.get(capture);
     if (!observation) throw new Error('project observation missing');
     const comparisons = new Map(capture.candidates.map(candidate => [candidate.recordNodeId,
-      projectCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId))]));
+      projectCardComparator(observation.scan.semanticTargets.get(candidate.recordNodeId), this.#records)]));
     const candidates = capture.candidates.map((candidate) => {
       return { ...candidate, identityReady: comparisons.get(candidate.recordNodeId)!.ready };
     });

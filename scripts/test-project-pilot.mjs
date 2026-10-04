@@ -47,12 +47,17 @@ try {
     await page.addInitScript(value => { window.fixtureEditorLayout = value.editor;
       window.fixtureOngoing = value.mode === 'ongoing';
       window.fixtureActionDelayMs = value.mode === 'paused' || value.mode === 'stopping' ? 600 : 0;
+      if (value.mode.startsWith('identity-')) { window.fixtureInitialCards = [0]; window.fixtureAddRelation = 'aria-controls'; }
       if (value.mode === 'empty' || value.mode === 'one') {
         window.fixtureInitialCards = value.mode === 'empty' ? [] : [0];
         window.fixtureAddRelation = value.mode === 'empty' ? 'aria-controls' : 'aria-owns';
       }
     }, { mode, editor });
     await page.goto(`${origin}/projects?case=${mode}`);
+    if (mode.startsWith('identity-')) await page.evaluate(value => {
+      const card = document.querySelector('article'); card.querySelector('h3').textContent = value.mode.includes('role') ? '开发成员' : value.mode === 'identity-unknown' ? '未标注项目' : '项目经历';
+      if (value.mode.includes('labelled')) { const name = document.createElement('p'); name.textContent = '项目名称：' + value.name; card.append(name); }
+    }, { mode, name: profile.projects[0].name });
     const targets = (await browser.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
     const target = targets.find(item => item.url === page.url()); assert.ok(target);
     await browser.send('Extensions.triggerAction', { id: extensionId, targetId: target.targetId });
@@ -180,6 +185,23 @@ try {
   report.checks.push('Unknown field produces a Chinese semantic reason, zero field writes/save, value-free public status and preserved draft after Stop');
   await popup.close(); await unknown.close();
 
+  for (const mode of ['identity-role', 'identity-generic', 'identity-unknown', 'identity-labelled-role', 'identity-labelled-generic']) {
+    const page = await pageFor(mode); popup = await popupFor(page);
+    await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();
+    if (mode.includes('labelled')) {
+      await popup.getByText(completion).waitFor();
+      await popup.getByRole('button', { name: '连续填写全部项目', exact: true }).click();
+      await popup.getByText(completion).waitFor();
+      assert.deepEqual(await counts(page), { ...expected, add: 5, save: 5 });
+      assert.deepEqual(await page.evaluate(() => window.fixture.savedFields.map(item => item.index)), [1, 2, 3, 4, 5]);
+    } else {
+      await popup.getByText(/已有项目缺少可靠的身份信息/).waitFor();
+      assert.deepEqual(await counts(page), { ...expected, add: 0, save: 0 });
+      assert.equal(await page.locator('form').count(), 0);
+    }
+    report.checks.push(mode + ': verified project name before Add; original source order and restart preserve zero duplicates');
+    await popup.close(); await page.close();
+  }
   assert.deepEqual(report.errors, []); assert.deepEqual(report.externalRequests, []); report.passed = true;
 } catch (error) {
   report.passed = false; report.failure = error.stack ?? String(error); process.exitCode = 1;

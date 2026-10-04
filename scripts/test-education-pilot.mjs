@@ -12,7 +12,13 @@ await build({ entryPoints: [resolve(root, 'tests/fixtures/education-session-page
   globalName: 'EducationFixture', platform: 'browser', target: 'chrome114', outfile: bundle });
 const code = await readFile(bundle, 'utf8');
 const html = `<!doctype html><body><script>${code}</script><script>
-window.fixture = EducationFixture.installEducationSessionPage(document, EducationFixture.educationSessionProfile);
+const identityCase = new URL(location.href).searchParams.get('case');
+window.fixture = EducationFixture.installEducationSessionPage(document, EducationFixture.educationSessionProfile,
+  identityCase?.startsWith('identity-') ? [1] : []);
+if (identityCase?.startsWith('identity-')) {
+  fixture.cards[0].querySelector('h3').textContent = identityCase.includes('stage') ? '本科' : identityCase === 'identity-unknown' ? '未标注学校' : '教育经历';
+  if (identityCase.includes('labelled')) { const school = document.createElement('p'); school.textContent = '学校：' + EducationFixture.educationSessionProfile.education[1].school; fixture.cards[0].append(school); }
+}
 const projectSection = document.createElement('section'); projectSection.setAttribute('aria-label', '项目经历');
 projectSection.innerHTML = '<h2>项目经历</h2><div role="list" id="project-items"><p role="status">暂无项目经历</p><button type="button" aria-controls="project-items">+</button></div>';
 window.projectActions = 0; projectSection.querySelector('button').addEventListener('click', () => window.projectActions++); document.querySelector('main').append(projectSection);
@@ -106,6 +112,22 @@ try {
     }
     assert.equal((await counts(page)).projectActions, 0); assert.equal((await counts(page)).submit, 0);
     report.checks.push(mode + ': production controls keep accurate state, no other-column or unsafe action'); await popup.close(); await page.close();
+  }
+  for (const mode of ['identity-stage', 'identity-generic', 'identity-unknown', 'identity-labelled-stage', 'identity-labelled-generic']) {
+    const page = await context.newPage(); await page.goto(origin + '/education?case=' + mode); popup = await popupFor(page);
+    await popup.getByRole('button', { name: '连续填写全部教育经历', exact: true }).click();
+    if (mode.includes('labelled')) {
+      await popup.getByText(/全部 2 段教育经历已处理并核验/).waitFor();
+      await popup.getByRole('button', { name: '连续填写全部教育经历', exact: true }).click();
+      await popup.getByText(/全部 2 段教育经历已处理并核验/).waitFor();
+      assert.deepEqual(await counts(page), { ...expected, add: 1, save: 1 });
+      assert.equal(await page.evaluate(() => window.fixture.saved[0].school), profile.education[0].school);
+    } else {
+      await popup.getByText(/已有教育经历缺少可靠的身份信息/).waitFor();
+      assert.deepEqual(await counts(page), { ...expected, add: 0, save: 0 });
+      assert.equal(await page.locator('form').count(), 0);
+    }
+    report.checks.push(mode + ': verified school evidence before Add; restart adds zero duplicates'); await popup.close(); await page.close();
   }
   assert.deepEqual(report.errors, []); assert.deepEqual(report.externalRequests, []); report.passed = true;
   console.info('Education pilot MV3 checks passed (' + report.checks.length + ' checks)');

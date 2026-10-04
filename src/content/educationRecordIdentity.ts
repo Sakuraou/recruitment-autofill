@@ -2,6 +2,7 @@ import { educationProjectionEntrySchema, type EducationProjectionEntry } from '.
 import type { RecordIdentitySignal, RecordIdentityVerdict } from '../planner/recordPlanner';
 import { hiddenReason } from './domUtils';
 import { recordSummaryText } from './recordSummaryText';
+import { educationFillOrder } from '../profile/educationFillOrder';
 import { calendarDateBounds } from '../profile/calendarDates';
 import { endDateState, ongoingCaption } from '../profile/facts';
 
@@ -9,7 +10,7 @@ export interface EducationIdentityResult {
   readonly verdict: RecordIdentityVerdict; readonly signals: readonly RecordIdentitySignal[]; readonly provenance: 'rule';
 }
 type Key = 'school' | 'level' | 'major' | 'startDate' | 'endDate';
-interface Evidence { school?: string; level?: string; major?: string; startDate?: string; endDate?: string; bad?: boolean }
+interface Evidence { heading?: string; school?: string; level?: string; major?: string; startDate?: string; endDate?: string; bad?: boolean }
 const labels: Record<Key, RegExp> = {
   school: /^(?:学校|学校名称|院校|院校名称|毕业院校|school|university)$/iu,
   level: /^(?:学历|教育程度|教育阶段|education\s*level|qualification)$/iu,
@@ -52,10 +53,9 @@ function evidence(card?: Element): Evidence {
     if (split > 0) add(text.slice(0, split), text.slice(split + 1).trim());
   }
   const headings = Array.from(card.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]'))
-    .map(heading => recordSummaryText(heading, card)).filter(complete);
-  if (headings.length === 1) values.school.push(headings[0]!);
-  if (headings.length > 1) bad = true;
-  const result: Evidence = { bad };
+    .map(heading => recordSummaryText(heading, card)).filter(Boolean);
+  if (headings.length > 1 || headings.some(text => !complete(text))) bad = true;
+  const result: Evidence = { bad, ...(headings.length === 1 ? { heading: headings[0] } : {}) };
   for (const key of Object.keys(values) as Key[]) {
     const distinct = [...new Set(values[key])]; if (distinct.length === 1) result[key] = distinct[0];
     if (distinct.length > 1) result.bad = true;
@@ -63,6 +63,20 @@ function evidence(card?: Element): Evidence {
   return result;
 }
 
+/** A heading can describe a stage or major; only a known school supplies primary evidence. */
+function resolveHeading(observed: Evidence, records: readonly EducationProjectionEntry[]): Evidence {
+  const schools = new Set(records.filter(record => complete(record.school)).map(record => normalize(record.school)));
+  const secondary = new Set(records.flatMap(record => [record.level, record.major, record.college, record.degree])
+    .filter(complete).map(normalize));
+  if (!observed.heading || !schools.has(observed.heading) || secondary.has(observed.heading) || level(observed.heading)) return observed;
+  if (observed.school && observed.school !== observed.heading) return { ...observed, bad: true };
+  return { ...observed, school: observed.heading };
+}
+function sourceReady(records: readonly EducationProjectionEntry[]): boolean {
+  return Array.isArray(records) && records.length <= 30
+    && Array.from(records).every(record => educationProjectionEntrySchema.safeParse(record).success && complete(record.school))
+    && educationFillOrder(records).status === 'ready';
+}
 function compare(observed: Evidence, record: EducationProjectionEntry): EducationIdentityResult {
   const result = (verdict: RecordIdentityVerdict, signals: RecordIdentitySignal[] = []): EducationIdentityResult => Object.freeze({ verdict, signals: Object.freeze(signals), provenance: 'rule' });
   if (observed.bad || !educationProjectionEntrySchema.safeParse(record).success
@@ -90,9 +104,12 @@ function compare(observed: Evidence, record: EducationProjectionEntry): Educatio
 }
 /** Only value-free conclusions leave this reader; no writes or action capabilities. */
 export function compareEducationCard(card: Element | undefined, record: EducationProjectionEntry): EducationIdentityResult {
-  return compare(evidence(card), record);
+  const parsed = educationProjectionEntrySchema.safeParse(record);
+  return compare(parsed.success ? resolveHeading(evidence(card), [parsed.data]) : { bad: true }, record);
 }
 /** Ephemeral snapshot reader; the caller must recapture before each transaction step. */
-export function educationCardComparator(card: Element | undefined): Readonly<{ ready: boolean; compare: (record: EducationProjectionEntry) => EducationIdentityResult }> {
-  const observed = evidence(card); return Object.freeze({ ready: !observed.bad && complete(observed.school), compare: (record: EducationProjectionEntry) => compare(observed, record) });
+export function educationCardComparator(card: Element | undefined, records?: readonly EducationProjectionEntry[]): Readonly<{ ready: boolean; compare: (record: EducationProjectionEntry) => EducationIdentityResult }> {
+  const observed = records === undefined ? evidence(card) : sourceReady(records) ? resolveHeading(evidence(card), records) : { bad: true };
+  return Object.freeze({ ready: !observed.bad && complete(observed.school),
+    compare: (record: EducationProjectionEntry) => compare(observed, record) });
 }

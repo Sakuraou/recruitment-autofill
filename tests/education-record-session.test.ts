@@ -149,3 +149,21 @@ it.each(['unknown', 'highest', 'missing'])('字段%s整条预检失败，不先�
   expect(Array.from(page.list.querySelectorAll('input')).every(node => !node.value)).toBe(true);
   expect(page.counts.save).toBe(0);
 });
+
+it.each(['本科', '软件工程', '教育经历'])('已有教育标题 %s 不证明学校，添加前停止', async heading => {
+  const page = installEducationSessionPage(document, profile, [1]);
+  page.cards[0]!.querySelector('h3')!.textContent = heading;
+  const result = await createEducationRecordSession(document, profile).advance();
+  expect(result).toMatchObject({ status: 'request-human', reason: 'identity-insufficient' });
+  expect(page.counts).toEqual({ add: 0, save: 0, submit: 0, remove: 0, cancel: 0 });
+});
+it.each(['本科', '教育经历'])('已有明确学校加 %s 标题只补硕士，重启不重复', async heading => {
+  const page = installEducationSessionPage(document, profile, [1]);
+  page.cards[0]!.querySelector('h3')!.textContent = heading;
+  const school = document.createElement('p'); school.textContent = `学校：${profile.education[1]!.school}`;
+  page.cards[0]!.append(school);
+  await finish(createEducationRecordSession(document, profile));
+  await finish(createEducationRecordSession(document, profile));
+  expect(page.saved.map(record => record.school)).toEqual([profile.education[0]!.school]);
+  expect(page.counts).toEqual({ add: 1, save: 1, submit: 0, remove: 0, cancel: 0 });
+}, 15_000);
