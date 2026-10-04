@@ -7,7 +7,7 @@ import { isValidSemanticGraph } from '../shared/semanticGraphValidation';
 import type { FieldDescriptor, ScanResult } from '../shared/types';
 import { semanticRedactor } from './semanticPrivacy';
 import { educationSemanticFieldIds, type EducationSemanticContext } from './educationSemanticContext';
-import { internshipSemanticFieldIds, internshipSemanticUnknownField, type InternshipSemanticContext } from './internshipSemanticContext';
+import { internshipSemanticFieldIds, internshipSemanticUnknownField, internshipSemanticWeakPath, type InternshipSemanticContext } from './internshipSemanticContext';
 
 interface PublicField {
   readonly ref: string; readonly fingerprint: string;
@@ -20,7 +20,7 @@ interface PublicField {
 export interface SemanticBindingSession {
   readonly request: Readonly<{ protocol: 1 | 2 | 3; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
 }
-interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating' }
+interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating'; expectedPath?: string }
 interface LocalSession { snapshot: string; issuedAt: number; fields: ReadonlyMap<string, LocalField> }
 const sessions = new WeakMap<SemanticBindingSession, LocalSession>();
 export interface VerifiedSemanticRecipeEntry {
@@ -117,10 +117,11 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       if (owned && !owned.has(field.id)) continue;
       if (!ownership.allowed || field.blockedReason || field.disabled || field.readOnly || field.hasValue || field.kind === 'checkbox') continue;
       if (field.kind === 'input' && !['text', 'search', 'email', 'tel', 'url', 'number', 'date', 'month'].includes(field.type)) continue;
-      if (internshipContext && !internshipSemanticUnknownField(internshipContext, scan, profile, field.id)) continue;
+      const weakInternship = internshipContext && internshipSemanticWeakPath(internshipContext,scan,profile,field.id);
+      if (internshipContext && !weakInternship && !internshipSemanticUnknownField(internshipContext, scan, profile, field.id)) continue;
       const match = matchField(field, profile);
       // A known label with a missing answer, ambiguous owner or a protective explanation is not a semantic gap.
-      if (match.status !== 'missing' || match.matchedProfileKey || match.reason !== UNKNOWN_FIELD_REASON) continue;
+      if (!weakInternship && (match.status !== 'missing' || match.matchedProfileKey || match.reason !== UNKNOWN_FIELD_REASON)) continue;
       const clues = { label: redact(field.label), ariaLabel: redact(field.ariaLabel), tableHeader: redact(field.tableHeader),
         title: redact(field.title), placeholder: redact(field.placeholder) };
       if (!Object.values(clues).some(value => /[\p{L}]/u.test(value.replace(/\[redacted\]/gu, '')))
@@ -131,7 +132,7 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       if (options.some(option => option.label.length > 80)) continue;
       fields.push(Object.freeze({ ref, fingerprint: node.structuralFingerprint, kind: field.kind, type: field.kind === 'input' ? field.type : field.kind,
         section: ownership.role, record: ownership.record, ...clues, options: Object.freeze(options) }));
-      local.set(ref, { fieldId: field.id, fingerprint: node.structuralFingerprint, role: ownership.role, record: ownership.record });
+      local.set(ref, { fieldId: field.id, fingerprint: node.structuralFingerprint, role: ownership.role, record: ownership.record, ...(weakInternship ? { expectedPath: weakInternship } : {}) });
     }
     if (!fields.length) return { ok: false, reason: 'no-candidates' };
     const request = Object.freeze({ protocol: internshipContext ? 3 as const : educationContext ? 2 as const : 1 as const, requestId: crypto.randomUUID(),
@@ -165,7 +166,7 @@ export function validateSemanticBindings(session: SemanticBindingSession, respon
     for (const binding of proposal.bindings) {
       const target = local.fields.get(binding.ref);
       if (!target || seen.has(binding.ref) || binding.fingerprint !== target.fingerprint) return { ok: false, reason: 'invalid-reference' };
-      if (!new Set<string>(session.request.allowedPaths).has(binding.path) || !pathAllowed(binding.path, target)) return { ok: false, reason: 'ownership-conflict' };
+      if (target.expectedPath && target.expectedPath !== binding.path || !new Set<string>(session.request.allowedPaths).has(binding.path) || !pathAllowed(binding.path, target)) return { ok: false, reason: 'ownership-conflict' };
       if (binding.certainty !== 'certain') return { ok: false, reason: 'uncertain' };
       seen.add(binding.ref); bindings.push(Object.freeze({ fieldId: target.fieldId, path: binding.path }));
     }

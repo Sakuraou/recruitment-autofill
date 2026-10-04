@@ -12,13 +12,14 @@ const serverBundle = resolve(artifacts, 'internship-semantic-server.mjs');
 await build({ entryPoints: [resolve(root, 'src/companion/server.ts')], bundle: true, platform: 'node', format: 'esm', target: 'node22', outfile: serverBundle });
 const { createSemanticServer } = await import(pathToFileURL(serverBundle).href);
 const token = 'c'.repeat(64); const requests = []; let mode = 'normal'; let pending; let aborted = 0;
-const paths = { '当时服务的实体': 'internships.organization', '归属的业务团队': 'internships.department', '这段经历的主要事项': 'internships.description' };
+const paths = { '工作单位名称':'internships.organization', '实习期间所在部门':'internships.department', '[redacted]期间所在部门':'internships.department', '承担的工作内容':'internships.description', '当时服务的实体': 'internships.organization', '归属的业务团队': 'internships.department', '这段经历的主要事项': 'internships.description' };
 let service = createSemanticServer({ token, provider: async (request, signal) => {
   requests.push(request);
   if (mode === 'hold') await new Promise(done => { pending = done; signal.addEventListener('abort', () => { aborted++; done(); }, { once: true }); });
   const bindings = request.fields.map(field => ({ ref: field.ref, fingerprint: field.fingerprint, path: paths[field.label], certainty: 'certain', evidence: 'label' }));
   if (mode === 'partial') bindings.pop();
   if (mode === 'invalid') bindings[0].path = 'projects.name';
+  if (mode === 'disagree') bindings[0].path = 'internships.department';
   if (mode === 'refused') return { state: 'refused', proposal: null };
   const proposal = { requestId: request.requestId, status: 'mapped', bindings };
   if (mode === 'answer') proposal.answer = '模型不得生成个人答案';
@@ -41,11 +42,12 @@ for (const [kind,caption] of [['education','教育经历'],['project','项目经
 window.organizationWrites = 0; const scenario = new URL(location.href).searchParams.get('case');
 fixture.add.addEventListener('click', () => {
   const form = fixture.list.querySelector('form');
-  const captions = { organization: '当时服务的实体', department: '归属的业务团队', description: '这段经历的主要事项' };
+  const weak = scenario.startsWith('weak-');
+  const captions = weak ? { organization: scenario === 'weak-mixed' ? '工作单位 / 项目名称' : '工作单位名称', department: '实习期间所在部门', description: '承担的工作内容' } : { organization: '当时服务的实体', department: '归属的业务团队', description: '这段经历的主要事项' };
   for (const [key, caption] of Object.entries(captions)) form.querySelector('[data-test-key="' + key + '"]').parentElement.firstChild.textContent = caption;
   form.querySelector('[data-test-key="organization"]').addEventListener('input', () => window.organizationWrites++);
-  if (scenario === 'dynamic') { form.querySelector('[data-test-key="department"]').parentElement.remove();form.querySelector('[data-test-key="workType"]').addEventListener('change', () => {
-    setTimeout(() => { if (form.isConnected) form.querySelector('button').insertAdjacentHTML('beforebegin', '<label>归属的业务团队<input required name="opaque-extra" data-test-key="department"></label>'); }, 600);
+  if (scenario === 'dynamic' || scenario === 'weak-dynamic') { form.querySelector('[data-test-key="department"]').parentElement.remove();form.querySelector('[data-test-key="workType"]').addEventListener('change', () => {
+    setTimeout(() => { if (form.isConnected) form.querySelector('button').insertAdjacentHTML('beforebegin', '<label>' + (weak ? '实习期间所在部门' : '归属的业务团队') + '<input required name="opaque-extra" data-test-key="department"></label>'); }, 600);
   }, { once: true }); }
 });
 </script></body>`;
@@ -149,7 +151,26 @@ try {
   assert.deepEqual(await counts(page), completed); assert.deepEqual(await page.evaluate(() => window.fixture.saved.map(record => record.department)), ['平台研发部', '信息服务部']);
   assert.equal(await page.evaluate(() => window.organizationWrites), 2); assert.deepEqual(requests.slice(before).map(request => request.fields.length), [2, 1, 2, 1]);
   report.checks.push('Delayed new internship field is inferred under a fresh capture, without re-answering the organization or mixing internship facts');
-  await popup.close(); await page.close(); service.closeAllConnections(); await new Promise(res => service.close(res));
+  await popup.close(); await page.close();
+  for (const scenario of ['weak-happy','weak-dynamic','weak-disagree','weak-mixed','weak-missing','weak-stop']) {
+    if (scenario==='weak-missing') await options.evaluate(async()=>{const key='recruitment.profile.v1';const data=await chrome.storage.local.get(key);delete data[key].internships[0].department;await chrome.storage.local.set({[key]:data[key]});});
+    mode=scenario==='weak-disagree'?'disagree':scenario==='weak-stop'?'hold':'normal';before=requests.length;
+    page=await pageFor(scenario);popup=await popupFor(page);await start(popup);
+    if (scenario==='weak-happy'||scenario==='weak-dynamic') {
+      await popup.getByText(completion).waitFor();assert.deepEqual(await counts(page),completed);
+      const entries=await page.evaluate(()=>window.fixture.saved);
+      for(const [index,entry] of entries.entries())for(const key of ['organization','department','role','description','achievements','startDate','endDate','experienceType','workType','companyProperty','monthlySalary','hasProof'])assert.equal(entry[key],profile.internships[index][key],key);
+      if(scenario==='weak-dynamic'){assert.deepEqual(requests.slice(before).map(request=>request.fields.length),[2,1,2,1]);assert.equal(await page.evaluate(()=>window.organizationWrites),2);}
+      else {assert.equal(requests.length-before,2);await start(popup);await popup.getByText(completion).waitFor();assert.deepEqual(await counts(page),completed);assert.equal(requests.length-before,2);}
+    } else if(scenario==='weak-stop') {
+      await waitRequest(before);const previousAborts=aborted;await popup.getByRole('button',{name:'停止实习填写',exact:true}).click();await popup.getByText('实习任务已停止',{exact:false}).waitFor();
+      for(let index=0;index<40&&aborted===previousAborts;index++)await new Promise(res=>setTimeout(res,50));assert.ok(aborted>previousAborts);mode='normal';pending();await zeroWrites(page);
+    } else {await popup.getByText('实习填写需要检查',{exact:false}).waitFor();await zeroWrites(page);assert.equal(requests.length-before,scenario==='weak-disagree'?1:0);}
+    report.checks.push('Weak current-internship meaning '+scenario+': local agreement, independent facts and other-column zero actions verified');await popup.close();await page.close();
+    if(scenario==='weak-missing'){await options.getByRole('button',{name:/11 导入与备份/}).click();await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(profile));await options.getByRole('button',{name:'校验并载入预览'}).click();await options.getByRole('button',{name:'保存档案'}).click();await options.getByText('档案已保存在此浏览器。',{exact:false}).waitFor();}
+  }
+  assert.doesNotMatch(JSON.stringify(requests),/虚构云桥|虚构星河|平台研发部|信息服务部|intentIndex|token|profileRevision/);
+  service.closeAllConnections(); await new Promise(res => service.close(res));
   // A protocol-1-only companion rejects internship protocol 3 instead of interpreting it as a legacy request.
   service = createServer((request, response) => {
     response.setHeader('Access-Control-Allow-Origin', request.headers.origin ?? '');

@@ -4,7 +4,7 @@ import type { ScanResult } from '../shared/types';
 import type { ScanState } from '../content/scanner';
 import { currentControlFingerprint } from '../content/controlObservation';
 import { nativeRadioGroupCurrent } from '../content/controlAdapter';
-import { resolveInternshipField, resolveBoundInternshipField, type InternshipFieldResolution } from '../matching/internshipFieldResolver';
+import { resolveInternshipField, resolveBoundInternshipField, qualifyInternshipWeakMeaning, type InternshipFieldResolution } from '../matching/internshipFieldResolver';
 import { isRecordPlanCurrentForSnapshot, isRecordTransactionCurrentForPlan,
   type ActiveRecordTransaction, type ReadyRecordPlan } from '../planner/recordPlanner';
 import { matchesIssuedRecordRunTarget, RecordRunContext, type RecordRunCapture } from '../planner/recordRunContext';
@@ -96,7 +96,14 @@ export function resolveCurrentInternshipField(context: InternshipSemanticContext
   fieldId: string, path: string): InternshipFieldResolution | undefined {
   if (!internshipSemanticContextCurrent(context, scan, profile, [fieldId])) return undefined;
   const local = contexts.get(context)!; const field = scan.fields.find(item => item.id === fieldId);
-  return field ? resolveBoundInternshipField(field, profile.internships[local.input.activeTransaction.intentIndex]!, path) : undefined;
+  if (!field) return undefined;
+  const record=profile.internships[local.input.activeTransaction.intentIndex]!;
+  const direct=resolveInternshipField(field,record);
+  if (direct.status==='request-human' && direct.reason==='field-semantic-ambiguous') {
+    const weak=qualifyInternshipWeakMeaning(field,record);
+    if (weak.status!=='confirm' || weak.path!==path) return Object.freeze({status:'request-human',reason:'field-semantic-ambiguous'});
+  }
+  return resolveBoundInternshipField(field,record,path);
 }
 
 /** Only genuinely unknown meanings may be proposed; known missing facts remain local. */
@@ -106,4 +113,13 @@ export function internshipSemanticUnknownField(context: InternshipSemanticContex
   if (!field) return false;
   const result = resolveInternshipField(field, profile.internships[local.input.activeTransaction.intentIndex]!);
   return result.status === "request-human" && result.reason === "field-semantic-unknown";
+}
+
+/** A weak path is available only inside the original current-entry capability. */
+export function internshipSemanticWeakPath(context:InternshipSemanticContext,scan:ScanResult,profile:UserProfile,fieldId:string):string|undefined {
+  if (!internshipSemanticContextCurrent(context,scan,profile,[fieldId])) return undefined;
+  const local=contexts.get(context)!;const field=scan.fields.find(item=>item.id===fieldId);
+  if (!field) return undefined;
+  const qualified=qualifyInternshipWeakMeaning(field,profile.internships[local.input.activeTransaction.intentIndex]!);
+  return qualified.status==='confirm'?qualified.path:undefined;
 }

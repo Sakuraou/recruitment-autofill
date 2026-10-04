@@ -1,7 +1,7 @@
 import { internshipFillOrder } from '../profile/internshipFillOrder';
 import { internshipIdentityReady } from '../profile/internshipIdentityFacts';
 import { bindRecordEditor, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
-import { resolveInternshipField, resolveBoundInternshipField } from '../matching/internshipFieldResolver';
+import { resolveInternshipField, resolveBoundInternshipField, qualifyInternshipWeakMeaning } from '../matching/internshipFieldResolver';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
   type RecordRunCaptureSource } from '../planner/recordRunContext';
@@ -204,7 +204,7 @@ class InternshipDriver implements RecordOrchestratorDriver {
       const meaning = control && this.#semanticPaths.get(control.node);
       const resolved = meaning ? resolveBoundInternshipField(field, record, meaning) : resolveInternshipField(field, record);
       if (resolved.status !== 'known') {
-        if (resolved.reason === 'field-semantic-unknown') { unknown.add(field.id); continue; }
+        if (resolved.reason === 'field-semantic-unknown' || !meaning && qualifyInternshipWeakMeaning(field,record).status==='confirm') { unknown.add(field.id); continue; }
         return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
       }
       values.set(field.id, resolved.value);
