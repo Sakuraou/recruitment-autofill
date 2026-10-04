@@ -15,6 +15,27 @@ const html = `<!doctype html><body><script>${code}</script><script>
 const identityCase = new URL(location.href).searchParams.get('case');
 window.fixture = InternshipFixture.installInternshipSessionPage(document, InternshipFixture.internshipSessionProfile,
   identityCase?.startsWith('identity-') ? [0] : []);
+window.presenceAnswers = 0;
+if (identityCase?.startsWith('presence-')) {
+  fixture.list.hidden = true;
+  const form = document.createElement('form'); form.id = 'presence-question';
+  form.innerHTML = identityCase === 'presence-radio'
+    ? '<fieldset><legend>是否有实习经历</legend><label><input required type="radio" name="opaque-presence" value="opaque-y">是</label><label><input type="radio" name="opaque-presence" value="opaque-n">否</label></fieldset>'
+    : '<label>是否有实习经历<select><option value="">请选择</option><option value="opaque-y">是</option><option value="opaque-n">否</option></select></label>';
+  fixture.list.before(form);
+  const reveal = () => {
+    fixture.list.hidden = false;
+    if (identityCase === 'presence-multiple') fixture.list.after(fixture.list.cloneNode(true));
+    if (identityCase === 'presence-outside') document.querySelector('main').append(fixture.list);
+  };
+  form.addEventListener('change', event => {
+    window.presenceAnswers++;
+    if (event.target.value === 'opaque-y' && identityCase !== 'presence-never')
+      setTimeout(reveal, identityCase === 'presence-stop' ? 1_700 : identityCase === 'presence-delayed' ? 700 : 30);
+  });
+  if (identityCase === 'presence-yes') { form.querySelector('select').value = 'opaque-y'; setTimeout(reveal, 1_000); }
+  if (identityCase === 'presence-manual') form.querySelector('select').value = 'opaque-n';
+}
 if (identityCase?.startsWith('identity-')) {
   fixture.cards[0].querySelector('h3').textContent = identityCase.includes('role') ? InternshipFixture.internshipSessionProfile.internships[0].role : identityCase === 'identity-unknown' ? '未标注公司' : '实习经历';
   if (identityCase.includes('labelled')) { const employer = document.createElement('p'); employer.textContent = '工作单位：' + InternshipFixture.internshipSessionProfile.internships[0].organization; fixture.cards[0].append(employer); }
@@ -185,6 +206,49 @@ try {
       await popup.getByRole('button', { name: '停止实习填写', exact: true }).click();
     }
     report.checks.push(mode + ': production native proof group uses current facts, rescans revealed fields, preserves review and restart boundaries');
+    await popup.close(); await page.close();
+  }
+  for (const mode of ['presence-select', 'presence-radio', 'presence-delayed', 'presence-yes', 'presence-manual', 'presence-never', 'presence-multiple', 'presence-outside', 'presence-stop', 'presence-empty']) {
+    const local = structuredClone(profile); if (mode === 'presence-empty') local.internships = [];
+    await storeProfile(local);
+    const page = await context.newPage(); await page.goto(`${origin}/internship?case=${mode}`); popup = await popupFor(page);
+    await popup.getByRole('button', { name: '连续填写全部实习经历', exact: true }).click();
+    if (['presence-select', 'presence-radio', 'presence-delayed', 'presence-yes'].includes(mode)) {
+      if (mode === 'presence-delayed') {
+        await popup.getByText('正在读取实习档案，并等待网页展开实习列表…').waitFor(); await popup.close();
+        popup = await popupFor(page);
+      }
+      await popup.getByText(/全部 2 条实习经历已处理并核验/).waitFor();
+      assert.deepEqual(await counts(page), expected);
+      const records = await page.evaluate(() => window.fixture.saved);
+      assert.deepEqual(records.map(record => record.organization), profile.internships.map(record => record.organization));
+      assert.equal(await page.evaluate(() => window.presenceAnswers), mode === 'presence-yes' ? 0 : 1);
+      await popup.getByRole('button', { name: '连续填写全部实习经历', exact: true }).click();
+      await popup.getByText(/全部 2 条实习经历已处理并核验/).waitFor();
+      assert.deepEqual(await counts(page), expected);
+      assert.equal(await page.evaluate(() => window.presenceAnswers), mode === 'presence-yes' ? 0 : 1);
+    } else {
+      if (mode === 'presence-stop') {
+        await popup.getByText('正在读取实习档案，并等待网页展开实习列表…').waitFor();
+        await page.waitForFunction(() => window.presenceAnswers === 1);
+        assert.equal((await message(popup, 'RA_PROJECT_RECORD_START')).ok, false);
+        await popup.getByRole('button', { name: '停止实习填写', exact: true }).click();
+        await popup.getByText('实习任务已停止。已保存记录与网页草稿保留。').waitFor();
+        await page.waitForTimeout(1_900);
+      } else {
+        await popup.getByText('实习填写需要检查，当前草稿已保留。处理网页后，停止本轮再重新启动。').waitFor();
+        const expectedReason = mode === 'presence-manual' ? '网页已选择没有实习经历，与档案中的实习记录不一致。请检查网页上的选择。'
+          : mode === 'presence-empty' ? '当前实习经历缺少网页要求的信息，请在档案中补齐。'
+          : '选择后未确认到当前栏目中可填写的实习列表，请检查网页展开的内容。';
+        await popup.getByText(expectedReason).waitFor();
+      }
+      assert.deepEqual(await counts(page), { ...expected, add: 0, save: 0 });
+      assert.equal(await page.evaluate(() => window.presenceAnswers), ['presence-manual', 'presence-empty'].includes(mode) ? 0 : 1);
+      const answer = await page.locator('#presence-question select').inputValue();
+      assert.equal(answer, mode === 'presence-manual' ? 'opaque-n' : mode === 'presence-empty' ? '' : 'opaque-y');
+      if (mode !== 'presence-stop') await popup.getByRole('button', { name: '停止实习填写', exact: true }).click();
+    }
+    report.checks.push(mode + ': real preparation answers at most once, verifies scoped list and source order, supports popup closure and Stop without late actions');
     await popup.close(); await page.close();
   }
   assert.deepEqual(report.errors, []); assert.deepEqual(report.externalRequests, []); report.passed = true;

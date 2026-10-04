@@ -25,3 +25,11 @@ D1 验证旧协议目录与序列化兼容；新目录完整固定且不可更�
 ## 执行提示词
 
 先确认 C2b 已提交并完整验收；阅读 semanticProtocol、semanticBinding、educationSemanticContext、semanticCandidates、recordSemanticPort／Client、responsesProvider 与 internshipRecordSession。先写实习字段无法请求协议／创建上下文的失败测试，实施 D1 的独立固定协议与页面私有当前条来源，旧协议不改目录。随后 D2 接入原共享端口、本机服务和真实 MV3 实习驱动；只让模型决定字段含义，答案、经历顺序和页面动作仍由本地核验。两轮分别验证、记录限制并更新计划；截图、虚拟选项及跨页导航另行设计。
+
+## C2b 全量检查期间的下一轮基线（2026-10-04，仅忽略探针）
+
+artifacts/d1-baseline-probe-results.json：固定实习协议 3 尚不被接受；原实习新建编辑器中的陌生单位问题创建语义请求返回 no-candidates。单独调用尚未接生产的纯 bound 取值器，可以把存在性题映为 hasProof 后返回 known；这仅证明将来的模型映射必须有本地范围拒绝，不代表当前生产存在性步骤使用了该路径。隔离虚构页面 Add 一次用于创建探针编辑器，Save／Submit／Delete 零，没有模型请求。
+
+D1 先转协议／上下文／存在性范围正式失败测试。私有上下文应只接严格实习最小投影派生的内部档案，拒绝证明人、其他个人栏目与身份索引；公共对象继续只有 recordType，模型无需知道当前条编号。创建请求与候选的生产闭环留 D2，不能宣称 D1 已开放实习 AI。固定目录选择按当前条本地值完成，存在性／组合问题应在发送模型之前保持明确待办。
+
+准备草稿位于忽略的 artifacts/d1-protocol-tests.txt 与 artifacts/d1-context-tests.txt，尚未复制到正式 tests、运行失败测试或计入统计。测试夹具 record-editor-context 当前仅项目／教育，下一轮应在明确类型和标题上增加实习，而非只改变 role 值。旧 schema 目录／输出格式不得因实习加入而扩展。

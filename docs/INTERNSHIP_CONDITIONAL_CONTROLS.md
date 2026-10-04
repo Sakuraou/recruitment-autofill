@@ -1,6 +1,6 @@
 # 实习证明问题与存在性展开 · I-008C2
 
-状态：C2a verified（生产 v0.6.25），C2b planned。B4 与 C2a 已完整验收；C2b 尚未实现。
+状态：C2a verified（生产 v0.6.25），C2b verified（生产 v0.6.26）。B4、C2a、C2b 均已完整验收。
 
 隔离 DOM 探针已复现：在虚构实习编辑器中，把原有 select 包进原生 fieldset，直接 legend 为“是否有证明”。第一步 Add 一次后返回 postcondition-mismatch，全部文本字段仍空，Save／Submit／Delete 均零。读取结果见 artifacts/c2-proof-probe-results.json（本地忽略产物）；这证明结构阻断，尚不代表生产 MV3 或真实网站已复现。
 
@@ -34,4 +34,8 @@
 - 实际生产 MV3 实习专项 23 项通过（12 项新增），包含原生是／否分别保存、已知字段展开、重启去重及联系人／上传／未知／缺事实／默认否／人工冲突／外部成员／未知边界的零保存。先前 21 项阶段性专项不是最终完整验收。
 - 原阶段八文件 262 项相关通过；补充边界曾因过度限制原生 form 的新增名称造成正例失败，已修复，最终两个新增文件 75 项专项通过。完整质量 83 文件 2104 项及完整 E2E 16 组 274 项通过，C2a 标记 verified。仅隔离虚构页面，未操作实际用户网页。
 
-C2b 只读探针与具体准备契约已拆为 [INTERNSHIP_EXISTENCE_PREPARATION.md](INTERNSHIP_EXISTENCE_PREPARATION.md)，仍为 planned，不代表已经解决或正式验收。
+C2b 只读探针与具体准备契约已拆为 [INTERNSHIP_EXISTENCE_PREPARATION.md](INTERNSHIP_EXISTENCE_PREPARATION.md)，已标记 verified。存在性正式失败测试已复现并修复，最终新增 45 项、完整质量 85 文件 2149 项与完整浏览器 16 组 284 项通过。
+
+## C2b 最终验证
+
+有限存在性准备与弹窗 Stop 已通过 45 项新增、相关 169 项、完整质量 85 文件 2149 项及完整 E2E 16 组 284 项。实习 MV3 33 项，其中十项新增；契约详见 INTERNSHIP_EXISTENCE_PREPARATION.md。D1／D2 仍为 planned，不能宣称已开放实习模型识别。

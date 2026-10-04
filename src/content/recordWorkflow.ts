@@ -3,9 +3,14 @@ import type { RecordV2Session } from './recordV2Gateway';
 import { MAX_RECORD_EDITOR_EXPANSIONS } from '../planner/recordPlanner';
 export type ProjectionLoader<P> = () => Promise<P>;
 export type RecordSessionFactory<P> = (doc: Document, projection: P, refresh: ProjectionLoader<P>) => RecordV2Session;
+export type RecordPagePreparation<P> = (projection: P, context: Readonly<{
+  signal: AbortSignal; current: () => boolean; refresh: ProjectionLoader<P>;
+}>) => Promise<Readonly<{ ready: true }> | Readonly<{ ready: false; reason: string }>>;
 export interface RecordWorkflowOptions<P> {
   readonly availability: (doc: Document) => Readonly<{ eligible: boolean; reason?: string }>;
   readonly prepare: (supplied: unknown) => Readonly<{ success: true; data: P; count: number }> | Readonly<{ success: false; reason?: string }>;
+  /** Captures private targets before loading. Availability remains read-only. */
+  readonly capturePreparation?: (doc: Document) => RecordPagePreparation<P> | undefined;
 }
 /** Page-local bounded runner. Closing a popup cannot cancel or restart it. */
 export class RecordWorkflow<P> {
@@ -22,6 +27,7 @@ export class RecordWorkflow<P> {
   #runner?: Promise<void>;
   #loading = false;
   #pauseRequested = false;
+  #preparationController?: AbortController;
 
   constructor(doc: Document, load: ProjectionLoader<P>, factory: RecordSessionFactory<P>, options: RecordWorkflowOptions<P>) {
     this.#doc = doc; this.#load = load; this.#factory = factory; this.#options = options;
@@ -33,7 +39,7 @@ export class RecordWorkflow<P> {
 
   status(): RecordWorkflowState {
     if (this.#url && this.#doc.URL !== this.#url && this.holdsPage() && this.#phase !== 'stopped') {
-      this.#generation++; this.#session?.stop(); this.#phase = 'review'; this.#reason = 'page-changed';
+      this.#generation++; this.#preparationController?.abort(); this.#session?.stop(); this.#phase = 'review'; this.#reason = 'page-changed';
     }
     const availability = this.holdsPage() ? undefined : this.#options.availability(this.#doc);
     const reason = this.#reason ?? availability?.reason;
@@ -46,7 +52,9 @@ export class RecordWorkflow<P> {
     this.#session?.stop(); this.#session = undefined;
     const generation = ++this.#generation;
     this.#url = this.#doc.URL; this.#phase = 'preparing'; this.#reason = undefined; this.#total = 0; this.#loading = true; this.#pauseRequested = false;
+    const controller = new AbortController(); this.#preparationController = controller;
     try {
+      const preparePage = this.#options.capturePreparation?.(this.#doc);
       const supplied = await this.#load();
       if (generation !== this.#generation) return this.status();
       if (this.#doc.URL !== this.#url) { this.#phase = 'review'; this.#reason = 'page-changed'; return this.status(); }
@@ -55,6 +63,16 @@ export class RecordWorkflow<P> {
         this.#phase = 'review'; this.#reason = parsed.success ? (parsed.count === 0 ? 'profile-value-missing' : 'profile-projection-unavailable') : (/^[a-z0-9-]{1,80}$/u.test(parsed.reason ?? '') ? parsed.reason : 'profile-projection-unavailable');
         return this.status();
       }
+      if (preparePage) {
+        const result = await preparePage(parsed.data, { signal: controller.signal, refresh: this.#load,
+          current: () => generation === this.#generation && this.#doc.URL === this.#url && !controller.signal.aborted });
+        if (generation !== this.#generation) return this.status();
+        if (this.#doc.URL !== this.#url) { this.#phase = 'review'; this.#reason = 'page-changed'; return this.status(); }
+        if (!result.ready) {
+          this.#phase = 'review'; this.#reason = /^[a-z0-9-]{1,80}$/u.test(result.reason) ? result.reason : 'page-preparation-failed';
+          return this.status();
+        }
+      }
       this.#session = this.#factory(this.#doc, parsed.data, this.#load);
       this.#total = parsed.count; this.#phase = 'running'; this.#launch(generation);
     } catch {
@@ -62,7 +80,7 @@ export class RecordWorkflow<P> {
         this.#phase = 'review';
         this.#reason = this.#options.availability(this.#doc).reason ?? 'profile-projection-unavailable';
       }
-    } finally { this.#loading = false; }
+    } finally { this.#loading = false; if (this.#preparationController === controller) this.#preparationController = undefined; }
     return this.status();
   }
 
@@ -84,7 +102,7 @@ export class RecordWorkflow<P> {
   }
 
   stop(): RecordWorkflowState {
-    this.#generation++; this.#session?.stop(); this.#phase = 'stopped'; this.#reason = undefined; this.#pauseRequested = false;
+    this.#generation++; this.#preparationController?.abort(); this.#session?.stop(); this.#phase = 'stopped'; this.#reason = undefined; this.#pauseRequested = false;
     return this.status();
   }
 

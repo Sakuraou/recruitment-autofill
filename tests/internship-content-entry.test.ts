@@ -42,3 +42,23 @@ it('合作暂停等待本步结束、保持跨流程互斥，继续后仍可停�
   expect((await message('RA_INTERNSHIP_RECORD_RESUME')).ok).toBe(true);
   expect((await message('RA_INTERNSHIP_RECORD_STOP')).ok).toBe(true); expect(page.counts.save).toBe(0);
 });
+
+it('存在性准备期间原页面写入锁生效，Stop消息不必等待启动回复', async () => {
+  page.list.hidden = true;
+  const form = document.createElement('form');
+  form.innerHTML = '<label>是否有实习经历<select><option value="">请选择</option><option value="y">是</option><option value="n">否</option></select></label>';
+  page.list.before(form);
+  let release!: (value: unknown) => void;
+  const pending = new Promise(done => { release = done; });
+  vi.mocked(chrome.runtime.sendMessage).mockImplementation(() => pending as never);
+  const starting = message('RA_INTERNSHIP_RECORD_START');
+  const status = await message('RA_INTERNSHIP_RECORD_STATUS');
+  expect(status.data).toMatchObject({ state: { phase: 'preparing' } });
+  for (const type of ['RA_PROJECT_RECORD_START', 'RA_EDUCATION_RECORD_START', 'RA_WORKFLOW_RESUME', 'RA_RECORD_V2_START', 'RA_SCAN_SETTLED']) {
+    expect((await message(type)).ok).toBe(false);
+  }
+  expect((await message('RA_INTERNSHIP_RECORD_STOP')).ok).toBe(true);
+  release({ ok: true, data: internshipSessionProfile }); await starting;
+  expect(form.querySelector<HTMLSelectElement>('select')!.value).toBe('');
+  expect(page.counts).toEqual({ add: 0, save: 0, submit: 0, remove: 0, cancel: 0 });
+});

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { currentTab, send } from './bridge';
 import { EXTENSION_VERSION } from '../shared/version';
 import { errorMessage } from '../shared/errors';
@@ -10,6 +10,7 @@ export interface RecordControlsConfig {
   readonly messages: Readonly<Record<'status' | 'start' | 'pause' | 'resume' | 'stop', RecordCommand>>;
   readonly section: string; readonly title: string; readonly description: string;
   readonly startLabel: string; readonly noun: string; readonly unit: string;
+  readonly preparingLabel?: string;
   readonly reason: (reason?: string) => string;
 }
 export function RecordControls({ config }: { config: RecordControlsConfig }) {
@@ -18,6 +19,7 @@ export function RecordControls({ config }: { config: RecordControlsConfig }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
+  const actionGeneration = useRef(0);
   useEffect(() => {
     let disposed = false; let poll: ReturnType<typeof setTimeout> | undefined;
     async function status(id: number) {
@@ -39,15 +41,29 @@ export function RecordControls({ config }: { config: RecordControlsConfig }) {
 
   async function action(type: RecordCommand) {
     if (!tabId) return;
+    const generation = ++actionGeneration.current;
+    const current = () => generation === actionGeneration.current;
     setBusy(true); setError('');
     try {
       const tab = await currentTab();
       if (tab.id !== tabId) throw new Error('请切回启动任务的招聘页面');
       const handshake = await send<{ version: string }>(tabId, { type: config.messages.status });
+      if (!current()) return;
       if (handshake.version !== EXTENSION_VERSION) throw new Error('请保留网页草稿后刷新招聘网页');
-      setState(await send<RecordWorkflowState>(tabId, { type })); setRevision(value => value + 1);
-    } catch (cause) { setError(errorMessage(cause)); }
-    finally { setBusy(false); }
+      const response = send<RecordWorkflowState>(tabId, { type });
+      if (type === config.messages.start) {
+        // The content command owns preparation. Poll its state while waiting,
+        // and keep Stop available even if the page opens its list slowly.
+        setState({ phase: 'preparing', total: 0, canStart: false });
+        setBusy(false); setRevision(value => value + 1);
+      }
+      const result = await response;
+      if (current()) setState(result);
+      // A stopped preparation may finish loading later. Refresh the real
+      // content state then; never apply its obsolete command response.
+      setRevision(value => value + 1);
+    } catch (cause) { if (current()) setError(errorMessage(cause)); }
+    finally { if (current()) setBusy(false); }
   }
   if (!state || (!state.canStart && state.phase === 'idle')) return null;
   const active = ['preparing', 'running', 'pausing', 'paused', 'review'].includes(state.phase);
@@ -56,7 +72,7 @@ export function RecordControls({ config }: { config: RecordControlsConfig }) {
     <p>{config.description}</p>
     {!active && <button className="primary" type="button" disabled={busy || !state.canStart} onClick={() => void action(config.messages.start)}>{config.startLabel}</button>}
     <div className="workflow-status" role="status">
-      {state.phase === 'preparing' && <p>正在读取本地{config.noun}档案…</p>}
+      {state.phase === 'preparing' && <p>{config.preparingLabel ?? `正在读取本地${config.noun}档案…`}</p>}
       {state.phase === 'running' && <p>正在逐条填写 {state.total} {config.unit}。可以关闭弹窗，任务会继续。</p>}
       {state.phase === 'pausing' && <p>正在暂停，当前步骤核验结束后停止后续操作。</p>}
       {state.phase === 'paused' && <p>{config.noun}填写已暂停，请检查网页后继续。</p>}

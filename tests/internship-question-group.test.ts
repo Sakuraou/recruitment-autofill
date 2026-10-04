@@ -1,11 +1,21 @@
 import { afterEach, expect, it } from 'vitest';
-import { isInternshipProofQuestionGroup as isProof } from '../src/content/semantic/internshipQuestionGroup';
+import { isInternshipProofQuestionGroup as isProof, isInternshipPresenceQuestionGroup as isPresence } from '../src/content/semantic/internshipQuestionGroup';
 
 afterEach(() => { document.body.innerHTML = ''; document.head.innerHTML = ''; });
 function install(markup = '<select><option>是</option><option>否</option></select>', legend = '是否有证明') {
   document.body.innerHTML = `<form id="current"><fieldset><legend>${legend}</legend>${markup}</fieldset></form>`;
   return document.querySelector('fieldset')!;
 }
+it.each(['是否有实习经历', '是否具有实习经历'])('存在性标题 %s 与证明问题保持分开', legend => {
+  const group = install(undefined, legend); expect(isPresence(group)).toBe(true); expect(isProof(group)).toBe(false);
+});
+it.each(['是否有证明', '是否有实习经历或项目经历'])('其他范围标题 %s 不能成为存在性题', legend => {
+  expect(isPresence(install(undefined, legend))).toBe(false);
+});
+it.each(['<div role="switch">是</div>', '<fieldset><legend>是否有证明</legend></fieldset>'])('存在性题中混合 %s 仍不能透明继承', extra => {
+  const group = install(undefined, '是否有实习经历'); group.insertAdjacentHTML('beforeend', extra);
+  expect(isPresence(group)).toBe(false);
+});
 it.each(['是否有证明', '有无证明', '是否有实习证明', ' Has Proof? ', '是否有证明＊：'])('有限的明确标题 %s 可读取原生选择题形状', legend => {
   expect(isProof(install(undefined, legend))).toBe(true);
 });

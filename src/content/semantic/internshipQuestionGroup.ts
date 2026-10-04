@@ -1,9 +1,10 @@
 import { contextText, hiddenReason } from '../domUtils';
 
-const captions = new Set(['是否有证明', '有无证明', '是否有实习证明', 'hasproof']);
+const proofCaptions = new Set(['是否有证明', '有无证明', '是否有实习证明', 'hasproof']);
+const presenceCaptions = new Set(['是否有实习经历', '是否具有实习经历']);
 const caption = (value: string) => value.normalize('NFKC').trim().toLowerCase().replace(/[\s*＊:：?？]/gu, '');
 /** Shape only. Graph ownership and the record binder still grant all authority. */
-export function isInternshipProofQuestionGroup(container: Element): boolean {
+function isNativeQuestionGroup(container: Element, captions: ReadonlySet<string>): boolean {
   if (container.tagName !== 'FIELDSET' || !container.isConnected
     || container.hasAttribute('contenteditable')
     || ![null, 'group', 'radiogroup'].includes(container.getAttribute('role'))
@@ -28,4 +29,10 @@ export function isInternshipProofQuestionGroup(container: Element): boolean {
   const first = controls[0] as HTMLInputElement;
   return !!first.name && controls.every(control => (control as HTMLInputElement).name === first.name
     && (control as HTMLInputElement).form === form);
+}
+export function isInternshipProofQuestionGroup(container: Element): boolean {
+  return isNativeQuestionGroup(container, proofCaptions);
+}
+export function isInternshipPresenceQuestionGroup(container: Element): boolean {
+  return isNativeQuestionGroup(container, presenceCaptions);
 }

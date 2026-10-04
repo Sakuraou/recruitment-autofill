@@ -16,7 +16,7 @@ import {
 import { semanticGraphProblems } from '../../shared/semanticGraphValidation';
 import { contextText } from '../domUtils';
 import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
-import { isInternshipProofQuestionGroup } from './internshipQuestionGroup';
+import { isInternshipProofQuestionGroup, isInternshipPresenceQuestionGroup } from './internshipQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 import {
   detectRecordStructures,
@@ -319,7 +319,7 @@ interface SectionMatch {
 /** A finite native record question is not another section in its verified parent role. */
 function transparentRecordQuestion(container: Element): boolean {
   const expectedRole = isEducationHighestQuestionGroup(container) ? 'education'
-    : isInternshipProofQuestionGroup(container) ? 'internship' : undefined;
+    : isInternshipProofQuestionGroup(container) || isInternshipPresenceQuestionGroup(container) ? 'internship' : undefined;
   if (!expectedRole) return false;
   for (let ancestor = container.parentElement, depth = 0; ancestor && depth < 10; ancestor = ancestor.parentElement, depth++) {
     if (!ancestor.matches('fieldset,section,form,[role="region"],[role="group"],[role="form"]')) continue;
