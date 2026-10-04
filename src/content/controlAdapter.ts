@@ -82,16 +82,23 @@ function selectableOptions(select: HTMLSelectElement, value: string): HTMLOption
 }
 
 /** Native radio groups are scoped by tree root and form, including open shadows. */
-export function verifyNativeRadioGroup(members: readonly HTMLInputElement[], value: string): boolean {
-  if (!/^__radio_option_\d+$/u.test(value)) return false;
+export function nativeRadioGroupCurrent(members: readonly HTMLInputElement[]): boolean {
   const first = members[0];
-  const target = members[Number(value.slice('__radio_option_'.length))];
-  if (!first || !target || new Set(members).size !== members.length) return false;
+  if (!first || members.length > 500 || new Set(members).size !== members.length) return false;
   const root = first.getRootNode();
-  return members.every(member => member.isConnected && member.type === 'radio'
+  if (!members.every(member => member.isConnected && member.type === 'radio'
     && member.ownerDocument === first.ownerDocument && member.getRootNode() === root
-    && member.form === first.form && member.name === first.name)
-    && members.filter(member => member.checked).length === 1 && target.checked
+    && member.form === first.form && member.name === first.name)) return false;
+  if (!first.name) return members.length === 1;
+  const radios = (root as Document | ShadowRoot).querySelectorAll<HTMLInputElement>('input[type="radio"]');
+  if (radios.length > 5000) return false;
+  const cohort = Array.from(radios).filter(member => member.name === first.name && member.form === first.form);
+  return cohort.length === members.length && cohort.every(member => members.includes(member));
+}
+export function verifyNativeRadioGroup(members: readonly HTMLInputElement[], value: string): boolean {
+  if (!/^__radio_option_\d+$/u.test(value) || !nativeRadioGroupCurrent(members)) return false;
+  const target = members[Number(value.slice('__radio_option_'.length))];
+  return !!target && members.filter(member => member.checked).length === 1 && target.checked
     && !unavailableReason(target, '单选项') && target.validity.valid;
 }
 

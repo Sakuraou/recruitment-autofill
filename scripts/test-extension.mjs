@@ -41,6 +41,14 @@ try {
         <label>已取得最高学位<input id="summary-earned"></label><label>是否最高学位<select id="summary-marker"><option value="">请选择</option><option value="y">是</option><option value="n">否</option></select></label>
         <label>最高学历<input id="summary-manual" value="人工原值"></label></section><button type="submit" id="summary-submit">提交</button>
         <script>window.summarySubmits=0;document.querySelector('#summary-submit').addEventListener('click',()=>window.summarySubmits++);</script></body>` });
+    else if (url.hostname === '127.0.0.1' && url.pathname === '/radio-cohort') await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8',
+      body: `<!doctype html><body><form id="fictional-radio-form"><label>姓名<input id="cohort-name"></label><fieldset><legend>性别</legend>
+        <label><input type="radio" name="gender" value="m">男</label><label><input type="radio" name="gender" value="f">女</label></fieldset>
+        <button type="submit">提交</button></form><script>window.cohortClicks=0;window.cohortSubmits=0;
+        document.querySelectorAll('input[type=radio]').forEach(node=>node.addEventListener('click',()=>window.cohortClicks++));
+        document.querySelector('form').addEventListener('submit',event=>{event.preventDefault();window.cohortSubmits++});
+        document.querySelector('#cohort-name').addEventListener('input',()=>{const extra=document.createElement('input');extra.type='radio';extra.name='gender';extra.id='cohort-extra';extra.hidden=true;document.querySelector('fieldset').append(extra);extra.checked=true},{once:true});
+        </script></body>` });
     else if (url.hostname === '127.0.0.1' && url.pathname === '/internship-facts') await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8',
       body: `<!doctype html><body><section aria-label="实习经历"><h2>实习经历</h2>
         <label>工作单位<input id="intern-company"></label><label>所在部门<input id="intern-department"></label><label>职务<input id="intern-role"></label>
@@ -576,6 +584,20 @@ try {
     report.checks.push(mode + ': production ordinary popup fills current internship facts, preserves missing description and ambiguous records, and rejects currency/amount/contact guessing; no Add/Save/Submit');
     await popup.close(); await page.close();
   }
+  const cohortUrl = 'http://127.0.0.1:4173/radio-cohort'; const cohortPage = await context.newPage(); await cohortPage.goto(cohortUrl);
+  const cohortTarget = (await browserSession.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos.find(target => target.url === cohortUrl);
+  assert.ok(cohortTarget); await browserSession.send('Extensions.triggerAction', { id: extensionId, targetId: cohortTarget.targetId });
+  const cohortPopup = await context.newPage(); await cohortPopup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await worker.evaluate(async url => { const tab = (await chrome.tabs.query({})).find(item => item.url === url); await chrome.tabs.update(tab.id, { active: true }); }, cohortUrl);
+  await cohortPopup.getByRole('button', { name: '扫描页面', exact: true }).click(); await cohortPopup.getByRole('heading', { name: /匹配结果/ }).waitFor();
+  await cohortPopup.getByRole('button', { name: '一键填写高置信度字段' }).click();
+  await cohortPopup.getByRole('status').filter({ hasText: /已填写 1 项/ }).waitFor();
+  assert.equal(await cohortPage.locator('#cohort-name').inputValue(), profile.basic.name);
+  assert.equal(await cohortPage.locator('#cohort-extra').isChecked(), true);
+  assert.equal(await cohortPage.locator('input[type=radio]:not(#cohort-extra):checked').count(), 0);
+  assert.deepEqual(await cohortPage.evaluate(() => ({ clicks: window.cohortClicks, submits: window.cohortSubmits })), { clicks: 0, submits: 0 });
+  report.checks.push('Production ordinary fill preserves newly inserted checked hidden native radio after preceding input; zero radio click or final submit');
+  await cohortPopup.close(); await cohortPage.close();
   assert.deepEqual(report.externalRequests, []);
   assert.deepEqual(report.errors, []);
   report.passed = true;

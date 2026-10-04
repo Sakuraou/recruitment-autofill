@@ -1,7 +1,7 @@
 import { fillScan, type FillScanInteractionTrace } from '../content/autofill';
 import type { RecordFieldReason } from '../matching/recordFieldReason';
 import { belongsToDocument, hasValue, hiddenReason } from '../content/domUtils';
-import { booleanValue, createControlAdapter, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from '../content/controlAdapter';
+import { booleanValue, createControlAdapter, nativeRadioGroupCurrent, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from '../content/controlAdapter';
 import { ariaComboboxFingerprint, controlFingerprint, describeAriaCombobox, describeControl, describeRadioGroup } from '../content/scanner';
 import { waitForDomStability } from '../content/domStability';
 import type { ScanState, ScannedControl } from '../content/scanner';
@@ -86,6 +86,7 @@ interface Binding {
   readonly originalChecked: readonly boolean[];
   readonly rollbackIdentity: string;
   readonly editor: Element;
+  readonly list: Element;
 }
 
 const reservedSnapshots = new WeakSet<object>();
@@ -106,6 +107,22 @@ function composedContains(ancestor: Element, descendant: Element): boolean {
     current = current.parentNode ?? (root && 'host' in root ? (root as ShadowRoot).host : null);
   }
   return false;
+}
+
+/** Every native radio member grants an activation path, not just the first node. */
+function controlOwnedByEditor(control: ScannedControl, editor: Element, doc: Document): boolean {
+  const members = control.adapter === 'radio-group' ? control.members : [control.node];
+  if (!members.length || members.length > 500 || new Set(members).size !== members.length
+    || !members.some(member => member === control.node)) return false;
+  if (!members.every(member => belongsToDocument(member, doc) && composedContains(editor, member))) return false;
+  if (control.adapter !== 'radio-group') return true;
+  const first = control.node; const form = first.form;
+  return nativeRadioGroupCurrent(control.members)
+    && (!form || belongsToDocument(form, doc) && (composedContains(form, editor) || composedContains(editor, form)));
+}
+function bindingOwned(binding: Binding, doc: Document): boolean {
+  return belongsToDocument(binding.list, doc) && belongsToDocument(binding.editor, doc)
+    && composedContains(binding.list, binding.editor) && controlOwnedByEditor(binding.control, binding.editor, doc);
 }
 
 function currentValueMatches(control: ScannedControl, value: string): boolean {
@@ -200,8 +217,7 @@ async function rollbackBindings(state: ScanState, bindings: readonly Binding[]):
   for (const binding of [...bindings].reverse()) {
     const control = state.controls.get(binding.scanFieldId);
     if (state.document.URL !== state.result.url || !control || control !== binding.control || !nativeControl(control)
-      || !belongsToDocument(control.node, state.document) || !binding.editor.isConnected
-      || !composedContains(binding.editor, control.node) || bindingIdentity(control) !== binding.rollbackIdentity) {
+      || !bindingOwned(binding, state.document) || bindingIdentity(control) !== binding.rollbackIdentity) {
       complete = false;
       continue;
     }
@@ -245,8 +261,7 @@ async function rollbackBindings(state: ScanState, bindings: readonly Binding[]):
   if (restored.length) {
     await new Promise<void>(resolve => setTimeout(resolve, 200));
     if (state.document.URL !== state.result.url || restored.some(binding => state.controls.get(binding.scanFieldId) !== binding.control
-      || !belongsToDocument(binding.control.node, state.document)
-      || !binding.editor.isConnected || !composedContains(binding.editor, binding.control.node)
+      || !bindingOwned(binding, state.document)
       || bindingIdentity(binding.control) !== binding.rollbackIdentity || !originalValueRestored(binding))) complete = false;
   }
   return complete;
@@ -274,6 +289,9 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   const editor = scanState.semanticTargets.get(plan.nextStep.editorRecordNodeId);
   if (!graph || !editor || !matchesIssuedRecordRunTarget(capture, plan.nextStep.editorRecordNodeId, editor)
     || !editor.isConnected || editor.ownerDocument !== scanState.document) return failure('field-map-mismatch');
+  const list = scanState.semanticTargets.get(plan.recordListNodeId);
+  if (!list || !matchesIssuedRecordRunTarget(capture, plan.recordListNodeId, list)
+    || !belongsToDocument(list, scanState.document) || !composedContains(list, editor)) return failure('field-map-mismatch');
   const graphNodes = new Map(graph.nodes.map(node => [node.id, node]));
   const ownedFields = new Set(plan.nextStep.fieldNodeIds.map(id => {
     const node = graphNodes.get(id); return node?.kind === 'field' ? node.fieldId : undefined;
@@ -292,7 +310,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     const target = scanState.semanticTargets.get(fieldNodeId);
     if (!control || !target || target !== control.node
       || !matchesIssuedRecordRunTarget(capture, fieldNodeId, target)
-      || !target.isConnected || target.ownerDocument !== scanState.document || !composedContains(editor, target)) {
+      || !controlOwnedByEditor(control, editor, scanState.document)) {
       return failure('field-target-replaced');
     }
     const descriptor = scanState.result.fields.find(field => field.id === fieldNode.fieldId);
@@ -338,6 +356,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
         : nativeCheckbox ? [(control.node as HTMLInputElement).checked] : [],
       rollbackIdentity: bindingIdentity(control),
       editor,
+      list,
     });
   }
 
@@ -352,7 +371,8 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   let outcomes: Awaited<ReturnType<typeof fillScan>>;
   const trace: FillScanInteractionTrace = { ariaComboboxAttempts: new Set() };
   try {
-    outcomes = signal.aborted ? [] : await fillScan(scanState, { scanId: scanState.result.scanId, items }, signal, trace);
+    outcomes = signal.aborted ? [] : await fillScan(scanState, { scanId: scanState.result.scanId, items }, signal, trace,
+      () => bindings.every(binding => bindingOwned(binding, scanState.document)));
   } catch {
     outcomes = [];
   }
@@ -365,7 +385,8 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
     return failure(rollbackComplete ? (wasAborted ? 'step-aborted' : 'field-write-failed') : 'rollback-incomplete',
       outcomes.filter(outcome => outcome.status === 'filled').length, rollbackComplete);
   }
-  if (signal.aborted || bindings.some(binding => bindingIdentity(binding.control) !== binding.rollbackIdentity
+  if (signal.aborted || bindings.some(binding => !bindingOwned(binding, scanState.document)
+    || bindingIdentity(binding.control) !== binding.rollbackIdentity
     || !currentValueMatches(binding.control, binding.value))) {
     const wasAborted = signal.aborted;
     runContext.cancelStep();
@@ -379,7 +400,8 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   if (input.allowExpansion === true && bindings.some(binding => !binding.preserved
     && (binding.control.node.tagName === 'SELECT' || binding.control.adapter === 'radio-group' || binding.control.adapter === 'aria-combobox'))) {
     const quiet = await waitForDomStability({ root: editor, signal, quietWindowMs: 750, timeoutMs: 3_000,
-      predicate: () => bindings.every(binding => bindingIdentity(binding.control) === binding.rollbackIdentity
+      predicate: () => bindings.every(binding => bindingOwned(binding, scanState.document)
+        && bindingIdentity(binding.control) === binding.rollbackIdentity
         && currentValueMatches(binding.control, binding.value)) });
     if (quiet.status !== 'stable') {
       runContext.cancelStep();
@@ -406,6 +428,7 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
   const verifyField = (fieldNodeId: string): boolean => {
     const binding = byNodeId.get(fieldNodeId);
     return Boolean(binding && matchesIssuedRecordRunTarget(next, fieldNodeId, binding.control.node)
+      && bindingOwned(binding, scanState.document)
       && bindingIdentity(binding.control) === binding.rollbackIdentity
       && currentValueMatches(binding.control, binding.value));
   };

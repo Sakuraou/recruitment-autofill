@@ -3,7 +3,7 @@ import { effectiveMaxLength } from '../matching/profileResolver';
 import { belongsToDocument, cleanText, hasValue, isPlaceholderOption, type FormControl } from './domUtils';
 import { ariaCheckboxFingerprint, ariaComboboxFingerprint, ariaRadioGroupFingerprint, controlFingerprint, controlStructureFingerprint, describeAriaCheckbox, describeAriaCombobox, describeAriaRadioGroup, describeControl, describeRadioGroup, radioGroupFingerprint, type ScanState } from './scanner';
 import { describeMobileSelect, fillMobileSelect, mobileFingerprint } from './mobileSelect';
-import { createControlAdapter, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from './controlAdapter';
+import { createControlAdapter, nativeRadioGroupCurrent, stableAriaComboboxObservationMatches, verifyNativeRadioGroup } from './controlAdapter';
 
 function nativeSet(node: FormControl, value: string): void {
   const view = node.ownerDocument.defaultView;
@@ -64,12 +64,16 @@ function candidateProblem(node: FormControl, value: string, field: FieldDescript
 export interface FillScanInteractionTrace { readonly ariaComboboxAttempts: Set<Element> }
 
 /** Only explicit requests from the extension UI are executed; the page is never submitted. */
-export async function fillScan(state: ScanState, request: FillRequest, signal?: AbortSignal, trace?: FillScanInteractionTrace): Promise<FillOutcome[]> {
+export async function fillScan(state: ScanState, request: FillRequest, signal?: AbortSignal, trace?: FillScanInteractionTrace,
+  beforeWrite?: () => boolean): Promise<FillOutcome[]> {
   const outcomes: FillOutcome[] = [];
   const seen = new Set<string>();
   for (const item of request.items) {
     const skip = (reason: string): void => { outcomes.push({ fieldId: item.fieldId, status: 'skipped', reason }); };
     if (signal?.aborted) { skip('填写已停止，不再写入后续字段'); continue; }
+    // Internal record ownership guard. A prior field's event may move another
+    // group outside its editor; do not activate it and only then reject Save.
+    if (beforeWrite && !beforeWrite()) { skip('当前记录的字段归属已改变，已停止后续填写'); break; }
     if (request.scanId !== state.result.scanId) { skip('扫描已过期，请重新扫描'); continue; }
     if (state.document.URL !== state.result.url) { skip('页面地址已改变，请重新扫描'); continue; }
     if (!item.confirmed) { skip('尚未确认填写此答案'); continue; }
@@ -142,6 +146,7 @@ export async function fillScan(state: ScanState, request: FillRequest, signal?: 
     if (control.adapter === 'radio-group') {
       const { members } = control;
       if (!members.length || members.some((member) => !belongsToDocument(member, state.document))) { skip('单选组已被页面替换或移除，请重新扫描'); continue; }
+      if (!nativeRadioGroupCurrent(members)) { skip('原生单选组的完整成员或归属已改变，请重新扫描'); continue; }
       const current = describeRadioGroup(members, item.fieldId);
       if (current.blockedReason) { skip(current.blockedReason); continue; }
       if (current.hasValue) { skip('单选组已有答案，不覆盖'); continue; }

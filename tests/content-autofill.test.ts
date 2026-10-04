@@ -9,6 +9,24 @@ function fill(state: ScanState, values: string[], confirmed = true) {
 }
 
 describe('安全填写原生 HTML 控件', () => {
+  it.each(['inside', 'hidden', 'form-associated'])('扫描后同原生单选组新增%s成员，不点击旧选项或清除新成员原值', async mode => {
+    const state = prepare('<form id="fictional-form"><p>性别</p><label><input type="radio" name="gender">男</label><label><input type="radio" name="gender">女</label></form>');
+    const extra = document.createElement('input'); extra.type = 'radio'; extra.name = 'gender';
+    if (mode === 'hidden') extra.hidden = true;
+    if (mode === 'form-associated') { extra.setAttribute('form', 'fictional-form'); document.body.append(extra); }
+    else document.querySelector('form')!.append(extra);
+    extra.checked = true; let clicks = 0; document.body.addEventListener('click', () => clicks++);
+    expect((await fill(state, ['__radio_option_0']))[0]!.status).toBe('skipped');
+    expect(clicks).toBe(0); expect(extra.checked).toBe(true);
+  });
+  it('前字段事件新增同名选项后，普通批次也不能点击旧单选组', async () => {
+    const state = prepare('<label>姓名<input id="fictional-name"></label><form id="fictional-form"><p>性别</p><label><input type="radio" name="gender">男</label><label><input type="radio" name="gender">女</label></form>');
+    const extra = document.createElement('input'); extra.type = 'radio'; extra.name = 'gender';
+    document.querySelector('#fictional-name')!.addEventListener('input', () => { document.querySelector('form')!.append(extra); extra.checked = true; });
+    let clicks = 0; document.body.addEventListener('click', () => clicks++);
+    const result = await fill(state, ['虚构姓名', '__radio_option_0']);
+    expect(result.map(item => item.status)).toEqual(['filled', 'skipped']); expect(clicks).toBe(0); expect(extra.checked).toBe(true);
+  });
   it('明确“是”沿用复选框布尔语义通过整批核验，required 可正常满足', async () => {
     const state = prepare('<label>是否学生干部<input type="checkbox" required></label>');
     expect((await fill(state, ['是']))[0]?.status).toBe('filled');
