@@ -1,6 +1,6 @@
 # 实习证明问题与存在性展开 · I-008C2
 
-状态：planned。先完成 B4 的完整验收，再拆为 C2a 与 C2b；尚未实现或通过验收。
+状态：C2a verified（生产 v0.6.25），C2b planned。B4 与 C2a 已完整验收；C2b 尚未实现。
 
 隔离 DOM 探针已复现：在虚构实习编辑器中，把原有 select 包进原生 fieldset，直接 legend 为“是否有证明”。第一步 Add 一次后返回 postcondition-mismatch，全部文本字段仍空，Save／Submit／Delete 均零。读取结果见 artifacts/c2-proof-probe-results.json（本地忽略产物）；这证明结构阻断，尚不代表生产 MV3 或真实网站已复现。
 
@@ -26,3 +26,12 @@
 ## 执行提示词
 
 阅读本文件、I-009 单选契约、semantic/educationQuestionGroup、graphBuilder、recordStructureDetector、实习会话及生产夹具。先用有限原生证明 fieldset 写真实失败测试。只扩展当前明确实习编辑器的透明问题组形状与归属，不放开陌生 fieldset；答案仍从当前 hasProof 取值，缺值和展开后的联系人／上传保持待办。专项、实际 MV3、完整 check／E2E 后提交 C2a，再另起 C2b 的有界存在性准备步骤，最后进入当前条固定目录模型接入。
+
+## C2a 当前验证进展（2026-10-04）
+
+- 原始 select／radio 会话两项结构失败已转为正式测试。新增 75 项：45 项问题形状，30 项当前条会话、动态展开、默认否、外部成员、未知边界及新建状态。全部专项通过。
+- 收紧未命名 section 与混合 ARIA 控件的五项失败已复现并修复；正常原生 form 的新建名称可以透过，但仍须明确实习父栏目与原记录拓扑独立核验新建状态。编辑名称或未知状态不推成新建。
+- 实际生产 MV3 实习专项 23 项通过（12 项新增），包含原生是／否分别保存、已知字段展开、重启去重及联系人／上传／未知／缺事实／默认否／人工冲突／外部成员／未知边界的零保存。先前 21 项阶段性专项不是最终完整验收。
+- 原阶段八文件 262 项相关通过；补充边界曾因过度限制原生 form 的新增名称造成正例失败，已修复，最终两个新增文件 75 项专项通过。完整质量 83 文件 2104 项及完整 E2E 16 组 274 项通过，C2a 标记 verified。仅隔离虚构页面，未操作实际用户网页。
+
+C2b 只读探针与具体准备契约已拆为 [INTERNSHIP_EXISTENCE_PREPARATION.md](INTERNSHIP_EXISTENCE_PREPARATION.md)，仍为 planned，不代表已经解决或正式验收。

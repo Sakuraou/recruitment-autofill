@@ -16,6 +16,7 @@ import {
 import { semanticGraphProblems } from '../../shared/semanticGraphValidation';
 import { contextText } from '../domUtils';
 import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
+import { isInternshipProofQuestionGroup } from './internshipQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 import {
   detectRecordStructures,
@@ -315,16 +316,26 @@ interface SectionMatch {
   evidence: SectionLabelCandidate['evidence'][];
 }
 
-/** One explicit education question inside an education editor is not a new section. */
-function transparentEducationQuestion(container: Element): boolean {
-  if (!isEducationHighestQuestionGroup(container)) return false;
+/** A finite native record question is not another section in its verified parent role. */
+function transparentRecordQuestion(container: Element): boolean {
+  const expectedRole = isEducationHighestQuestionGroup(container) ? 'education'
+    : isInternshipProofQuestionGroup(container) ? 'internship' : undefined;
+  if (!expectedRole) return false;
   for (let ancestor = container.parentElement, depth = 0; ancestor && depth < 10; ancestor = ancestor.parentElement, depth++) {
     if (!ancestor.matches('fieldset,section,form,[role="region"],[role="group"],[role="form"]')) continue;
     const candidates = ancestor.matches('form') ? candidatesFor(ancestor).filter(item => item.evidence === 'aria-name') : candidatesFor(ancestor);
-    if (!candidates.length) continue;
+    if (!candidates.length) {
+      if (expectedRole === 'internship' && !ancestor.matches('form')) return false;
+      continue;
+    }
     const roles = new Set(candidates.map(candidate => classifySection([candidate]).role).filter(role => role !== 'other'));
-    if (!roles.size && ancestor.matches('form')) continue;
-    return roles.size === 1 && roles.has('education');
+    if (!roles.size && ancestor.matches('form')) {
+      if (expectedRole === 'education') continue;
+      // These identify a record editor, rather than a new semantic section.
+      // The enclosing explicit internship section still has to grant the role.
+      if (candidates.every(candidate => /^(?:(?:新增|添加|新建|填写|编辑|修改)\s*(?:实习经历|工作经历|实习与工作经历)|(?:add|create|new|edit)\s+(?:internship(?:\s+experience)?|work\s+experience))$/iu.test(candidate.text.normalize('NFKC').trim()))) continue;
+    }
+    return roles.size === 1 && roles.has(expectedRole);
   }
   return false;
 }
@@ -339,7 +350,7 @@ function sectionFor(element: Element, headingCache: HeadingLookupCache,
   let current: Element | null = element;
   for (let depth = 0; current && depth < 10; depth++, current = current.parentElement) {
     if (current.matches('fieldset, section, form, [role="region"], [role="group"], [role="form"]')) {
-      if (transparentEducationQuestion(current)) continue;
+      if (transparentRecordQuestion(current)) continue;
       const isWholeForm = current.matches('form');
       if (isWholeForm && nearby.role !== 'other') continue;
       const candidates = isWholeForm

@@ -23,6 +23,29 @@ const projectSection = document.createElement('section'); projectSection.setAttr
 projectSection.innerHTML = '<h2>项目经历</h2><div role="list" id="project-items"><p role="status">暂无项目经历</p><button type="button" aria-controls="project-items">+</button></div>';
 window.projectActions = 0; projectSection.querySelector('button').addEventListener('click', () => window.projectActions++); document.querySelector('main').append(projectSection);
 if (new URL(location.href).searchParams.get('case') === 'unknown') fixture.add.addEventListener('click', () => fixture.list.querySelector('form').insertAdjacentHTML('beforeend', '<label>陌生评估项<input></label>'));
+if (identityCase?.startsWith('proof-')) fixture.add.addEventListener('click', () => {
+  const form = fixture.list.querySelector('form'); const select = form.querySelector('[data-test-key="hasProof"]');
+  const label = select.parentElement; const group = document.createElement('fieldset');
+  group.innerHTML = '<legend>是否有证明</legend>'; label.firstChild.textContent = ''; label.replaceWith(group);
+  if (identityCase === 'proof-radio' || identityCase === 'proof-external') {
+    group.insertAdjacentHTML('beforeend', '<label><input required type="radio" name="proof" value="opaque-y" data-test-key="hasProof">是</label><label><input type="radio" name="proof" value="opaque-n" data-test-key="hasProof">否</label>');
+    if (identityCase === 'proof-external') form.insertAdjacentHTML('beforeend', '<label hidden><input type="radio" name="proof" checked>外部选项</label>');
+  } else group.append(label);
+  if (identityCase === 'proof-unlabelled') { const boundary = document.createElement('section'); group.replaceWith(boundary); boundary.append(group); }
+  if (identityCase === 'proof-editor-name') form.setAttribute('aria-label', '未知业务表单');
+  if (identityCase === 'proof-default' || identityCase === 'proof-manual') select.selectedIndex = 2;
+  const department = form.querySelector('[data-test-key="department"]').parentElement;
+  if (identityCase === 'proof-dynamic') department.remove();
+  group.addEventListener('change', () => {
+    const answer = select.isConnected ? select.selectedOptions[0]?.textContent : group.querySelector('input:checked')?.parentElement.textContent;
+    if (identityCase === 'proof-dynamic') setTimeout(() => { if (!department.isConnected) form.querySelector('button').before(department); }, 30);
+    else if (answer === '是' && ['proof-contact', 'proof-upload', 'proof-unknown'].includes(identityCase)) setTimeout(() => {
+      const markup = identityCase === 'proof-upload' ? '<label>上传实习证明<input type="file"></label>'
+        : '<label>' + (identityCase === 'proof-contact' ? '证明人电话' : '陌生评估项') + '<input></label>';
+      form.querySelector('button').insertAdjacentHTML('beforebegin', markup);
+    }, 30);
+  });
+});
 </script></body>`;
 const origin = 'https://careers.example.test'; const report = { startedAt: new Date().toISOString(), checks: [], errors: [], externalRequests: [] };
 let context;
@@ -41,10 +64,13 @@ try {
   const happy = await context.newPage(); await happy.goto(`${origin}/internship?case=happy`);
   const profile = JSON.parse(await readFile(resolve(root, 'examples/sample-profile.json'), 'utf8'));
   profile.internships = await happy.evaluate(() => window.InternshipFixture.internshipSessionProfile.internships);
-  const options = await context.newPage(); await options.goto(`chrome-extension://${extensionId}/options.html`);
-  await options.getByRole('button', { name: /11 导入与备份/ }).click(); await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(profile));
-  await options.getByRole('button', { name: '校验并载入预览' }).click(); await options.getByRole('button', { name: '保存档案' }).click();
-  await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor(); await options.close();
+  async function storeProfile(value) {
+    const options = await context.newPage(); await options.goto(`chrome-extension://${extensionId}/options.html`);
+    await options.getByRole('button', { name: /11 导入与备份/ }).click(); await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(value));
+    await options.getByRole('button', { name: '校验并载入预览' }).click(); await options.getByRole('button', { name: '保存档案' }).click();
+    await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor(); await options.close();
+  }
+  await storeProfile(profile);
   async function activate(page) {
     const targets = (await browser.send('Target.getTargets', { filter: [{ type: 'tab' }] })).targetInfos;
     const target = targets.find(item => item.url === page.url()); assert.ok(target);
@@ -128,6 +154,38 @@ try {
       assert.equal(await page.locator('form').count(), 0);
     }
     report.checks.push(mode + ': verified employer evidence before Add, restart never duplicates'); await popup.close(); await page.close();
+  }
+  for (const mode of ['proof-select', 'proof-radio', 'proof-dynamic', 'proof-contact', 'proof-upload', 'proof-unknown', 'proof-missing', 'proof-default', 'proof-manual', 'proof-external', 'proof-unlabelled', 'proof-editor-name']) {
+    const local = structuredClone(profile);
+    if (mode === 'proof-missing' || mode === 'proof-default') local.internships.forEach(record => delete record.hasProof);
+    if (mode === 'proof-manual') local.internships = [local.internships[1]];
+    await storeProfile(local);
+    const page = await context.newPage(); await page.goto(`${origin}/internship?case=${mode}`); popup = await popupFor(page);
+    await popup.getByRole('button', { name: '连续填写全部实习经历', exact: true }).click();
+    if (['proof-select', 'proof-radio', 'proof-dynamic'].includes(mode)) {
+      await popup.getByText(/全部 2 条实习经历已处理并核验/).waitFor();
+      const records = await page.evaluate(() => window.fixture.saved);
+      assert.deepEqual(records.map(record => record.hasProof), ['否', '是']);
+      assert.deepEqual(records.map(record => record.department), profile.internships.map(record => record.department));
+      await popup.getByRole('button', { name: '连续填写全部实习经历', exact: true }).click();
+      await popup.getByText(/全部 2 条实习经历已处理并核验/).waitFor(); assert.deepEqual(await counts(page), expected);
+    } else {
+      await popup.getByText('实习填写需要检查，当前草稿已保留。处理网页后，停止本轮再重新启动。').waitFor();
+      const expanded = ['proof-contact', 'proof-upload', 'proof-unknown'].includes(mode);
+      assert.deepEqual(await counts(page), { ...expected, add: expanded ? 2 : 1, save: expanded ? 1 : 0 });
+      if (expanded) {
+        assert.equal(await page.locator('fieldset select').evaluate(select => select.selectedOptions[0].textContent), '是');
+        assert.equal(await page.locator('form input').first().inputValue(), profile.internships[1].organization);
+      } else {
+        assert.equal(await page.locator('form input').first().inputValue(), '');
+        if (mode === 'proof-default' || mode === 'proof-manual') assert.equal(await page.locator('fieldset select').evaluate(select => select.selectedOptions[0].textContent), '否');
+        if (mode === 'proof-external') assert.equal(await page.locator('label[hidden] input').isChecked(), true);
+      }
+      const retained = await counts(page); await page.waitForTimeout(850); assert.deepEqual(await counts(page), retained);
+      await popup.getByRole('button', { name: '停止实习填写', exact: true }).click();
+    }
+    report.checks.push(mode + ': production native proof group uses current facts, rescans revealed fields, preserves review and restart boundaries');
+    await popup.close(); await page.close();
   }
   assert.deepEqual(report.errors, []); assert.deepEqual(report.externalRequests, []); report.passed = true;
   console.info('Internship pilot MV3 checks passed (' + report.checks.length + ' checks)');

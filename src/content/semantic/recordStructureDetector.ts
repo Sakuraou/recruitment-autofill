@@ -1,6 +1,7 @@
 import { SEMANTIC_CANONICAL_ACTION_LABELS, type SemanticSectionRole } from '../../shared/semanticGraph';
 import { contextText } from '../domUtils';
 import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
+import { isInternshipProofQuestionGroup } from './internshipQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 
 export type RepeatableSectionRole = Extract<SemanticSectionRole,
@@ -308,7 +309,7 @@ function hasExplicitEmptyState(listRoot: Element, role: RepeatableSectionRole): 
 
 function nearestEditor(element: Element, listRoot: Element | ShadowRoot): Element | undefined {
   let editor = element.closest(EDITOR_SELECTOR);
-  while (editor && isEducationHighestQuestionGroup(editor)) editor = editor.parentElement?.closest(EDITOR_SELECTOR) ?? null;
+  while (editor && (isEducationHighestQuestionGroup(editor) || isInternshipProofQuestionGroup(editor))) editor = editor.parentElement?.closest(EDITOR_SELECTOR) ?? null;
   return editor && editor !== listRoot && listRoot.contains(editor) ? editor : undefined;
 }
 

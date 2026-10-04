@@ -56,6 +56,10 @@ export function installInternshipSessionPage(doc: Document, profile = internship
       const values: Record<string, string> = {};
       for (const field of editor.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input,select,textarea')) {
         const key = field.dataset.testKey; if (!key) continue;
+        if (field.tagName === 'INPUT' && (field as HTMLInputElement).type === 'radio') {
+          if (!(field as HTMLInputElement).checked) continue;
+          values[key] = field.closest('label')?.textContent?.trim() ?? field.value; continue;
+        }
         values[key] = field.tagName === 'SELECT' ? (field as HTMLSelectElement).selectedOptions[0]!.textContent! : field.value;
       }
       saved.push(values); cards.unshift(makeCard(values)); closed();
