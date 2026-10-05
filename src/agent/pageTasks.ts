@@ -5,9 +5,11 @@ import { isValidSemanticGraph } from '../shared/semanticGraphValidation';
 import type { RecordWorkflowState } from '../workflow/recordState';
 import type { RecordPresenceResult } from './recordCompletion';
 import type { AgentObservation } from './nextStepWorkflow';
-export type AgentRecordKind = 'education' | 'project' | 'internship';
+export type AgentRecordKind = 'education' | 'project' | 'internship' | 'award';
 export interface AgentRecordCheck { readonly state: RecordWorkflowState; readonly presence: RecordPresenceResult }
-const supported = ['education', 'project', 'internship'] as const;
+const supported = ['education', 'project', 'internship', 'award'] as const;
+const collectionKeys = {project:'projects',internship:'internships',award:'awards'} as const;
+const taskKinds = {education:'education-records',project:'project-records',internship:'internship-records',award:'award-records'} as const;
 const repeatable = new Set(['education', 'project', 'internship', 'student-work', 'award', 'publication', 'language', 'skill', 'family']);
 
 /** Ordinary page work cannot borrow an already-open record editor. */
@@ -44,13 +46,13 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
   const canTryFields = pendingFields.some(match => match.status !== 'blocked');
   if (canTryFields && !attemptedFields.has(agentFieldFingerprint(scan))) tasks.push({ kind: 'fill-visible', count: pendingFields.length });
   if (pendingFields.some(match => match.status === 'blocked') || attemptedFields.has(agentFieldFingerprint(scan)) && pendingFields.length) blockers++;
-  const expected = { education: profile.education.length, project: profile.projects.length, internship: profile.internships.length };
+  const expected = { education: profile.education.length, project: profile.projects.length, internship: profile.internships.length, award:profile.awards.length };
   for (const kind of supported) {
     const check = checks[kind];
     const present = graph.nodes.some(node => node.kind === 'record-list' && node.recordType === kind) || check.state.canStart;
     if (!present) continue;
     if (!expected[kind]) {
-      const absence = kind === 'education' ? 'unknown' : collectionPresence(profile, kind === 'project' ? 'projects' : 'internships');
+      const absence = kind === 'education' ? 'unknown' : collectionPresence(profile, collectionKeys[kind]);
       if (!['none','not_applicable'].includes(absence)
         || graph.nodes.some(node => node.kind === 'record-list' && node.recordType === kind
           && (node.existingRecordCount > 0 || node.editorState !== 'closed'))) blockers++;
@@ -60,7 +62,7 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
     if (check.presence.state === 'all-present' && check.presence.matched === expected[kind]) continue;
     records += expected[kind];
     if (check.state.canStart && !['preparing','running','pausing','paused','review'].includes(check.state.phase))
-      tasks.push({ kind: kind === 'education' ? 'education-records' : kind === 'project' ? 'project-records' : 'internship-records', count: expected[kind] });
+      tasks.push({ kind: taskKinds[kind], count: expected[kind] });
     else blockers++;
   }
   for (const list of graph.nodes.filter(node => node.kind === 'record-list')) {
@@ -74,6 +76,8 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
   for (const section of graph.nodes.filter(node => node.kind === 'section')) {
     if (section.kind === 'section' && repeatable.has(section.role) && !supported.includes(section.role as AgentRecordKind)
       && !graph.nodes.some(node => node.kind === 'record-list' && node.recordType === section.role)) blockers++;
+    if(section.kind==='section' && section.role==='award' && !checks.award.state.canStart
+      && !graph.nodes.some(node=>node.kind==='record-list'&&node.recordType==='award'))blockers++;
   }
   return { tasks, pending: { fields: pendingFields.length, records, blockers } };
 }

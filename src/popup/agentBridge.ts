@@ -20,11 +20,13 @@ const checkSchema = z.object({ version: z.literal(EXTENSION_VERSION), state: sta
   presence: z.object({ state: z.enum(['all-present','pending','unverified']), total: z.number().int().min(0).max(10_000),
     matched: z.number().int().min(0).max(10_000) }).strict().refine(value => value.matched <= value.total) }).strict();
 const statusSchema = z.object({ version: z.literal(EXTENSION_VERSION), state: stateSchema }).strict();
-const kinds = ['education','project','internship'] as const;
+const kinds = ['education','project','internship','award'] as const;
+const recordKinds = {'education-records':'education','project-records':'project','internship-records':'internship','award-records':'award'} as const;
 const commands = {
   education: { start: 'RA_EDUCATION_RECORD_START', status: 'RA_EDUCATION_RECORD_STATUS' },
   project: { start: 'RA_PROJECT_RECORD_START', status: 'RA_PROJECT_RECORD_STATUS' },
   internship: { start: 'RA_INTERNSHIP_RECORD_START', status: 'RA_INTERNSHIP_RECORD_STATUS' },
+  award: { start: 'RA_AWARD_RECORD_START', status: 'RA_AWARD_RECORD_STATUS' },
 } as const;
 export interface AgentPageResult { readonly result: AgentRunResult; readonly plan?: PagePlan; readonly outcomes: readonly FillOutcome[] }
 export interface AgentBridgePorts {
@@ -70,7 +72,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
         throw new Error('Agent context changed');
       const results = await Promise.all(kinds.map(async kind => checkSchema.parse(await ports.check(originalTab, kind, token))));
       if (!await current()) throw new Error('Agent context changed');
-      const checks: Record<AgentRecordKind, AgentRecordCheck> = { education: results[0]!, project: results[1]!, internship: results[2]! };
+      const checks: Record<AgentRecordKind, AgentRecordCheck> = { education: results[0]!, project: results[1]!, internship: results[2]!, award:results[3]! };
       const tasks = buildAgentPageTasks(latest.scan, latest.matches, latest.profile, checks, attempted);
       if (!tasks) throw new Error('Agent page observation invalid');
       plan = latest;
@@ -90,7 +92,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
           attempted.add(agentFieldFingerprint(value.scan));
           return { state: filled.some(item => item.status === 'filled') ? 'progress' : 'deferred' };
         }
-        const recordKind: AgentRecordKind = kind === 'education-records' ? 'education' : kind === 'project-records' ? 'project' : 'internship';
+        const recordKind: AgentRecordKind = recordKinds[kind];
         const started = stateSchema.parse(await ports.command(originalTab, { type: commands[recordKind].start, agentRunToken: token }));
         signal.throwIfAborted(); if (started.phase === 'review' || started.phase === 'paused') return { state: 'needs-user' };
         for (let poll = 0; poll < 1200; poll++) {
@@ -100,7 +102,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
           if (status.phase === 'complete') {
             const checked = checkSchema.parse(await ports.check(originalTab, recordKind, token));
             if (!await current()) return { state: 'failed' };
-            const expected = recordKind === 'education' ? value.profile.education.length : recordKind === 'project' ? value.profile.projects.length : value.profile.internships.length;
+            const expected = {education:value.profile.education.length,project:value.profile.projects.length,internship:value.profile.internships.length,award:value.profile.awards.length}[recordKind];
             return { state: checked.presence.state === 'all-present' && checked.presence.total === expected && checked.presence.matched === expected ? 'progress' : 'needs-user' };
           }
           if (status.phase === 'review' || status.phase === 'paused' || status.phase === 'pausing') return { state: 'needs-user' };

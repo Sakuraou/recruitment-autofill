@@ -19,7 +19,7 @@ const { createAgentProvider } = await moduleAt('src/companion/agentProvider.ts',
 const browserFixture = await build({ stdin: { contents: "import {installAgentPage} from './tests/fixtures/agent-page.ts';window.agentFixture=installAgentPage(document,new URL(location.href).searchParams.get('mode')||'normal');",
   resolveDir: root, sourcefile: 'agent-fixture-entry.ts', loader: 'ts' }, bundle: true, write: false, format: 'iife', platform: 'browser' });
 const fixtureJs = browserFixture.outputFiles[0].text;
-const token = 'a'.repeat(64); const requests = []; let hold = false; let pending;
+const token = 'a'.repeat(64); const requests = []; let hold = false; let holdKind; let pending;
 const report = { startedAt: new Date().toISOString(), version: JSON.parse(await readFile(resolve(root, 'dist/manifest.json'), 'utf8')).version,
   checks: [], externalRequests: [], errors: [] };
 const upstream = createServer((req, res) => {
@@ -29,7 +29,7 @@ const upstream = createServer((req, res) => {
     const input = JSON.parse(Buffer.concat(chunks).toString('utf8')); assert.equal(input.model, 'fictional-agent-model');
     assert.equal(input.response_format.type, 'json_object'); assert.equal(input.tools, undefined);
     const request = JSON.parse(input.messages[1].content); requests.push(request);
-    if (hold) await new Promise(done => { pending = done; controller.signal.addEventListener('abort', done, { once: true }); });
+    if (hold || holdKind && request.tasks?.[0]?.kind === holdKind) await new Promise(done => { pending = done; controller.signal.addEventListener('abort', done, { once: true }); });
     if (res.destroyed) return;
     const bindings = request.fields?.flatMap(field => /称呼/u.test(field.label + field.ariaLabel)
       ? [{ ref: field.ref, fingerprint: field.fingerprint, path: 'basic.name', certainty: 'certain', evidence: 'label' }] : /出生日期/u.test(field.label + field.ariaLabel) ? [{ ref: field.ref, fingerprint: field.fingerprint, path: 'basic.birthday', certainty: 'certain', evidence: 'label' }] : []) ?? [];
@@ -139,8 +139,56 @@ try {
     assert.ok(state.counts.every(count => count.add === 0 && count.save === 0)); assert.equal(state.submits, 0); assert.equal(await form.locator('#u').inputValue(), '');
     if (!popup.isClosed()) await popup.close(); report.checks.push(`Actual ${scenario} during model thinking rejects late response: zero writes, Add, Save and Submit`);
   }
+  async function saveFixtureProfile(){const value=await form.evaluate(()=>window.agentFixture.profile);
+    await options.getByRole('button',{name:/11 导入与备份/}).click();await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(value));
+    await options.getByRole('button',{name:'校验并载入预览'}).click();await options.getByRole('button',{name:'保存档案'}).click();
+    await options.getByText('档案已保存在此浏览器。',{exact:false}).waitFor();return value;
+  }
+  const awardFacts=[];
+  for(const mode of ['awards-normal','awards-radio','awards-dynamic','awards-presence-select','awards-presence-radio']){
+    await form.goto(url+'?mode='+mode);const source=await saveFixtureProfile();awardFacts.push(...source.awards.flatMap(award=>[award.name,award.school,award.description]));
+    popup=await openPopup();await click(popup);await popup.getByText('本页可访问且支持的任务已核验完成',{exact:false}).waitFor({timeout:90000});
+    state=await form.evaluate(()=>window.agentFixture.state());assert.deepEqual(state.awards.map(award=>award.date),source.awards.map(award=>award.date));
+    assert.ok(state.counts.slice(0,3).every(count=>count.add===2&&count.save===2));assert.equal(state.counts[3].add,3);assert.equal(state.counts[3].save,3);assert.equal(state.submits,0);
+    assert.ok(state.awards.every(award=>award.cadre===(mode==='awards-dynamic'?'yes':'no')));
+    if(mode==='awards-dynamic')assert.ok(state.awards.every(award=>award.cadreDescription===source.basic.studentCadreDescription));
+    report.checks.push(`Actual ${mode} Agent completes all four record categories with independent award dates and explicit cadre facts`);
+    if(mode==='awards-normal'){
+      const before=requests.length;await click(popup);await popup.getByText('Agent 已执行 0 步',{exact:false}).waitFor();assert.equal(requests.length,before);
+      assert.deepEqual(await form.evaluate(()=>window.agentFixture.state()),state);report.checks.push('Award restart freshly proves all three identities with zero duplicate Add/Save or model calls');
+    }await popup.close();
+  }
+  for(const mode of ['awards-missing-cadre','awards-conflict','awards-save-uncertain','awards-known-empty']){
+    await form.goto(url+'?mode='+mode);await saveFixtureProfile();popup=await openPopup();await click(popup);
+    await popup.getByText('仍有待办或需要补充的资料',{exact:false}).waitFor({timeout:90000});state=await form.evaluate(()=>window.agentFixture.state());
+    assert.equal(state.awards.length,0);assert.equal(state.counts[3].add,mode==='awards-known-empty'?0:1);assert.equal(state.counts[3].save,mode==='awards-save-uncertain'?1:0);assert.equal(state.submits,0);
+    if(mode==='awards-conflict')assert.equal(await form.locator('#award-items fieldset select').inputValue(),'yes');
+    if(mode==='awards-missing-cadre')assert.equal(await form.locator('#award-items fieldset select').inputValue(),'');
+    assert.equal(state.education.length,2);assert.equal(state.projects.length,2);assert.equal(state.internships.length,2);
+    await popup.close();report.checks.push(`Actual ${mode} preserves award work without fabricating facts or repeating uncertain saves`);
+  }
+  for(const scenario of ['stop','close','replace','profile']){
+    await form.goto(url+'?mode=awards-normal');await saveFixtureProfile();holdKind='award-records';pending=undefined;popup=await openPopup();await click(popup);
+    await form.waitForFunction(()=>window.agentFixture.state().internships.length===2,null,{timeout:90000});
+    for(let i=0;i<400&&!pending;i++)await new Promise(done=>setTimeout(done,25));assert.ok(pending,'award decision is actually held after the other categories finish');
+    if(scenario==='stop'){
+      const guarded=await popup.evaluate(async fixtureUrl=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===fixtureUrl);return chrome.tabs.sendMessage(tab.id,{type:'RA_AWARD_RECORD_START'},{frameId:0});},form.url());
+      assert.equal(guarded.ok,false);await popup.getByRole('region',{name:'Agent 连续填写',exact:true}).getByRole('button',{name:'停止 Agent',exact:true}).click();
+    }else if(scenario==='close')await popup.close();
+    else if(scenario==='replace')await form.evaluate(()=>{const add=window.agentFixture.award.add;add.replaceWith(add.cloneNode(true));});
+    else await options.evaluate(async()=>{const key='recruitment.profile.v1';const value=(await chrome.storage.local.get(key))[key];value.awards[0].description='修改后的虚构奖项说明';await chrome.storage.local.set({[key]:value});});
+    holdKind=undefined;pending();
+    if(scenario!=='close')await popup.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='启动 Agent 连续填写')?.disabled,null,{timeout:20000});
+    await new Promise(done=>setTimeout(done,400));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[3].add,0);assert.equal(state.counts[3].save,0);assert.equal(state.submits,0);
+    if(!popup.isClosed())await popup.close();report.checks.push(`Actual award ${scenario} rejects the late award decision with zero award Add/Save`);
+  }
+  await form.goto(url+'?mode=awards-normal');await saveFixtureProfile();popup=await openPopup();await click(popup);
+  await form.locator('#award-items fieldset select').waitFor({timeout:90000});await form.waitForFunction(()=>document.querySelector('#award-items fieldset select')?.value==='no',null,{timeout:90000});
+  await popup.close();await new Promise(done=>setTimeout(done,1000));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[3].save,0);assert.equal(state.counts[3].add,1);assert.equal(state.submits,0);
+  report.checks.push('Closing Agent during actual award fill cancels its owned workflow before Save and preserves the draft');
   const serialized = JSON.stringify(requests);
   for (const fact of [profile.basic.name, profile.basic.birthday, profile.education[0].school, profile.projects[0].name, profile.internships[0].organization, token, url]) assert.ok(!serialized.includes(fact));
+  for(const fact of awardFacts)if(fact)assert.ok(!serialized.includes(fact));
   assert.ok(requests.filter(request => request.tasks).every(request => Object.keys(request).sort().join(',') === 'canComplete,pending,protocol,requestId,tasks'));
   report.checks.push('Model requests contain offered references/counts or sanitized field metadata, never personal answers, URL or owner token');
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []); report.checks.push('Zero external browser requests and page errors');

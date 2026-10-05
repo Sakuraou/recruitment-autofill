@@ -5,7 +5,7 @@ import { errorMessage } from '../shared/errors';
 import type { RecordWorkflowState } from '../workflow/recordState';
 
 
-type RecordCommand = `RA_${'PROJECT' | 'EDUCATION' | 'INTERNSHIP'}_RECORD_${'START' | 'STATUS' | 'PAUSE' | 'RESUME' | 'STOP'}`;
+type RecordCommand = `RA_${'PROJECT' | 'EDUCATION' | 'INTERNSHIP' | 'AWARD'}_RECORD_${'START' | 'STATUS' | 'PAUSE' | 'RESUME' | 'STOP'}`;
 export interface RecordControlsConfig {
   readonly messages: Readonly<Record<'status' | 'start' | 'pause' | 'resume' | 'stop', RecordCommand>>;
   readonly section: string; readonly title: string; readonly description: string;

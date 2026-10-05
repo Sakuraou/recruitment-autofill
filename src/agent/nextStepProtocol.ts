@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-export const AGENT_ACTION_KINDS = ['fill-visible', 'education-records', 'project-records', 'internship-records'] as const;
+export const AGENT_ACTION_KINDS = ['fill-visible', 'education-records', 'project-records', 'internship-records', 'award-records'] as const;
 export type AgentActionKind = typeof AGENT_ACTION_KINDS[number];
 export const AGENT_REASONS = ['available-task', 'needs-information', 'unsupported-page', 'no-pending-work', 'uncertain'] as const;
 const count = z.number().int().min(0).max(10_000);
 export const agentStepRequestSchema = z.object({
   protocol: z.literal(1), requestId: z.uuid(),
   pending: z.object({ fields: count, records: count, blockers: count }).strict(),
-  tasks: z.array(z.object({ ref: z.string().regex(/^task-\d{1,2}$/u), kind: z.enum(AGENT_ACTION_KINDS), count: count.min(1) }).strict()).max(4),
+  tasks: z.array(z.object({ ref: z.string().regex(/^task-\d{1,2}$/u), kind: z.enum(AGENT_ACTION_KINDS), count: count.min(1) }).strict()).max(5),
   canComplete: z.boolean(),
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.tasks.map(task => task.ref)).size !== value.tasks.length

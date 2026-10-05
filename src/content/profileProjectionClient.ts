@@ -4,6 +4,19 @@ import { educationProjectionRequestSchema, educationProjectionResponseSchema,
   type EducationProjectionResponse } from '../profile/educationProjection';
 import { internshipProjectionRequestSchema, internshipProjectionResponseSchema,
   type InternshipProjectionResponse } from '../profile/internshipProjection';
+import { awardProjectionRequestSchema, awardProjectionResponseSchema,
+  type AwardProjectionResponse } from '../profile/awardProjection';
+
+/** Fixed award-only facts and explicit cadre fields. Caller cannot name a record, profile path or selector. */
+export async function requestAwardProjection(): Promise<AwardProjectionResponse> {
+  const response = await chrome.runtime.sendMessage(awardProjectionRequestSchema.parse({type:'RA_PROFILE_AWARDS'})) as unknown;
+  if (!response || typeof response !== 'object' || (response as {ok?:unknown}).ok !== true) throw new Error('无法读取奖励档案投影');
+  const parsed=awardProjectionResponseSchema.safeParse((response as {data?:unknown}).data);
+  if (!parsed.success) throw new Error('奖励档案投影格式无效');
+  return Object.freeze({...parsed.data, ...(parsed.data.fact?{fact:Object.freeze({...parsed.data.fact})}:{}),
+    ...(parsed.data.applicant?{applicant:Object.freeze({...parsed.data.applicant})}:{}),
+    awards:Object.freeze(parsed.data.awards.map(award=>Object.freeze({...award})))});
+}
 
 /** Fixed current-page request. No profile values, record index or page selector is accepted. */
 export async function requestInternshipProjection(): Promise<InternshipProjectionResponse> {

@@ -17,6 +17,7 @@ import { semanticGraphProblems } from '../../shared/semanticGraphValidation';
 import { contextText } from '../domUtils';
 import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
 import { isInternshipProofQuestionGroup, isInternshipPresenceQuestionGroup } from './internshipQuestionGroup';
+import { isAwardPresenceQuestionGroup, isAwardCadreQuestionGroup } from './awardQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 import {
   detectRecordStructures,
@@ -319,18 +320,20 @@ interface SectionMatch {
 /** A finite native record question is not another section in its verified parent role. */
 function transparentRecordQuestion(container: Element): boolean {
   const expectedRole = isEducationHighestQuestionGroup(container) ? 'education'
-    : isInternshipProofQuestionGroup(container) || isInternshipPresenceQuestionGroup(container) ? 'internship' : undefined;
+    : isInternshipProofQuestionGroup(container) || isInternshipPresenceQuestionGroup(container) ? 'internship'
+    : isAwardPresenceQuestionGroup(container) || isAwardCadreQuestionGroup(container) ? 'award' : undefined;
   if (!expectedRole) return false;
   for (let ancestor = container.parentElement, depth = 0; ancestor && depth < 10; ancestor = ancestor.parentElement, depth++) {
     if (!ancestor.matches('fieldset,section,form,[role="region"],[role="group"],[role="form"]')) continue;
     const candidates = ancestor.matches('form') ? candidatesFor(ancestor).filter(item => item.evidence === 'aria-name') : candidatesFor(ancestor);
     if (!candidates.length) {
-      if (expectedRole === 'internship' && !ancestor.matches('form')) return false;
+      if (['internship','award'].includes(expectedRole) && !ancestor.matches('form')) return false;
       continue;
     }
     const roles = new Set(candidates.map(candidate => classifySection([candidate]).role).filter(role => role !== 'other'));
     if (!roles.size && ancestor.matches('form')) {
       if (expectedRole === 'education') continue;
+      if (expectedRole === 'award' && candidates.every(candidate => /^(?:(?:新增|添加|新建|填写|编辑|修改)\s*(?:奖励经历|获奖经历|在校奖励活动)|(?:add|create|new|edit)\s+awards?(?:\s+experience)?)$/iu.test(candidate.text.normalize('NFKC').trim()))) continue;
       // These identify a record editor, rather than a new semantic section.
       // The enclosing explicit internship section still has to grant the role.
       if (candidates.every(candidate => /^(?:(?:新增|添加|新建|填写|编辑|修改)\s*(?:实习经历|工作经历|实习与工作经历)|(?:add|create|new|edit)\s+(?:internship(?:\s+experience)?|work\s+experience))$/iu.test(candidate.text.normalize('NFKC').trim()))) continue;

@@ -8,6 +8,9 @@ import { createEmptyProfile, profileSchema } from '../src/profile/schema';
 import { EducationRecordWorkflow } from '../src/content/educationRecordWorkflow';
 import { ProjectRecordWorkflow } from '../src/content/projectRecordWorkflow';
 import { InternshipRecordWorkflow } from '../src/content/internshipRecordWorkflow';
+import { AwardRecordWorkflow } from '../src/content/awardRecordWorkflow';
+import { awardProfile } from '../src/profile/awardProjection';
+import { installAwardSessionPage,awardSessionProfile } from './fixtures/award-session-page';
 import { verifyRecordPresence } from '../src/agent/recordCompletion';
 import { agentOrdinaryFieldIds } from '../src/agent/pageTasks';
 import { EXTENSION_VERSION } from '../src/shared/version';
@@ -18,25 +21,28 @@ import type { AgentStepRequest } from '../src/agent/nextStepProtocol';
 import type { PagePlan } from '../src/popup/bridge';
 const activeFlows: { stop(): unknown }[] = [];
 afterEach(() => { activeFlows.splice(0).forEach(flow => flow.stop()); document.body.innerHTML = ''; });
-function setup(options: { unknown?: boolean; internship?: boolean; awards?: boolean; partial?: boolean } = {}) {
+function setup(options: { unknown?: boolean; internship?: boolean; awards?: boolean; partial?: boolean; awardRecords?:boolean } = {}) {
   const education = installEducationSessionPage(document, educationSessionProfile, options.partial ? [1] : []);
   const educationSection = education.list.closest('section')!;
   const projects = installWeakProjectSessionPage(document); const projectSection = projects.list.closest('section')!;
   const internship = options.internship ? installInternshipSessionPage(document) : undefined;
   const internshipSection = internship?.list.closest('section');
-  document.body.replaceChildren(educationSection, projectSection, ...(internshipSection ? [internshipSection] : []));
+  const award = options.awardRecords ? installAwardSessionPage(document,[],{cadre:'radio'}) : undefined;
+  const awardSection=award?.list.closest('section');
+  document.body.replaceChildren(educationSection, projectSection, ...(internshipSection ? [internshipSection] : []),...(awardSection?[awardSection]:[]));
   const basic = document.createElement('section'); basic.setAttribute('aria-label', '个人信息');
   basic.innerHTML = `<h2>个人信息</h2><label>姓名<input required></label>${options.unknown ? '<label>必须手工回答的问题<input required></label>' : ''}`;
   document.body.prepend(basic);
   if (options.awards) document.body.insertAdjacentHTML('beforeend', '<section aria-label="在校奖励"><h2>在校奖励</h2><p>暂无奖励</p><button>添加奖励</button></section>');
-  const profile = profileSchema.parse({ ...createEmptyProfile(), basic: { name: '虚构应聘者' }, education: educationSessionProfile.education,
+  const profile = profileSchema.parse({ ...createEmptyProfile(), basic: { name: '虚构应聘者',studentCadre:'否' }, education: educationSessionProfile.education,
     projects: [{ id: 'p-a', name: '虚构方案甲', description: '虚构方案甲用于独立验证项目', technologies: [] },
       { id: 'p-b', name: '虚构方案乙', description: '虚构方案乙采用另一条项目说明', technologies: [] }],
-    internships: options.internship ? internshipSessionProfile.internships : [] });
+    internships: options.internship ? internshipSessionProfile.internships : [],awards:options.awardRecords?awardSessionProfile.awards:[] });
   const projectProjection = { recordType: 'project' as const, profileRevision: 'fictional', projects: profile.projects };
   const flows = { education: new EducationRecordWorkflow(document, async () => educationSessionProfile),
     project: new ProjectRecordWorkflow(document, async () => projectProjection),
-    internship: new InternshipRecordWorkflow(document, async () => ({ recordType: 'internship', profileRevision: 'fictional', internships: profile.internships })) };
+    internship: new InternshipRecordWorkflow(document, async () => ({ recordType: 'internship', profileRevision: 'fictional', internships: profile.internships })),
+    award:new AwardRecordWorkflow(document,async()=>awardProfile(profile)) };
   activeFlows.push(...Object.values(flows));
   const scans = new WeakMap<PagePlan, ScanState>(); const requests: AgentStepRequest[] = []; const starts: string[] = [];
   let ownerController = new AbortController(); let ownerToken = crypto.randomUUID(); let releases = 0; let context = 'fictional-fixed-context';
@@ -52,7 +58,7 @@ function setup(options: { unknown?: boolean; internship?: boolean; awards?: bool
     check: async (_tab, kind, token) => {
       expect(token).toBe(ownerToken);
       const projection = kind === 'education' ? educationSessionProfile : kind === 'project' ? projectProjection
-        : { recordType: 'internship', profileRevision: 'fictional', internships: profile.internships };
+        : kind==='internship'?{ recordType: 'internship', profileRevision: 'fictional', internships: profile.internships }:awardProfile(profile);
       return { version: EXTENSION_VERSION, state: flows[kind].status(), presence: verifyRecordPresence(scanDocument(), projection) };
     },
     verify: async plan => !!verifyScanObservation(scans.get(plan)!),
@@ -64,15 +70,28 @@ function setup(options: { unknown?: boolean; internship?: boolean; awards?: bool
       return items.length ? fillScan(scans.get(plan)!, { scanId: plan.scan.scanId, items }, signal) : [];
     },
     command: async (_tab, request) => {
-      const kind = request.type.startsWith('RA_EDUCATION') ? 'education' : request.type.startsWith('RA_PROJECT') ? 'project' : 'internship';
+      const kind = request.type.startsWith('RA_EDUCATION') ? 'education' : request.type.startsWith('RA_PROJECT') ? 'project' : request.type.startsWith('RA_INTERNSHIP')?'internship':'award';
       if (request.type.endsWith('_START')) { expect('agentRunToken' in request && request.agentRunToken).toBe(ownerToken); starts.push(kind); return flows[kind].start(); }
       return { version: EXTENSION_VERSION, state: flows[kind].status() };
     },
     wait: async signal => { signal.throwIfAborted(); await new Promise(resolve => setTimeout(resolve, 20)); signal.throwIfAborted(); },
   };
-  return { ports, education, projects, internship, flows, requests, starts, basic, get ownerController() { return ownerController; },
+  return { ports, education, projects, internship, award, flows, requests, starts, basic, get ownerController() { return ownerController; },
     releases: () => releases, setContext: (value: string) => { context = value; } };
 }
+it('one intent completes four record categories including every award and restarts without duplication',async()=>{
+ const s=setup({internship:true,awardRecords:true});const result=await runAgentPage(s.ports,new AbortController().signal);
+ expect(result.result).toMatchObject({state:'complete',steps:5,pending:{fields:0,records:0,blockers:0}});
+ expect(s.starts).toEqual(['education','project','internship','award']);expect(s.award?.saved.map(award=>award.date)).toEqual(awardSessionProfile.awards.map(award=>award.date));
+ expect(s.award?.counts).toEqual({add:3,save:3,submit:0,remove:0,cancel:0});expect(s.award?.saved.every(award=>award.cadre==='no')).toBe(true);
+ expect((await runAgentPage(s.ports,new AbortController().signal)).result).toMatchObject({state:'complete',steps:0});expect(s.award?.counts.add).toBe(3);
+ expect(JSON.stringify(s.requests)).not.toContain(awardSessionProfile.awards[0]!.name);
+},60_000);
+it('owner close during award loading prevents award Add and Save',async()=>{
+ const s=setup({awardRecords:true});const original=s.ports.command;
+ s.ports.command=async(tab,request)=>{if(request.type==='RA_AWARD_RECORD_START'){s.ownerController.abort();return {phase:'stopped',canStart:true,total:3};}return original(tab,request);};
+ expect((await runAgentPage(s.ports,new AbortController().signal)).result.state).toBe('stopped');expect(s.award?.counts.add).toBe(0);expect(s.award?.counts.save).toBe(0);
+},60_000);
 it('one page intent uses original Add/fill/Save for education, projects and internships then freshly proves completion', async () => {
   const s = setup({ internship: true }); const phases: string[] = [];
   const result = await runAgentPage(s.ports, new AbortController().signal, value => phases.push(value.phase));

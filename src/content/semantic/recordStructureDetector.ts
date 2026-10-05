@@ -2,6 +2,7 @@ import { SEMANTIC_CANONICAL_ACTION_LABELS, type SemanticSectionRole } from '../.
 import { contextText } from '../domUtils';
 import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
 import { isInternshipProofQuestionGroup } from './internshipQuestionGroup';
+import { isAwardCadreQuestionGroup } from './awardQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 
 export type RepeatableSectionRole = Extract<SemanticSectionRole,
@@ -309,7 +310,7 @@ function hasExplicitEmptyState(listRoot: Element, role: RepeatableSectionRole): 
 
 function nearestEditor(element: Element, listRoot: Element | ShadowRoot): Element | undefined {
   let editor = element.closest(EDITOR_SELECTOR);
-  while (editor && (isEducationHighestQuestionGroup(editor) || isInternshipProofQuestionGroup(editor))) editor = editor.parentElement?.closest(EDITOR_SELECTOR) ?? null;
+  while (editor && (isEducationHighestQuestionGroup(editor) || isInternshipProofQuestionGroup(editor) || isAwardCadreQuestionGroup(editor))) editor = editor.parentElement?.closest(EDITOR_SELECTOR) ?? null;
   return editor && editor !== listRoot && listRoot.contains(editor) ? editor : undefined;
 }
 
@@ -583,6 +584,7 @@ function detectCandidate(input: RecordStructureDetectionInput, recordType: Repea
   let unverifiedEditorShellCount = 0;
   for (const editor of Array.from(input.sectionRoot.querySelectorAll<Element>(EDITOR_SELECTOR))) {
     if (!isScopedElement(editor, input)) continue;
+    if (recordType === 'award' && isAwardCadreQuestionGroup(editor)) continue;
     if (containingCard(editor, cards)) return undefined;
     const identity = editorIdentity(editor, summaries, addActions, recordType);
     if (identity === 'conflict') return undefined;

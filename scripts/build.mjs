@@ -14,6 +14,8 @@ await copyFile('MOBILE_FIX.md', 'dist/MOBILE_FIX.md');
 await mkdir('dist/docs', { recursive: true });
 await copyFile('docs/COMPATIBLE_API_SETUP.md', 'dist/docs/COMPATIBLE_API_SETUP.md');
 await copyFile('docs/AGENT_NEXT_STEP.md', 'dist/docs/AGENT_NEXT_STEP.md');
+await copyFile('docs/UNIVERSAL_AWARDS_PROGRESS.md', 'dist/docs/UNIVERSAL_AWARDS_PROGRESS.md');
+await copyFile('docs/UNIVERSAL_PUBLICATIONS_PROGRESS.md', 'dist/docs/UNIVERSAL_PUBLICATIONS_PROGRESS.md');
 await mkdir('dist/examples', { recursive: true });
 await cp('examples', 'dist/examples', { recursive: true });
 const manifest = JSON.parse(await readFile('dist/manifest.json', 'utf8'));
