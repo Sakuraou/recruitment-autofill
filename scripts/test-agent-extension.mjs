@@ -19,9 +19,14 @@ const { createAgentProvider } = await moduleAt('src/companion/agentProvider.ts',
 const browserFixture = await build({ stdin: { contents: "import {installAgentPage} from './tests/fixtures/agent-page.ts';window.agentFixture=installAgentPage(document,new URL(location.href).searchParams.get('mode')||'normal');",
   resolveDir: root, sourcefile: 'agent-fixture-entry.ts', loader: 'ts' }, bundle: true, write: false, format: 'iife', platform: 'browser' });
 const fixtureJs = browserFixture.outputFiles[0].text;
+const resume = process.argv[2] === '--resume-publication-lifecycle';
+assert.ok(!process.argv[2] || resume, 'unknown resume stage');
+const prior = resume ? JSON.parse(await readFile(resolve(artifacts,'i011e-agent-mv3-first49.json'),'utf8')) : undefined;
+if(prior){assert.equal(prior.version,'0.6.36');assert.equal(prior.checks.length,49);assert.deepEqual(prior.errors,[]);assert.deepEqual(prior.externalRequests,[]);}
 const token = 'a'.repeat(64); const requests = []; let hold = false; let holdKind; let pending;
 const report = { startedAt: new Date().toISOString(), version: JSON.parse(await readFile(resolve(root, 'dist/manifest.json'), 'utf8')).version,
   checks: [], externalRequests: [], errors: [] };
+if(prior){report.checks.push(...prior.checks);requests.push(...prior.requests);report.reusedChecks=49;}
 const upstream = createServer((req, res) => {
   const chunks = []; const controller = new AbortController(); res.on('close', () => { if (!res.writableEnded) controller.abort(); });
   req.on('data', chunk => chunks.push(chunk)); req.on('end', () => { void (async () => {
@@ -66,24 +71,34 @@ try {
   await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
   await options.getByRole('button', { name: /13 AI 识别连接/ }).click();
   await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-agent-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
-  await options.getByText('AI 连接已启用。回到招聘网页', { exact: false }).waitFor(); report.checks.push('Actual options import and compatible HTTP pairing succeed');
+  await options.getByText('AI 连接已启用。回到招聘网页', { exact: false }).waitFor(); if(!resume)report.checks.push('Actual options import and compatible HTTP pairing succeed');
   async function openPopup() {
     const pageUrl = form.url(); const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] });
     const target = targetInfos.find(info => info.url === pageUrl && info.type === 'tab'); assert.ok(target);
     await cdp.send('Extensions.triggerAction', { id: extensionId, targetId: target.targetId });
-    const popup = await context.newPage(); latestPopup = popup; await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    const popup = await context.newPage(); latestPopup = popup;
+    // Creating this test tab makes it active; bind the fixture before React effects query activeTab.
+    await worker.evaluate(async fixtureUrl => { const tab = (await chrome.tabs.query({})).find(tab => tab.url === fixtureUrl); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl);
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await worker.evaluate(async fixtureUrl => { const tab = (await chrome.tabs.query({})).find(tab => tab.url === fixtureUrl); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl);
     return popup;
   }
   const click = popup => popup.getByRole('button', { name: '启动 Agent 连续填写', exact: true }).click();
   async function waitRequest(previous) { for (let i = 0; i < 200 && requests.length <= previous; i++) await new Promise(done => setTimeout(done, 25)); assert.ok(requests.length > previous); }
-  let popup = await openPopup(); await click(popup);
+  async function saveFixtureProfile(){const value=await form.evaluate(()=>window.agentFixture.profile);
+    await options.getByRole('button',{name:/11 导入与备份/}).click();await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(value));
+    await options.getByRole('button',{name:'校验并载入预览'}).click();await options.getByRole('button',{name:'保存档案'}).click();
+    await options.getByText('档案已保存在此浏览器。',{exact:false}).waitFor();return value;
+  }
+  let popup; let state; const awardFacts=[]; const paperFacts=[];
+  if(!resume){
+  popup = await openPopup(); await click(popup);
   await popup.waitForFunction(() => !Array.from(document.querySelectorAll('button')).find(button => button.textContent === '启动 Agent 连续填写')?.disabled, null, { timeout: 60000 });
   assert.ok((await popup.locator('[role="status"]').allTextContents()).some(text => text.includes('本页可访问且支持的任务已核验完成')));
   const statusPosition = await popup.locator('.notice[role="status"]').boundingBox();
   const firstLegacyPosition = await popup.locator('.workflow-panel').nth(1).boundingBox();
   assert.ok(statusPosition && firstLegacyPosition && statusPosition.y < firstLegacyPosition.y, 'Agent result remains beside the primary entry, above legacy panels');
-  let state = await form.evaluate(() => window.agentFixture.state());
+  state = await form.evaluate(() => window.agentFixture.state());
   assert.equal(await form.locator('#u').inputValue(), profile.basic.name);
   assert.deepEqual(state.education.map(record => record.degree), ['学士学位','硕士学位']);
   assert.deepEqual(state.projects.map(record => record.name), profile.projects.map(record => record.name));
@@ -139,12 +154,7 @@ try {
     assert.ok(state.counts.every(count => count.add === 0 && count.save === 0)); assert.equal(state.submits, 0); assert.equal(await form.locator('#u').inputValue(), '');
     if (!popup.isClosed()) await popup.close(); report.checks.push(`Actual ${scenario} during model thinking rejects late response: zero writes, Add, Save and Submit`);
   }
-  async function saveFixtureProfile(){const value=await form.evaluate(()=>window.agentFixture.profile);
-    await options.getByRole('button',{name:/11 导入与备份/}).click();await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(value));
-    await options.getByRole('button',{name:'校验并载入预览'}).click();await options.getByRole('button',{name:'保存档案'}).click();
-    await options.getByText('档案已保存在此浏览器。',{exact:false}).waitFor();return value;
-  }
-  const awardFacts=[];
+
   for(const mode of ['awards-normal','awards-radio','awards-dynamic','awards-presence-select','awards-presence-radio']){
     await form.goto(url+'?mode='+mode);const source=await saveFixtureProfile();awardFacts.push(...source.awards.flatMap(award=>[award.name,award.school,award.description]));
     popup=await openPopup();await click(popup);await popup.getByText('本页可访问且支持的任务已核验完成',{exact:false}).waitFor({timeout:90000});
@@ -186,7 +196,6 @@ try {
   await form.locator('#award-items fieldset select').waitFor({timeout:90000});await form.waitForFunction(()=>document.querySelector('#award-items fieldset select')?.value==='no',null,{timeout:90000});
   await popup.close();await new Promise(done=>setTimeout(done,1000));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[3].save,0);assert.equal(state.counts[3].add,1);assert.equal(state.submits,0);
   report.checks.push('Closing Agent during actual award fill cancels its owned workflow before Save and preserves the draft');
-  const paperFacts=[];
   for(const mode of ['papers-normal','papers-dynamic','papers-presence-select','papers-presence-radio']){
     await form.goto(url+'?mode='+mode);const source=await saveFixtureProfile();paperFacts.push(...source.research.papers.flatMap(paper=>[paper.title,paper.doi,paper.abstract,paper.venue,paper.publicationSituation]));
     popup=await openPopup();await click(popup);await popup.getByText('本页可访问且支持的任务已核验完成',{exact:false}).waitFor({timeout:120000});
@@ -237,8 +246,12 @@ try {
   await form.waitForFunction(()=>document.querySelector('#paper-items [data-key="status"]')?.value==='published',null,{timeout:120000});
   await popup.close();await new Promise(done=>setTimeout(done,1000));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[4].add,1);assert.equal(state.counts[4].save,0);assert.equal(state.submits,0);
   report.checks.push('Closing Agent during actual paper fill cancels its owned workflow before Save and preserves draft');
+  }
   // Independent fixed entry exercises the same lifecycle without a model task.
-  await form.goto(url+'?mode=papers-dynamic');await saveFixtureProfile();popup=await openPopup();
+  await form.goto(url+'?mode=papers-dynamic');const manualSource=await saveFixtureProfile();
+  awardFacts.push(...manualSource.awards.flatMap(award=>[award.name,award.school,award.description]));
+  paperFacts.push(...manualSource.research.papers.flatMap(paper=>[paper.title,paper.doi,paper.abstract,paper.venue,paper.publicationSituation]));
+  popup=await openPopup();
   const paperPanel=popup.getByRole('region',{name:'通用专业论著连续填写',exact:true});
   await paperPanel.getByRole('button',{name:'连续填写全部专业论著',exact:true}).click();
   await form.locator('#paper-items form').waitFor();
@@ -246,7 +259,8 @@ try {
   assert.equal((await direct('RA_EDUCATION_RECORD_START')).ok,false);
   assert.equal((await direct('RA_PUBLICATION_RECORD_STATUS',{payload:{index:1}})).ok,false);
   assert.equal((await direct('RA_PUBLICATION_RECORD_PAUSE')).ok,true);
-  await form.waitForTimeout(1000);const paused=await direct('RA_PUBLICATION_RECORD_STATUS');assert.equal(paused.ok,true);assert.equal(paused.data.state.phase,'paused');
+  for(let i=0;i<100;i++){const status=await direct('RA_PUBLICATION_RECORD_STATUS');if(status.data?.state.phase==='paused')break;await form.waitForTimeout(50);}
+  const paused=await direct('RA_PUBLICATION_RECORD_STATUS');assert.equal(paused.ok,true);assert.equal(paused.data.state.phase,'paused');
   assert.equal((await direct('RA_PROJECT_RECORD_START')).ok,false);assert.equal((await direct('RA_PUBLICATION_RECORD_RESUME')).ok,true);
   for(let i=0;i<400;i++){const result=await direct('RA_PUBLICATION_RECORD_STATUS');if(result.data?.state.phase==='complete')break;await form.waitForTimeout(50);}
   const complete=await direct('RA_PUBLICATION_RECORD_STATUS');assert.equal(complete.data.state.phase,'complete');
