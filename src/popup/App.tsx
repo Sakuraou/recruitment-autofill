@@ -153,7 +153,7 @@ export function PopupApp() {
       <button type="button" className="primary" disabled={busy} onClick={() => void fillAgent()}>启动 Agent 连续填写</button>
       {agentActive && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 Agent</button>}
       {agentActive && agentStatus && <p role="status">{({ observing: '正在检查网页', thinking: '正在安排下一步', acting: '正在填写并核验' } as Record<string,string>)[agentStatus.phase] ?? '正在处理'} · 已执行 {agentStatus.steps} 步</p>}
-      <small>运行期间请保持弹窗打开；关闭会停止后续操作并保留网页草稿。陌生字段、资料不完整的经历、附件和最终提交仍列为待办。</small>
+      <small>运行期间请保持弹窗打开；关闭会停止后续操作并保留网页草稿。可核验的空下拉框会展开观察并重新识别；无法识别的字段、资料不完整的经历、附件和最终提交仍列为待办。</small>
     </section>
     {message && <div className="notice" role="status">{message}</div>}
     {!agentActive && <><MobileWorkflowControls /><EducationRecordControls /><InternshipRecordControls /><ProjectRecordControls /><AwardRecordControls /><PublicationRecordControls /><StudentWorkRecordControls /></>}

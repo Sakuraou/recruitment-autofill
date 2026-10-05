@@ -5,6 +5,8 @@ import { isValidSemanticGraph } from '../shared/semanticGraphValidation';
 import type { RecordWorkflowState } from '../workflow/recordState';
 import type { RecordPresenceResult } from './recordCompletion';
 import type { AgentObservation } from './nextStepWorkflow';
+import {agentOptionFieldIds, agentOrdinaryFieldIds} from './optionFieldScope';
+export {agentOrdinaryFieldIds} from './optionFieldScope';
 export type AgentRecordKind = 'education' | 'project' | 'internship' | 'award' | 'publication' | 'student-work';
 export interface AgentRecordCheck { readonly state: RecordWorkflowState; readonly presence: RecordPresenceResult }
 const supported = ['education', 'project', 'internship', 'award', 'publication', 'student-work'] as const;
@@ -12,20 +14,6 @@ const collectionKeys = {project:'projects',internship:'internships',award:'award
 const taskKinds = {education:'education-records',project:'project-records',internship:'internship-records',award:'award-records',publication:'publication-records','student-work':'student-work-records'} as const;
 const repeatable = new Set(['education', 'project', 'internship', 'student-work', 'award', 'publication', 'language', 'skill', 'family']);
 
-/** Ordinary page work cannot borrow an already-open record editor. */
-export function agentOrdinaryFieldIds(scan: ScanResult): ReadonlySet<string> {
-  const graph = scan.semanticGraph;
-  if (!graph || !isValidSemanticGraph(graph, scan.fields.map(field => field.id))) return new Set();
-  const nodes = new Map(graph.nodes.map(node => [node.id, node])); const blocked = new Set<string>();
-  for (const node of graph.nodes) if (node.kind === 'field') {
-    let parent = node.parentId ? nodes.get(node.parentId) : undefined;
-    while (parent) {
-      if (parent.kind === 'record' || parent.kind === 'record-list') { blocked.add(node.fieldId); break; }
-      parent = parent.parentId ? nodes.get(parent.parentId) : undefined;
-    }
-  }
-  return new Set(scan.fields.filter(field => !blocked.has(field.id)).map(field => field.id));
-}
 export function agentFieldFingerprint(scan: ScanResult): string {
   const allowed = agentOrdinaryFieldIds(scan);
   return JSON.stringify(scan.fields.filter(field => allowed.has(field.id)).map(field => ({ ...field, id: undefined, groupId: undefined })));
@@ -33,7 +21,8 @@ export function agentFieldFingerprint(scan: ScanResult): string {
 
 /** Local observation only. The caller separately proves live controls, profile and page ownership. */
 export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchResult[], profile: UserProfile,
-  checks: Readonly<Record<AgentRecordKind, AgentRecordCheck>>, attemptedFields: ReadonlySet<string>): Pick<AgentObservation, 'tasks' | 'pending'> | undefined {
+  checks: Readonly<Record<AgentRecordKind, AgentRecordCheck>>, attemptedFields: ReadonlySet<string>,
+  observableFields: ReadonlySet<string> = new Set()): Pick<AgentObservation, 'tasks' | 'pending'> | undefined {
   const graph = scan.semanticGraph;
   if (!graph || !isValidSemanticGraph(graph, scan.fields.map(field => field.id)) || matches.length !== scan.fields.length
     || new Set(matches.map(match => match.fieldId)).size !== matches.length
@@ -43,9 +32,16 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
   const pendingFields = matches.filter(match => allowed.has(match.fieldId) && match.status !== 'existing'
     && !byField.get(match.fieldId)!.hasValue && !/隐藏|hidden/iu.test(byField.get(match.fieldId)!.blockedReason ?? ''));
   const tasks: AgentObservation['tasks'][number][] = []; let records = 0; let blockers = 0;
+  const observationScope=agentOptionFieldIds(scan);
+  if(observableFields.size>1||[...observableFields].some(id=>{
+    const field=byField.get(id);
+    return !field||!observationScope.has(id)||!pendingFields.some(match=>match.fieldId===id)
+      ||field.type!=='aria-combobox'||field.options.length!==0||field.blockedReason||field.disabled||field.readOnly||field.hasValue;
+  }))return undefined;
   const canTryFields = pendingFields.some(match => match.status !== 'blocked');
   if (canTryFields && !attemptedFields.has(agentFieldFingerprint(scan))) tasks.push({ kind: 'fill-visible', count: pendingFields.length });
   if (pendingFields.some(match => match.status === 'blocked') || attemptedFields.has(agentFieldFingerprint(scan)) && pendingFields.length) blockers++;
+  if(observableFields.size && attemptedFields.has(agentFieldFingerprint(scan)))tasks.push({kind:'observe-options',count:1});
   const expected = { education: profile.education.length, project: profile.projects.length, internship: profile.internships.length, award:profile.awards.length,publication:profile.research.papers.length,'student-work':profile.studentWork.length };
   for (const kind of supported) {
     const check = checks[kind];

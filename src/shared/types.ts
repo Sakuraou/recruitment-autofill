@@ -53,6 +53,9 @@ export interface FillRequest { scanId: string; items: FillItem[] }
 export interface FillOutcome { fieldId: string; status: 'filled' | 'skipped' | 'error'; reason: string }
 export type ContentRequest = { type: 'RA_SCAN' } | { type: 'RA_FILL'; payload: FillRequest } | { type: 'RA_SELECTION' }
   | { type: 'RA_SCAN_SETTLED' }
+  | { type: 'RA_OBSERVE_OPTIONS'; agentRunToken: string; payload: { scanId: string; fieldId: string } }
+  | { type: 'RA_AGENT_OPTION_CHECK'; agentRunToken: string; payload: { scanId: string } }
+  | { type: 'RA_OBSERVE_OPTIONS_STOP'; agentRunToken: string }
   | { type: 'RA_AGENT_RECORD_CHECK'; payload: { token: string; kind: 'education' | 'project' | 'internship' | 'award' | 'publication' | 'student-work' } }
   | { type: 'RA_VERIFY_SCAN'; payload: { scanId: string } }
   | { type: 'RA_WORKFLOW_START'; payload: import('../workflow/model').WorkflowRequest }

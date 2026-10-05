@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { AgentPageLease } from '../agent/pageLease';
 import { verifyRecordPresence } from '../agent/recordCompletion';
 import { createAgentOwnerPortHandler } from './agentOwnerPort';
+import { OptionObservationSession, optionObservationRequestSchema } from './optionObservationSession';
+import { captureOptionObservation } from './optionObservation';
+import { agentOptionFieldIds } from '../agent/optionFieldScope';
 import type { ContentResponse } from '../shared/types';
 import { fillScan } from './autofill';
 import { scanDocument, type ScanState } from './scanner';
@@ -34,6 +37,9 @@ declare global {
 }
 
 const requestSchema = z.discriminatedUnion('type', [
+  optionObservationRequestSchema,
+  z.object({ type: z.literal('RA_AGENT_OPTION_CHECK'), agentRunToken: z.uuid(), payload: z.object({ scanId: z.uuid() }).strict() }).strict(),
+  z.object({ type: z.literal('RA_OBSERVE_OPTIONS_STOP'), agentRunToken: z.uuid() }).strict(),
   z.object({ type: z.literal('RA_AGENT_RECORD_CHECK'), payload: z.object({ token: z.uuid(), kind: z.enum(['education','project','internship','award','publication','student-work']) }).strict() }).strict(),
   z.object({ type: z.literal('RA_SCAN') }).strict(),
   z.object({ type: z.literal('RA_SCAN_SETTLED') }).strict(),
@@ -106,18 +112,22 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return createRecordV2FixtureSession(document, projectProjection, requestProjectProjection);
     } } : {}),
   });
-  const agentLease = new AgentPageLease(() => document.URL, () => filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage()
-    || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage() || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
-    || ['ready', 'running', 'paused'].includes(recordV2.status().state));
+  const occupiedByOtherTask = () => filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage()
+    || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage()
+    || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase) || ['ready', 'running', 'paused'].includes(recordV2.status().state);
+  const agentLease: AgentPageLease = new AgentPageLease(() => document.URL, () => occupiedByOtherTask() || optionObservation.holdsPage());
+  const optionObservation: OptionObservationSession = new OptionObservationSession({ extensionId: chrome.runtime.id, popupUrl: chrome.runtime.getURL('popup.html'), lease: agentLease,
+    getScan: () => currentScan, occupied: occupiedByOtherTask });
   const ownedAgentWorkflows = new Set<{ holdsPage(): boolean; stop(): unknown }>();
   chrome.runtime.onConnect.addListener(createAgentOwnerPortHandler({ extensionId: chrome.runtime.id,
     extensionUrl: path => chrome.runtime.getURL(path), version: EXTENSION_VERSION, lease: agentLease,
-    releaseOwnedTasks: () => { for (const flow of ownedAgentWorkflows) if (flow.holdsPage()) flow.stop(); ownedAgentWorkflows.clear(); } }));
+    releaseOwnedTasks: () => { if (optionObservation.holdsPage()) currentScan = undefined; optionObservation.cancelOwned();
+      for (const flow of ownedAgentWorkflows) if (flow.holdsPage()) flow.stop(); ownedAgentWorkflows.clear(); } }));
   chrome.runtime.onConnect.addListener(createPageOperationPortHandler({
     extensionId: chrome.runtime.id, extensionUrl: path => chrome.runtime.getURL(path),
     authorize: request => agentLease.mayWrite(request.agentRunToken),
     acquire: () => {
-      if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
+      if (filling || optionObservation.holdsPage() || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
         throw new Error('page occupied');
       filling = true;
       return () => { filling = false; };
@@ -145,6 +155,32 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     const parsed = requestSchema.safeParse(message);
     if (!parsed.success) { sendResponse({ ok: false, error: '无效的扩展请求' }); return false; }
     const request = parsed.data;
+    if (request.type === 'RA_AGENT_OPTION_CHECK') {
+      if (senderUrl !== chrome.runtime.getURL('popup.html') || occupiedByOtherTask() || optionObservation.holdsPage()
+        || !agentLease.holdsPage() || !agentLease.mayWrite(request.agentRunToken) || !currentScan
+        || currentScan.result.scanId !== request.payload.scanId || !verifyScanObservation(currentScan)) {
+        sendResponse({ ok: false, error: '当前页面、扫描或 Agent 拥有者已改变' }); return false;
+      }
+      const eligible = [...agentOptionFieldIds(currentScan.result)].find(id => captureOptionObservation(currentScan!, id));
+      sendResponse({ ok: true, data: { version: EXTENSION_VERSION, scanId: currentScan.result.scanId, fieldIds: eligible ? [eligible] : [] } }); return false;
+    }
+    if (request.type === 'RA_OBSERVE_OPTIONS_STOP') {
+      if (senderUrl !== chrome.runtime.getURL('popup.html') || !optionObservation.stop(request.agentRunToken)) {
+        sendResponse({ ok: false, error: '没有可停止的观察任务或拥有者已改变' }); return false;
+      }
+      currentScan = undefined; sendResponse({ ok: true, data: { version: EXTENSION_VERSION, status: 'stopped' } }); return false;
+    }
+    if (request.type === 'RA_OBSERVE_OPTIONS') {
+      void optionObservation.run(request, sender).then(result => {
+        if (result.status === 'observed') {
+          const fresh = optionObservation.takeScan(request.agentRunToken);
+          if (!fresh) { sendResponse({ ok: true, data: { version: EXTENSION_VERSION, status: 'pending', reason: 'observation-invalidated' } }); return; }
+          currentScan = fresh;
+        }
+        sendResponse({ ok: true, data: { version: EXTENSION_VERSION, ...result } });
+      }).catch(() => sendResponse({ ok: false, error: '无法观察此控件，请检查网页' }));
+      return true;
+    }
     if (request.type === 'RA_AGENT_RECORD_CHECK') {
       if (!agentLease.mayWrite(request.payload.token)) { sendResponse({ ok: false, error: 'Agent 任务已失效' }); return false; }
       const kind = request.payload.kind;
@@ -185,7 +221,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
         const agentRunToken = 'agentRunToken' in request ? request.agentRunToken : undefined;
         if (!agentLease.mayWrite(agentRunToken)) throw new Error('Agent 正在处理本页，已阻止其他填写任务');
         if (agentRunToken) ownedAgentWorkflows.add(targetWorkflow);
-        if (filling || otherWorkflows.some(flow => flow.holdsPage()) || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
+        if (filling || optionObservation.holdsPage() || otherWorkflows.some(flow => flow.holdsPage()) || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
           || ['ready', 'running', 'paused'].includes(recordV2.status().state)) {
           throw new Error('另一个填写任务尚未结束，请先停止该任务');
         }
@@ -206,7 +242,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_RECORD_V2_STOP') {
       try {
         if (request.type !== 'RA_RECORD_V2_STATUS' && request.type !== 'RA_RECORD_V2_STOP'
-          && (agentLease.holdsPage() || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
+          && (agentLease.holdsPage() || optionObservation.holdsPage() || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
         if (request.type === 'RA_RECORD_V2_STATUS') {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
@@ -249,6 +285,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return false;
     }
     if (filling) { sendResponse({ ok: false, error: '正在填写，请等待完成后再操作' }); return false; }
+    if (optionObservation.holdsPage()) { sendResponse({ ok: false, error: '正在观察控件，请等待完成或先停止 Agent' }); return false; }
     if (internshipWorkflow.holdsPage()) { sendResponse({ ok: false, error: '实习任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (studentWorkWorkflow.holdsPage()) { sendResponse({ ok: false, error: '校内职务任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (publicationWorkflow.holdsPage()) { sendResponse({ok:false,error:'专业论著任务尚未结束，请先停止该任务再使用其他填写模式'}); return false; }

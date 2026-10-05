@@ -13,7 +13,7 @@ export interface AgentStepPorts {
   decide(request: AgentStepRequest, signal: AbortSignal): Promise<unknown>;
   /** Verify exact live scan/control identity, connection and profile before any action. */
   verify(observation: AgentObservation, signal: AbortSignal): Promise<boolean>;
-  /** Uses an existing guarded executor. Progress means the executor read back an accepted write/save. */
+  /** Uses a guarded executor. Progress is a verified write/save or a fresh, bounded option observation; neither waives pending work. */
   execute(kind: AgentActionKind, observation: AgentObservation, signal: AbortSignal): Promise<AgentActionResult>;
 }
 export interface AgentRunResult {

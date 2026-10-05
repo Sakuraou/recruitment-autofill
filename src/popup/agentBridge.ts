@@ -20,6 +20,11 @@ const checkSchema = z.object({ version: z.literal(EXTENSION_VERSION), state: sta
   presence: z.object({ state: z.enum(['all-present','pending','unverified']), total: z.number().int().min(0).max(10_000),
     matched: z.number().int().min(0).max(10_000) }).strict().refine(value => value.matched <= value.total) }).strict();
 const statusSchema = z.object({ version: z.literal(EXTENSION_VERSION), state: stateSchema }).strict();
+const optionCheckSchema = z.object({version:z.literal(EXTENSION_VERSION),scanId:z.uuid(),fieldIds:z.array(z.string().min(1).max(160)).max(1)}).strict();
+const optionResultSchema = z.discriminatedUnion('status',[
+  z.object({version:z.literal(EXTENSION_VERSION),status:z.literal('observed'),optionCount:z.number().int().min(1).max(200)}).strict(),
+  z.object({version:z.literal(EXTENSION_VERSION),status:z.literal('pending'),reason:z.string().min(1).max(80)}).strict(),
+]);
 const kinds = ['education','project','internship','award','publication','student-work'] as const;
 const recordKinds = {'education-records':'education','project-records':'project','internship-records':'internship','award-records':'award','publication-records':'publication','student-work-records':'student-work'} as const;
 const commands = {
@@ -36,6 +41,7 @@ export interface AgentBridgePorts {
   context(): Promise<string>;
   owner(tabId: number, signal: AbortSignal): Promise<AgentPageOwner>;
   check(tabId: number, kind: AgentRecordKind, token: string): Promise<unknown>;
+  optionCheck?(tabId: number, scanId: string, token: string): Promise<unknown>;
   verify(plan: PagePlan): Promise<boolean>;
   decide: AgentStepPorts['decide'];
   fields(plan: PagePlan, signal: AbortSignal, token: string): Promise<FillOutcome[]>;
@@ -57,6 +63,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
   let owner: AgentPageOwner | undefined; let plan: PagePlan | undefined; const outcomes: FillOutcome[] = [];
   const combined = new AbortController(); const abort = () => combined.abort();
   const observed = new WeakMap<AgentObservation, PagePlan>(); const attempted = new Set<string>(); let steps = 0;
+  const observedOptionFields = new WeakMap<AgentObservation,string>();const attemptedOptions=new Set<string>();
   try {
     external.throwIfAborted(); const originalContext = await ports.context(); external.throwIfAborted();
     plan = await ports.scan(external); external.throwIfAborted();
@@ -75,12 +82,19 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
       const results = await Promise.all(kinds.map(async kind => checkSchema.parse(await ports.check(originalTab, kind, token))));
       if (!await current()) throw new Error('Agent context changed');
       const checks: Record<AgentRecordKind, AgentRecordCheck> = { education: results[0]!, project: results[1]!, internship: results[2]!, award:results[3]!, publication:results[4]!, 'student-work':results[5]! };
-      const tasks = buildAgentPageTasks(latest.scan, latest.matches, latest.profile, checks, attempted);
+      const fieldFingerprint=agentFieldFingerprint(latest.scan);let optionFieldIds:string[]=[];
+      if(ports.optionCheck&&attempted.has(fieldFingerprint)&&!attemptedOptions.has(fieldFingerprint)){
+        const check=optionCheckSchema.parse(await ports.optionCheck(originalTab,latest.scan.scanId,token));
+        if(check.scanId!==latest.scan.scanId||!await current())throw new Error('Agent option observation changed');
+        optionFieldIds=check.fieldIds;
+      }
+      const tasks = buildAgentPageTasks(latest.scan, latest.matches, latest.profile, checks, attempted,new Set(optionFieldIds));
       if (!tasks) throw new Error('Agent page observation invalid');
       plan = latest;
       const observation: AgentObservation = { ...tasks, context: originalContext,
         fingerprint: JSON.stringify([agentFieldFingerprint(latest.scan), tasks, results.map(result => ({ state: result.state, presence: result.presence }))]) };
-      observed.set(observation, latest); progress?.({ phase: 'observing', steps, pending: { ...observation.pending } }); return observation;
+      observed.set(observation, latest);if(optionFieldIds[0])observedOptionFields.set(observation,optionFieldIds[0]);
+      progress?.({ phase: 'observing', steps, pending: { ...observation.pending } }); return observation;
     };
     const result = await runAgentSteps({ observe,
       decide: async (request, active) => { progress?.({ phase: 'thinking', steps, pending: { ...request.pending } }); return ports.decide(request, active); },
@@ -88,6 +102,15 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
       execute: async (kind, observation) => {
         progress?.({ phase: 'acting', steps: ++steps, pending: { ...observation.pending } });
         const value = observed.get(observation); if (!value || !await current()) return { state: 'failed' };
+        if(kind==='observe-options'){
+          const fieldId=observedOptionFields.get(observation);if(!fieldId)return{state:'failed'};
+          attemptedOptions.add(agentFieldFingerprint(value.scan));
+          const result=optionResultSchema.parse(await ports.command(originalTab,{type:'RA_OBSERVE_OPTIONS',agentRunToken:token,payload:{scanId:value.scan.scanId,fieldId}}));
+          signal.throwIfAborted();if(!await current())return{state:'failed'};
+          // A failed observation may include a replaced control or a manual
+          // answer. A new scan must not turn that failure into write authority.
+          return{state:result.status==='observed'?'progress':'needs-user'};
+        }
         if (kind === 'fill-visible') {
           const filled = await ports.fields(value, signal, token); signal.throwIfAborted(); outcomes.push(...filled);
           // Defer an unchanged unknown form and keep processing other offered record collections.
@@ -166,6 +189,7 @@ export async function fillWithAgent(signal: AbortSignal, progress?: (value: Agen
     context: async () => { const [tab, profile, currentConnection] = await Promise.all([currentTab(), loadProfile(), loadAiConnection()]);
       return JSON.stringify({ tabId: tab.id, url: tab.url, profile, connection: currentConnection }); },
     check: (tabId, kind, token) => send(tabId, { type: 'RA_AGENT_RECORD_CHECK', payload: { kind, token } }),
+    optionCheck:(tabId,scanId,token)=>send(tabId,{type:'RA_AGENT_OPTION_CHECK',agentRunToken:token,payload:{scanId}}),
     verify: async value => { await send(value.tabId, { type: 'RA_VERIFY_SCAN', payload: { scanId: value.scan.scanId } }); return true; },
     decide: (request, active) => provider.propose(request, active),
     fields: (value, active, token) => fillAgentFields(value, active, token, connection),

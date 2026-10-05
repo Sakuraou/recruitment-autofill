@@ -579,6 +579,10 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
       classified: classifyAction(candidate),
     };
   });
+  // A scanner-owned inert choice trigger already has a field node. Keep submit,
+  // reset, navigation and named actions; only remove its duplicate unknown task.
+  const choiceFields = new Set(fields.filter(field => field.type === 'aria-combobox')
+    .map(field => controls.get(field.id)?.node).filter((node): node is Element => Boolean(node)));
   const targetedDrafts = collectedActions.filter(draft => isTargetedAction(draft.classified.action));
 
   let actionIndex = 0;
@@ -748,6 +752,9 @@ export function buildPageSemanticGraph(doc: Document, fields: readonly FieldDesc
     if (nodes.length >= 1498) break;
     const action = classified.action;
     if (emittedTargetedElements.has(element) || isTargetedAction(action)) continue;
+    if (action === 'unknown' && choiceFields.has(element) && element.getAttribute('role') === 'combobox'
+      && (element.tagName === 'DIV' || element.tagName === 'SPAN'
+        || element.tagName === 'BUTTON' && element.getAttribute('type')?.toLowerCase() === 'button')) continue;
     let parent: PageSemanticNode | SectionSemanticNode = page;
     if (sectionMatch) {
       const existing = existingSection(sectionMatch, framePath);
