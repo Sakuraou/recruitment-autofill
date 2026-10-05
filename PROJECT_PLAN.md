@@ -1388,3 +1388,9 @@ I-011E专业论著已建立隔离最小资料投影和当前论文纯字段解�
 已按冻结快照SHA256合入36个src/tests变化，加入实际MV3脚本与npm命令，候选源码版本v0.6.37；完整lint/类型/单元验收即将启动。安装包dist仍v0.6.36，回退在 artifacts/i011f-official36-dist；在完整验收完成前不宣布v0.6.37发布。下一步先接续在运行的全量检查，必要浏览器组与候选实际MV3完成后更新正式统计、安装说明与计划。
 
 2026-10-05 14:07 UTC：候选实现已提交 `11c7604`，正式 lint 和 strict 类型通过。完整单元在执行（会话7143，Vitest PID8020；日志 artifacts/i011f-official-unit.log）。后续控制器已启动（会话40758，artifacts/finish-i011f-official.mjs），等本轮新的成功单元JSON后只构建一次，顺序执行23组浏览器脚本；每步记录退出码/时间/日志，失败停止且保留已通过结果。状态 artifacts/i011f-official-progress.json，控制日志 artifacts/i011f-official-controller.log。只接受本轮新报告，并以源码指纹310b178c35006b63e5c42498fbc7deccb0c600693ee27cc5e5126efeda691c47保证运行中无变化。下一轮先收取或接续这些进程，禁止重复启动；全部通过后再做发布汇总/安装说明，不把已合入源码当作已发布。
+
+### 2026-10-05 · I-012A单次选项观察（隔离基础通过）
+
+I-012A仅在隔离目录实现单次选项观察。先捕获唯一空列表及原控件，仅打开明确type=button或普通div/span的ARIA组合框，等待选项后交回私有新扫描，不选择答案、不新增、不保存或提交。原节点、问题、页面、外部结构或既有值变化以及Stop保留待办；复制/重放能力和序列化结果没有动作授权。初始25项基线14失败11通过；追加原生输入3项真实失败后修复。最终36项与实际Chromium8项、lint/strict类型通过，均虚构，无外部请求或网页错误。完整SHA256在 artifacts/i012a-observation-checkpoint；未接正式消息、Agent、模型或截图，不计入v0.6.37发布能力。
+
+接续提示见 [陌生控件观察计划](docs/UNKNOWN_CONTROL_OBSERVATION_PROGRESS.md)。正式v0.6.37仍以正在进行的完整验收为准；运行源码未变，正式进程未重启。
