@@ -148,17 +148,18 @@ export function PopupApp() {
       <h2>Agent 连续填写本页（试用）</h2>
       <p>自动推进普通字段、教育、项目和实习，逐条添加并核验。需要已配置的兼容 API 本地服务。</p>
       <button type="button" className="primary" disabled={busy} onClick={() => void fillAgent()}>启动 Agent 连续填写</button>
+      {agentActive && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 Agent</button>}
       {agentActive && agentStatus && <p role="status">{({ observing: '正在检查网页', thinking: '正在安排下一步', acting: '正在填写并核验' } as Record<string,string>)[agentStatus.phase] ?? '正在处理'} · 已执行 {agentStatus.steps} 步</p>}
       <small>运行期间请保持弹窗打开；关闭会停止后续操作并保留网页草稿。奖项、论文、附件和最终提交仍列为待办。</small>
     </section>
+    {message && <div className="notice" role="status">{message}</div>}
     {!agentActive && <><MobileWorkflowControls /><EducationRecordControls /><InternshipRecordControls /><ProjectRecordControls /></>}
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>
       <button type="button" className="primary" disabled={busy || !autoCount} onClick={() => void fill('auto')}>一键填写高置信度字段</button></div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void fillAi()}>AI 识别并填写本页</button>
-      {aiPending.current && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>{agentActive ? '停止 Agent' : '停止 AI 填写'}</button>}</div>
+      {aiPending.current && !agentActive && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 AI 填写</button>}</div>
 
-    {message && <div className="notice" role="status">{message}</div>}
     {plan?.scan.warnings.map(warning => <div className="notice" key={warning}>{warning}</div>)}
     {!plan && !message && <div className="popup-profile-empty"><strong>从一份真实档案开始</strong>先在「我的档案」保存信息，再扫描当前网申页面。</div>}
     {plan && <><div className="row results-header"><h2>匹配结果 <span className="count">{matches.length}</span></h2><div className="view-tools"><label><input type="checkbox" checked={reveal} onChange={event => setReveal(event.target.checked)} />显示个人值</label><button className="text-button" type="button" onClick={() => setShowResults(value => !value)}>{showResults ? '收起' : '查看匹配结果'}</button></div></div>

@@ -50,7 +50,10 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
     const present = graph.nodes.some(node => node.kind === 'record-list' && node.recordType === kind) || check.state.canStart;
     if (!present) continue;
     if (!expected[kind]) {
-      if (kind === 'education' || collectionPresence(profile, kind === 'project' ? 'projects' : 'internships') === 'unknown') blockers++;
+      const absence = kind === 'education' ? 'unknown' : collectionPresence(profile, kind === 'project' ? 'projects' : 'internships');
+      if (!['none','not_applicable'].includes(absence)
+        || graph.nodes.some(node => node.kind === 'record-list' && node.recordType === kind
+          && (node.existingRecordCount > 0 || node.editorState !== 'closed'))) blockers++;
       continue;
     }
     if (check.presence.total !== expected[kind] || check.presence.matched > expected[kind]) return undefined;

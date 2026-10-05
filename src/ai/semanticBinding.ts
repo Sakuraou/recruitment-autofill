@@ -1,3 +1,4 @@
+import { qualifyScalarWeakMeaning } from '../matching/scalarWeakMeaning';
 import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, INTERNSHIP_SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
 export { SEMANTIC_BINDING_PATHS, SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, type SemanticBindingPath } from './semanticProtocol';
 import { matchField, UNKNOWN_FIELD_REASON } from '../matching/ruleMatcher';
@@ -127,7 +128,10 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       if(projectContext && !weakProject && !projectSemanticUnknownField(projectContext,scan,profile,field.id))continue;
       const weakInternship = internshipContext && internshipSemanticWeakPath(internshipContext,scan,profile,field.id);
       if (internshipContext && !weakInternship && !internshipSemanticUnknownField(internshipContext, scan, profile, field.id)) continue;
-      const expectedPath=weakInternship || weakEducation || weakProject;
+      const scalarQualification = !educationContext && !internshipContext && !projectContext && ownership.record === 'none'
+        && ['basic','other'].includes(ownership.role) ? qualifyScalarWeakMeaning(field,profile) : undefined;
+      const weakScalar = scalarQualification?.status === 'confirm' ? scalarQualification.path : undefined;
+      const expectedPath=weakInternship || weakEducation || weakProject || weakScalar;
       const match = matchField(field, profile);
       // A known label with a missing answer, ambiguous owner or a protective explanation is not a semantic gap.
       if (!expectedPath && (match.status !== 'missing' || match.matchedProfileKey || match.reason !== UNKNOWN_FIELD_REASON)) continue;

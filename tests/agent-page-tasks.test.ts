@@ -4,6 +4,7 @@ import { profileSchema, createEmptyProfile } from '../src/profile/schema';
 import { matchFields } from '../src/matching/ruleMatcher';
 import { agentOrdinaryFieldIds, agentFieldFingerprint, buildAgentPageTasks, type AgentRecordCheck } from '../src/agent/pageTasks';
 import { installEducationSessionPage, educationSessionProfile } from './fixtures/education-session-page';
+import { installWeakProjectSessionPage } from './fixtures/weak-project-session-page';
 const profile = profileSchema.parse({ ...createEmptyProfile(), basic: { name: '虚构姓名' }, education: educationSessionProfile.education });
 const idle = (total = 0, canStart = false): AgentRecordCheck => ({ state: { phase: 'idle', total, canStart }, presence: { state: 'unverified', total, matched: 0 } });
 const checks = () => ({ education: idle(2), project: idle(), internship: idle() });
@@ -69,4 +70,33 @@ it('inaccessible frames remain blockers even when the main form is populated', (
   const scan = scanDocument().result;
   scan.warnings.push('跨域 iframe 无法访问');
   expect(buildAgentPageTasks(scan, matchFields(scan.fields, profile), profile, checks(), new Set())?.pending.blockers).toBeGreaterThan(0);
+});
+it.each(['unknown','known'] as const)('empty source collection marked %s still needs information', state => {
+  installWeakProjectSessionPage(document);
+  const source=createEmptyProfile();source.collectionFacts={projects:{state,confirmed:true,source:'user'}};
+  const scan=scanDocument().result;
+  expect(buildAgentPageTasks(scan,matchFields(scan.fields,source),source,{...checks(),project:idle(0,true)},new Set()))
+    .toMatchObject({tasks:[],pending:{records:0,blockers:1}});
+});
+it.each(['none','not_applicable'] as const)('explicit %s allows an empty closed project list to have no record work', state => {
+  installWeakProjectSessionPage(document);
+  const source=createEmptyProfile();source.collectionFacts={projects:{state,confirmed:true,source:'user'}};
+  const scan=scanDocument().result;
+  expect(buildAgentPageTasks(scan,matchFields(scan.fields,source),source,{...checks(),project:idle(0,true)},new Set()))
+    .toMatchObject({tasks:[],pending:{records:0,blockers:0}});
+});
+it('explicit absence cannot discard an already open foreign record draft',()=>{
+  const fixture=installWeakProjectSessionPage(document);fixture.add.click();
+  const source=createEmptyProfile();source.collectionFacts={projects:{state:'none',confirmed:true,source:'user'}};
+  const scan=scanDocument().result;
+  expect(buildAgentPageTasks(scan,matchFields(scan.fields,source),source,{...checks(),project:idle(0)},new Set())?.pending.blockers).toBeGreaterThan(0);
+});
+it('explicit absence cannot discard a contradictory existing webpage record',()=>{
+  const fixture=installWeakProjectSessionPage(document);fixture.add.click();
+  fixture.list.querySelector<HTMLInputElement>('input')!.value='网页上的项目';
+  fixture.list.querySelector<HTMLTextAreaElement>('textarea')!.value='已有项目描述';
+  fixture.list.querySelector<HTMLButtonElement>('form button')!.click();
+  const source=createEmptyProfile();source.collectionFacts={projects:{state:'none',confirmed:true,source:'user'}};
+  const scan=scanDocument().result;
+  expect(buildAgentPageTasks(scan,matchFields(scan.fields,source),source,{...checks(),project:idle(0,true)},new Set())?.pending.blockers).toBeGreaterThan(0);
 });
