@@ -13,7 +13,7 @@ it('offers all three awards using their own guarded task',()=>{
  .toMatchObject({tasks:[{kind:'award-records',count:3}],pending:{records:3,blockers:0}});
 });
 const idle=(total=0,canStart=false):AgentRecordCheck=>({state:{phase:'idle',total,canStart},presence:{state:'unverified',total,matched:0}});
-const checks=(total=0)=>({education:idle(),project:idle(),internship:idle(),award:idle(total,true)});
+const checks=(total=0)=>({education:idle(),project:idle(),internship:idle(),award:idle(total,true),publication:idle()});
 it.each(['known','unknown'] as const)('empty %s award source stays pending without another category borrowing the task',state=>{
  installAwardSessionPage(document);const profile=createEmptyProfile();profile.collectionFacts={awards:{state,source:'user',confirmed:true}};
  const scan=scanDocument().result;expect(buildAgentPageTasks(scan,matchFields(scan.fields,profile),profile,checks(),new Set()))
@@ -49,5 +49,5 @@ it('all five offered categories fit the fixed protocol without adding arbitrary 
  {ref:'task-0',kind:'fill-visible',count:1},{ref:'task-1',kind:'education-records',count:2},{ref:'task-2',kind:'project-records',count:2},{ref:'task-3',kind:'internship-records',count:2},{ref:'task-4',kind:'award-records',count:3}]};
  const parsed=agentStepRequestSchema.safeParse(request);expect(parsed.success).toBe(true);
  if(parsed.success)expect(parseAgentStepProposal({requestId:request.requestId,status:'act',ref:'task-4',reason:'available-task'},parsed.data)?.ref).toBe('task-4');
- expect(agentStepRequestSchema.safeParse({...request,tasks:[...request.tasks,{ref:'task-5',kind:'publication-records',count:1}]}).success).toBe(false);
+ expect(agentStepRequestSchema.safeParse({...request,tasks:[...request.tasks,{ref:'task-5',kind:'student-work-records',count:1}]}).success).toBe(false);
 });

@@ -5,11 +5,11 @@ import { isValidSemanticGraph } from '../shared/semanticGraphValidation';
 import type { RecordWorkflowState } from '../workflow/recordState';
 import type { RecordPresenceResult } from './recordCompletion';
 import type { AgentObservation } from './nextStepWorkflow';
-export type AgentRecordKind = 'education' | 'project' | 'internship' | 'award';
+export type AgentRecordKind = 'education' | 'project' | 'internship' | 'award' | 'publication';
 export interface AgentRecordCheck { readonly state: RecordWorkflowState; readonly presence: RecordPresenceResult }
-const supported = ['education', 'project', 'internship', 'award'] as const;
-const collectionKeys = {project:'projects',internship:'internships',award:'awards'} as const;
-const taskKinds = {education:'education-records',project:'project-records',internship:'internship-records',award:'award-records'} as const;
+const supported = ['education', 'project', 'internship', 'award', 'publication'] as const;
+const collectionKeys = {project:'projects',internship:'internships',award:'awards',publication:'papers'} as const;
+const taskKinds = {education:'education-records',project:'project-records',internship:'internship-records',award:'award-records',publication:'publication-records'} as const;
 const repeatable = new Set(['education', 'project', 'internship', 'student-work', 'award', 'publication', 'language', 'skill', 'family']);
 
 /** Ordinary page work cannot borrow an already-open record editor. */
@@ -46,7 +46,7 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
   const canTryFields = pendingFields.some(match => match.status !== 'blocked');
   if (canTryFields && !attemptedFields.has(agentFieldFingerprint(scan))) tasks.push({ kind: 'fill-visible', count: pendingFields.length });
   if (pendingFields.some(match => match.status === 'blocked') || attemptedFields.has(agentFieldFingerprint(scan)) && pendingFields.length) blockers++;
-  const expected = { education: profile.education.length, project: profile.projects.length, internship: profile.internships.length, award:profile.awards.length };
+  const expected = { education: profile.education.length, project: profile.projects.length, internship: profile.internships.length, award:profile.awards.length,publication:profile.research.papers.length };
   for (const kind of supported) {
     const check = checks[kind];
     const present = graph.nodes.some(node => node.kind === 'record-list' && node.recordType === kind) || check.state.canStart;
@@ -76,8 +76,8 @@ export function buildAgentPageTasks(scan: ScanResult, matches: readonly MatchRes
   for (const section of graph.nodes.filter(node => node.kind === 'section')) {
     if (section.kind === 'section' && repeatable.has(section.role) && !supported.includes(section.role as AgentRecordKind)
       && !graph.nodes.some(node => node.kind === 'record-list' && node.recordType === section.role)) blockers++;
-    if(section.kind==='section' && section.role==='award' && !checks.award.state.canStart
-      && !graph.nodes.some(node=>node.kind==='record-list'&&node.recordType==='award'))blockers++;
+    if(section.kind==='section' && (section.role==='award'||section.role==='publication') && !checks[section.role].state.canStart
+      && !graph.nodes.some(node=>node.kind==='record-list'&&node.recordType===section.role))blockers++;
   }
   return { tasks, pending: { fields: pendingFields.length, records, blockers } };
 }

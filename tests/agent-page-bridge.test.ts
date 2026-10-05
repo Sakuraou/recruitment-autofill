@@ -8,6 +8,9 @@ import { createEmptyProfile, profileSchema } from '../src/profile/schema';
 import { EducationRecordWorkflow } from '../src/content/educationRecordWorkflow';
 import { ProjectRecordWorkflow } from '../src/content/projectRecordWorkflow';
 import { InternshipRecordWorkflow } from '../src/content/internshipRecordWorkflow';
+import { PublicationRecordWorkflow } from '../src/content/publicationRecordWorkflow';
+import { publicationProfile } from '../src/profile/publicationProjection';
+import { installPublicationSessionPage,publicationSessionProfile } from './fixtures/publication-session-page';
 import { AwardRecordWorkflow } from '../src/content/awardRecordWorkflow';
 import { awardProfile } from '../src/profile/awardProjection';
 import { installAwardSessionPage,awardSessionProfile } from './fixtures/award-session-page';
@@ -21,7 +24,7 @@ import type { AgentStepRequest } from '../src/agent/nextStepProtocol';
 import type { PagePlan } from '../src/popup/bridge';
 const activeFlows: { stop(): unknown }[] = [];
 afterEach(() => { activeFlows.splice(0).forEach(flow => flow.stop()); document.body.innerHTML = ''; });
-function setup(options: { unknown?: boolean; internship?: boolean; awards?: boolean; partial?: boolean; awardRecords?:boolean } = {}) {
+function setup(options: { unknown?: boolean; internship?: boolean; awards?: boolean; partial?: boolean; awardRecords?:boolean; publications?:boolean; paperUnknown?:boolean; paperMissingIdentity?:boolean } = {}) {
   const education = installEducationSessionPage(document, educationSessionProfile, options.partial ? [1] : []);
   const educationSection = education.list.closest('section')!;
   const projects = installWeakProjectSessionPage(document); const projectSection = projects.list.closest('section')!;
@@ -29,7 +32,9 @@ function setup(options: { unknown?: boolean; internship?: boolean; awards?: bool
   const internshipSection = internship?.list.closest('section');
   const award = options.awardRecords ? installAwardSessionPage(document,[],{cadre:'radio'}) : undefined;
   const awardSection=award?.list.closest('section');
-  document.body.replaceChildren(educationSection, projectSection, ...(internshipSection ? [internshipSection] : []),...(awardSection?[awardSection]:[]));
+  const publication=options.publications?installPublicationSessionPage(document,[],{unknown:options.paperUnknown,dynamicVenue:true}):undefined;
+  const publicationSection=publication?.list.closest('section');
+  document.body.replaceChildren(educationSection, projectSection, ...(internshipSection ? [internshipSection] : []),...(awardSection?[awardSection]:[]),...(publicationSection?[publicationSection]:[]));
   const basic = document.createElement('section'); basic.setAttribute('aria-label', '个人信息');
   basic.innerHTML = `<h2>个人信息</h2><label>姓名<input required></label>${options.unknown ? '<label>必须手工回答的问题<input required></label>' : ''}`;
   document.body.prepend(basic);
@@ -37,12 +42,12 @@ function setup(options: { unknown?: boolean; internship?: boolean; awards?: bool
   const profile = profileSchema.parse({ ...createEmptyProfile(), basic: { name: '虚构应聘者',studentCadre:'否' }, education: educationSessionProfile.education,
     projects: [{ id: 'p-a', name: '虚构方案甲', description: '虚构方案甲用于独立验证项目', technologies: [] },
       { id: 'p-b', name: '虚构方案乙', description: '虚构方案乙采用另一条项目说明', technologies: [] }],
-    internships: options.internship ? internshipSessionProfile.internships : [],awards:options.awardRecords?awardSessionProfile.awards:[] });
+    internships: options.internship ? internshipSessionProfile.internships : [],awards:options.awardRecords?awardSessionProfile.awards:[],research:{papers:options.publications?publicationSessionProfile.publications.map(paper=>options.paperMissingIdentity?{...paper,doi:undefined,date:undefined}:paper):[],patents:[]} });
   const projectProjection = { recordType: 'project' as const, profileRevision: 'fictional', projects: profile.projects };
   const flows = { education: new EducationRecordWorkflow(document, async () => educationSessionProfile),
     project: new ProjectRecordWorkflow(document, async () => projectProjection),
     internship: new InternshipRecordWorkflow(document, async () => ({ recordType: 'internship', profileRevision: 'fictional', internships: profile.internships })),
-    award:new AwardRecordWorkflow(document,async()=>awardProfile(profile)) };
+    award:new AwardRecordWorkflow(document,async()=>awardProfile(profile)),publication:new PublicationRecordWorkflow(document,async()=>publicationProfile(profile)) };
   activeFlows.push(...Object.values(flows));
   const scans = new WeakMap<PagePlan, ScanState>(); const requests: AgentStepRequest[] = []; const starts: string[] = [];
   let ownerController = new AbortController(); let ownerToken = crypto.randomUUID(); let releases = 0; let context = 'fictional-fixed-context';
@@ -58,7 +63,7 @@ function setup(options: { unknown?: boolean; internship?: boolean; awards?: bool
     check: async (_tab, kind, token) => {
       expect(token).toBe(ownerToken);
       const projection = kind === 'education' ? educationSessionProfile : kind === 'project' ? projectProjection
-        : kind==='internship'?{ recordType: 'internship', profileRevision: 'fictional', internships: profile.internships }:awardProfile(profile);
+        : kind==='internship'?{ recordType: 'internship', profileRevision: 'fictional', internships: profile.internships }:kind==='award'?awardProfile(profile):publicationProfile(profile);
       return { version: EXTENSION_VERSION, state: flows[kind].status(), presence: verifyRecordPresence(scanDocument(), projection) };
     },
     verify: async plan => !!verifyScanObservation(scans.get(plan)!),
@@ -70,15 +75,39 @@ function setup(options: { unknown?: boolean; internship?: boolean; awards?: bool
       return items.length ? fillScan(scans.get(plan)!, { scanId: plan.scan.scanId, items }, signal) : [];
     },
     command: async (_tab, request) => {
-      const kind = request.type.startsWith('RA_EDUCATION') ? 'education' : request.type.startsWith('RA_PROJECT') ? 'project' : request.type.startsWith('RA_INTERNSHIP')?'internship':'award';
+      const kind = request.type.startsWith('RA_EDUCATION') ? 'education' : request.type.startsWith('RA_PROJECT') ? 'project' : request.type.startsWith('RA_INTERNSHIP')?'internship':request.type.startsWith('RA_AWARD')?'award':'publication';
       if (request.type.endsWith('_START')) { expect('agentRunToken' in request && request.agentRunToken).toBe(ownerToken); starts.push(kind); return flows[kind].start(); }
       return { version: EXTENSION_VERSION, state: flows[kind].status() };
     },
     wait: async signal => { signal.throwIfAborted(); await new Promise(resolve => setTimeout(resolve, 20)); signal.throwIfAborted(); },
   };
-  return { ports, education, projects, internship, award, flows, requests, starts, basic, get ownerController() { return ownerController; },
+  return { ports, education, projects, internship, award, publication, flows, requests, starts, basic, get ownerController() { return ownerController; },
     releases: () => releases, setContext: (value: string) => { context = value; } };
 }
+it('one intent completes five record categories with distinct papers and restarts without duplication',async()=>{
+ const s=setup({internship:true,awardRecords:true,publications:true});const result=await runAgentPage(s.ports,new AbortController().signal);
+ expect(result.result).toMatchObject({state:'complete',steps:6,pending:{fields:0,records:0,blockers:0}});
+ expect(s.starts).toEqual(['education','project','internship','award','publication']);
+ expect(s.publication?.saved.map(paper=>paper.doi)).toEqual(publicationSessionProfile.publications.map(paper=>paper.doi));
+ expect(s.publication?.saved.map(paper=>paper.status)).toEqual(['published','submitted','published']);
+ expect(s.publication?.saved.map(paper=>paper.authorOrder)).toEqual(['two','three','one']);
+ expect(s.publication?.saved.map(paper=>paper.venue)).toEqual(publicationSessionProfile.publications.map(paper=>paper.venue));
+ expect(s.publication?.counts).toEqual({add:3,save:3,submit:0,remove:0,cancel:0});
+ const previous=s.requests.length;
+ expect((await runAgentPage(s.ports,new AbortController().signal)).result).toMatchObject({state:'complete',steps:0});expect(s.requests).toHaveLength(previous);
+ expect(s.publication?.counts.add).toBe(3);expect(JSON.stringify(s.requests)).not.toContain('fictional-a');expect(JSON.stringify(s.requests)).not.toContain('虚构');
+},90_000);
+it.each(['unknown','missing-identity'] as const)('paper %s keeps pending work without repeated Add or Save',async mode=>{
+ const s=setup({publications:true,paperUnknown:mode==='unknown',paperMissingIdentity:mode==='missing-identity'});
+ expect((await runAgentPage(s.ports,new AbortController().signal)).result.state).toBe('needs-user');
+ expect(s.publication?.counts.add).toBe(mode==='unknown'?1:0);expect(s.publication?.counts.save).toBe(0);
+ expect(s.education.saved).toHaveLength(2);expect(s.projects.saved).toHaveLength(2);
+},45_000);
+it('owner loss at paper start cancels paper actions and keeps the record task pending',async()=>{
+ const s=setup({publications:true});const original=s.ports.command;
+ s.ports.command=async(tab,request)=>{if(request.type==='RA_PUBLICATION_RECORD_START'){s.ownerController.abort();return {phase:'stopped',canStart:true,total:3};}return original(tab,request);};
+ expect((await runAgentPage(s.ports,new AbortController().signal)).result.state).toBe('stopped');expect(s.publication?.counts.add).toBe(0);expect(s.publication?.counts.save).toBe(0);
+},45_000);
 it('one intent completes four record categories including every award and restarts without duplication',async()=>{
  const s=setup({internship:true,awardRecords:true});const result=await runAgentPage(s.ports,new AbortController().signal);
  expect(result.result).toMatchObject({state:'complete',steps:5,pending:{fields:0,records:0,blockers:0}});

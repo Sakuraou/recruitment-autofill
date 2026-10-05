@@ -6,6 +6,18 @@ import { internshipProjectionRequestSchema, internshipProjectionResponseSchema,
   type InternshipProjectionResponse } from '../profile/internshipProjection';
 import { awardProjectionRequestSchema, awardProjectionResponseSchema,
   type AwardProjectionResponse } from '../profile/awardProjection';
+import { publicationProjectionRequestSchema, publicationProjectionResponseSchema,
+  type PublicationProjectionResponse } from '../profile/publicationProjection';
+
+/** Fixed paper-only request. No profile path, record index, applicant facts or page selector. */
+export async function requestPublicationProjection(): Promise<PublicationProjectionResponse> {
+  const response = await chrome.runtime.sendMessage(publicationProjectionRequestSchema.parse({ type: 'RA_PROFILE_PUBLICATIONS' })) as unknown;
+  if (!response || typeof response !== 'object' || (response as { ok?: unknown }).ok !== true) throw new Error('无法读取论文档案投影');
+  const parsed = publicationProjectionResponseSchema.safeParse((response as { data?: unknown }).data);
+  if (!parsed.success) throw new Error('论文档案投影格式无效');
+  return Object.freeze({ ...parsed.data, ...(parsed.data.fact ? { fact: Object.freeze({ ...parsed.data.fact }) } : {}),
+    publications: Object.freeze(parsed.data.publications.map(paper => Object.freeze({ ...paper }))) });
+}
 
 /** Fixed award-only facts and explicit cadre fields. Caller cannot name a record, profile path or selector. */
 export async function requestAwardProjection(): Promise<AwardProjectionResponse> {

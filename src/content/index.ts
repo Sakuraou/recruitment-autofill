@@ -13,7 +13,8 @@ import { EXTENSION_VERSION } from '../shared/version';
 import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
-import { requestEducationProjection, requestProjectProjection, requestInternshipProjection, requestAwardProjection } from './profileProjectionClient';
+import { requestEducationProjection, requestProjectProjection, requestInternshipProjection, requestAwardProjection, requestPublicationProjection } from './profileProjectionClient';
+import { PublicationRecordWorkflow } from './publicationRecordWorkflow';
 import { AwardRecordWorkflow } from './awardRecordWorkflow';
 import { EducationRecordWorkflow } from './educationRecordWorkflow';
 import { InternshipRecordWorkflow } from './internshipRecordWorkflow';
@@ -32,7 +33,7 @@ declare global {
 }
 
 const requestSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('RA_AGENT_RECORD_CHECK'), payload: z.object({ token: z.uuid(), kind: z.enum(['education','project','internship','award']) }).strict() }).strict(),
+  z.object({ type: z.literal('RA_AGENT_RECORD_CHECK'), payload: z.object({ token: z.uuid(), kind: z.enum(['education','project','internship','award','publication']) }).strict() }).strict(),
   z.object({ type: z.literal('RA_SCAN') }).strict(),
   z.object({ type: z.literal('RA_SCAN_SETTLED') }).strict(),
   z.object({ type: z.literal('RA_VERIFY_SCAN'), payload: z.object({ scanId: z.string().min(1).max(100) }).strict() }).strict(),
@@ -68,6 +69,11 @@ const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_AWARD_RECORD_PAUSE') }).strict(),
   z.object({ type: z.literal('RA_AWARD_RECORD_RESUME'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_AWARD_RECORD_STOP') }).strict(),
+  z.object({ type: z.literal('RA_PUBLICATION_RECORD_START'), agentRunToken: z.uuid().optional() }).strict(),
+  z.object({ type: z.literal('RA_PUBLICATION_RECORD_STATUS') }).strict(),
+  z.object({ type: z.literal('RA_PUBLICATION_RECORD_PAUSE') }).strict(),
+  z.object({ type: z.literal('RA_PUBLICATION_RECORD_RESUME'), agentRunToken: z.uuid().optional() }).strict(),
+  z.object({ type: z.literal('RA_PUBLICATION_RECORD_STOP') }).strict(),
   z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema }).strict(),
 ]);
 
@@ -76,6 +82,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
+  const publicationWorkflow = new PublicationRecordWorkflow(document, requestPublicationProjection);
   const awardWorkflow = new AwardRecordWorkflow(document, requestAwardProjection);
   const internshipWorkflow = new InternshipRecordWorkflow(document, requestInternshipProjection,
     (doc, projection, refresh) => createInternshipRecordSession(doc, projection, refresh, undefined, createInternshipSemanticClient()));
@@ -93,7 +100,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     } } : {}),
   });
   const agentLease = new AgentPageLease(() => document.URL, () => filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage()
-    || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
+    || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
     || ['ready', 'running', 'paused'].includes(recordV2.status().state));
   const ownedAgentWorkflows = new Set<{ holdsPage(): boolean; stop(): unknown }>();
   chrome.runtime.onConnect.addListener(createAgentOwnerPortHandler({ extensionId: chrome.runtime.id,
@@ -103,7 +110,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     extensionId: chrome.runtime.id, extensionUrl: path => chrome.runtime.getURL(path),
     authorize: request => agentLease.mayWrite(request.agentRunToken),
     acquire: () => {
-      if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
+      if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
         throw new Error('page occupied');
       filling = true;
       return () => { filling = false; };
@@ -134,8 +141,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     if (request.type === 'RA_AGENT_RECORD_CHECK') {
       if (!agentLease.mayWrite(request.payload.token)) { sendResponse({ ok: false, error: 'Agent 任务已失效' }); return false; }
       const kind = request.payload.kind;
-      const flow = {education:educationWorkflow,project:projectWorkflow,internship:internshipWorkflow,award:awardWorkflow}[kind];
-      const load = {education:requestEducationProjection,project:requestProjectProjection,internship:requestInternshipProjection,award:requestAwardProjection}[kind];
+      const flow = {education:educationWorkflow,project:projectWorkflow,internship:internshipWorkflow,award:awardWorkflow,publication:publicationWorkflow}[kind];
+      const load = {education:requestEducationProjection,project:requestProjectProjection,internship:requestInternshipProjection,award:requestAwardProjection,publication:requestPublicationProjection}[kind];
       void load().then(projection => {
         if (!agentLease.mayWrite(request.payload.token)) throw new Error('stopped');
         const presence = verifyRecordPresence(scanDocument(), projection);
@@ -150,10 +157,12 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_INTERNSHIP_RECORD_START' || request.type === 'RA_INTERNSHIP_RECORD_STATUS'
       || request.type === 'RA_INTERNSHIP_RECORD_PAUSE' || request.type === 'RA_INTERNSHIP_RECORD_RESUME' || request.type === 'RA_INTERNSHIP_RECORD_STOP'
       || request.type === 'RA_AWARD_RECORD_START' || request.type === 'RA_AWARD_RECORD_STATUS'
-      || request.type === 'RA_AWARD_RECORD_PAUSE' || request.type === 'RA_AWARD_RECORD_RESUME' || request.type === 'RA_AWARD_RECORD_STOP') {
+      || request.type === 'RA_AWARD_RECORD_PAUSE' || request.type === 'RA_AWARD_RECORD_RESUME' || request.type === 'RA_AWARD_RECORD_STOP'
+      || request.type === 'RA_PUBLICATION_RECORD_START' || request.type === 'RA_PUBLICATION_RECORD_STATUS'
+      || request.type === 'RA_PUBLICATION_RECORD_PAUSE' || request.type === 'RA_PUBLICATION_RECORD_RESUME' || request.type === 'RA_PUBLICATION_RECORD_STOP') {
       const targetWorkflow = request.type.startsWith('RA_EDUCATION_') ? educationWorkflow
-        : request.type.startsWith('RA_INTERNSHIP_') ? internshipWorkflow : request.type.startsWith('RA_AWARD_') ? awardWorkflow : projectWorkflow;
-      const otherWorkflows = [educationWorkflow, projectWorkflow, internshipWorkflow, awardWorkflow].filter(flow => flow !== targetWorkflow);
+        : request.type.startsWith('RA_INTERNSHIP_') ? internshipWorkflow : request.type.startsWith('RA_AWARD_') ? awardWorkflow : request.type.startsWith('RA_PUBLICATION_') ? publicationWorkflow : projectWorkflow;
+      const otherWorkflows = [educationWorkflow, projectWorkflow, internshipWorkflow, awardWorkflow, publicationWorkflow].filter(flow => flow !== targetWorkflow);
       const operation = request.type.slice(request.type.lastIndexOf('_') + 1);
       try {
         if (operation === 'STATUS') {
@@ -188,7 +197,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_RECORD_V2_STOP') {
       try {
         if (request.type !== 'RA_RECORD_V2_STATUS' && request.type !== 'RA_RECORD_V2_STOP'
-          && (agentLease.holdsPage() || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
+          && (agentLease.holdsPage() || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
         if (request.type === 'RA_RECORD_V2_STATUS') {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
@@ -232,6 +241,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     }
     if (filling) { sendResponse({ ok: false, error: '正在填写，请等待完成后再操作' }); return false; }
     if (internshipWorkflow.holdsPage()) { sendResponse({ ok: false, error: '实习任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
+    if (publicationWorkflow.holdsPage()) { sendResponse({ok:false,error:'专业论著任务尚未结束，请先停止该任务再使用其他填写模式'}); return false; }
     if (awardWorkflow.holdsPage()) { sendResponse({ok:false,error:'奖励任务尚未结束，请先停止该任务再使用其他填写模式'}); return false; }
     if (educationWorkflow.holdsPage()) { sendResponse({ ok: false, error: '教育任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (projectWorkflow.holdsPage()) { sendResponse({ ok: false, error: '项目任务尚未结束，请在扩展中暂停或停止；其它填写模式需先停止项目任务' }); return false; }

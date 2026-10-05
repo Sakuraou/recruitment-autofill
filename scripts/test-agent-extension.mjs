@@ -186,9 +186,77 @@ try {
   await form.locator('#award-items fieldset select').waitFor({timeout:90000});await form.waitForFunction(()=>document.querySelector('#award-items fieldset select')?.value==='no',null,{timeout:90000});
   await popup.close();await new Promise(done=>setTimeout(done,1000));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[3].save,0);assert.equal(state.counts[3].add,1);assert.equal(state.submits,0);
   report.checks.push('Closing Agent during actual award fill cancels its owned workflow before Save and preserves the draft');
+  const paperFacts=[];
+  for(const mode of ['papers-normal','papers-dynamic','papers-presence-select','papers-presence-radio']){
+    await form.goto(url+'?mode='+mode);const source=await saveFixtureProfile();paperFacts.push(...source.research.papers.flatMap(paper=>[paper.title,paper.doi,paper.abstract,paper.venue,paper.publicationSituation]));
+    popup=await openPopup();await click(popup);await popup.getByText('本页可访问且支持的任务已核验完成',{exact:false}).waitFor({timeout:120000});
+    state=await form.evaluate(()=>window.agentFixture.state());assert.deepEqual(state.publications.map(paper=>paper.doi),source.research.papers.map(paper=>paper.doi));
+    assert.deepEqual(state.publications.map(paper=>paper.date),source.research.papers.map(paper=>paper.date));
+    assert.deepEqual(state.publications.map(paper=>paper.status),['published','submitted','published']);
+    assert.deepEqual(state.publications.map(paper=>paper.authorOrder),['two','three','one']);
+    assert.deepEqual(state.publications.map(paper=>paper.venue),source.research.papers.map(paper=>paper.venue));
+    assert.ok(state.counts.slice(0,3).every(count=>count.add===2&&count.save===2));
+    assert.ok(state.counts.slice(3).every(count=>count.add===3&&count.save===3&&count.submit===0&&count.remove===0&&count.cancel===0));assert.equal(state.submits,0);
+    report.checks.push(`Actual ${mode} Agent completes five collections, preserves same-title distinct DOI papers and each status, order, date and venue`);
+    if(mode==='papers-normal'){
+      assert.ok(requests.some(request=>request.tasks?.length===6),'all six task types are offered together');
+      const before=requests.length;await click(popup);await popup.getByText('Agent 已执行 0 步',{exact:false}).waitFor();assert.equal(requests.length,before);
+      assert.deepEqual(await form.evaluate(()=>window.agentFixture.state()),state);report.checks.push('All-paper restart freshly proves private identities: zero Add/Save/model calls');
+    }await popup.close();
+  }
+  for(const mode of ['papers-missing-identity','papers-unknown','papers-conflict','papers-save-uncertain','papers-corrupt-summary','papers-known-empty','papers-none-existing','papers-none-draft']){
+    await form.goto(url+'?mode='+mode);await saveFixtureProfile();popup=await openPopup();await click(popup);
+    await popup.getByText('仍有待办或需要补充的资料',{exact:false}).waitFor({timeout:120000});state=await form.evaluate(()=>window.agentFixture.state());
+    assert.equal(state.counts[4].add,['papers-missing-identity','papers-known-empty','papers-none-existing'].includes(mode)?0:1);
+    assert.equal(state.counts[4].save,['papers-save-uncertain','papers-corrupt-summary'].includes(mode)?1:0);
+    assert.equal(state.publications.length,mode==='papers-corrupt-summary'?1:0);assert.equal(state.counts[4].remove,0);assert.equal(state.counts[4].cancel,0);assert.equal(state.submits,0);
+    assert.equal(state.education.length,2);assert.equal(state.projects.length,2);assert.equal(state.internships.length,2);assert.equal(state.awards.length,3);
+    if(mode==='papers-conflict')assert.equal(await form.locator('#paper-items [data-key="title"]').inputValue(),'网页其他论文');
+    await popup.close();report.checks.push(`Actual ${mode} preserves paper pending work without inventing identities, repeating uncertain saves or discarding foreign drafts`);
+  }
+  await form.goto(url+'?mode=papers-none');await saveFixtureProfile();popup=await openPopup();await click(popup);
+  await popup.getByText('本页可访问且支持的任务已核验完成',{exact:false}).waitFor({timeout:120000});state=await form.evaluate(()=>window.agentFixture.state());
+  assert.equal(state.counts[4].add,0);assert.equal(state.counts[4].save,0);assert.equal(state.submits,0);await popup.close();
+  report.checks.push('Explicit no papers removes only an empty closed paper list; other four collections still complete');
+  for(const scenario of ['stop','close','replace','profile']){
+    await form.goto(url+'?mode=papers-normal');await saveFixtureProfile();holdKind='publication-records';pending=undefined;popup=await openPopup();await click(popup);
+    await form.waitForFunction(()=>window.agentFixture.state().awards.length===3,null,{timeout:120000});
+    for(let i=0;i<400&&!pending;i++)await new Promise(done=>setTimeout(done,25));assert.ok(pending,'paper decision is actually held after other four collections');
+    if(scenario==='stop'){
+      const guarded=await popup.evaluate(async fixtureUrl=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===fixtureUrl);return chrome.tabs.sendMessage(tab.id,{type:'RA_PUBLICATION_RECORD_START'},{frameId:0});},form.url());
+      assert.equal(guarded.ok,false);await popup.getByRole('region',{name:'Agent 连续填写',exact:true}).getByRole('button',{name:'停止 Agent',exact:true}).click();
+    }else if(scenario==='close')await popup.close();
+    else if(scenario==='replace')await form.evaluate(()=>{const add=window.agentFixture.publication.add;add.replaceWith(add.cloneNode(true));});
+    else await options.evaluate(async()=>{const key='recruitment.profile.v1';const value=(await chrome.storage.local.get(key))[key];value.research.papers[0].abstract='另一份虚构摘要';await chrome.storage.local.set({[key]:value});});
+    holdKind=undefined;pending();
+    if(scenario!=='close')await popup.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='启动 Agent 连续填写')?.disabled,null,{timeout:20000});
+    await new Promise(done=>setTimeout(done,400));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[4].add,0);assert.equal(state.counts[4].save,0);assert.equal(state.submits,0);
+    if(!popup.isClosed())await popup.close();report.checks.push(`Actual paper ${scenario} rejects late model decision: zero paper Add/Save`);
+  }
+  await form.goto(url+'?mode=papers-dynamic');await saveFixtureProfile();popup=await openPopup();await click(popup);
+  await form.waitForFunction(()=>document.querySelector('#paper-items [data-key="status"]')?.value==='published',null,{timeout:120000});
+  await popup.close();await new Promise(done=>setTimeout(done,1000));state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[4].add,1);assert.equal(state.counts[4].save,0);assert.equal(state.submits,0);
+  report.checks.push('Closing Agent during actual paper fill cancels its owned workflow before Save and preserves draft');
+  // Independent fixed entry exercises the same lifecycle without a model task.
+  await form.goto(url+'?mode=papers-dynamic');await saveFixtureProfile();popup=await openPopup();
+  const paperPanel=popup.getByRole('region',{name:'通用专业论著连续填写',exact:true});
+  await paperPanel.getByRole('button',{name:'连续填写全部专业论著',exact:true}).click();
+  await form.locator('#paper-items form').waitFor();
+  async function direct(type,extra={}){return popup.evaluate(async({fixtureUrl,type,extra})=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===fixtureUrl);return chrome.tabs.sendMessage(tab.id,{type,...extra},{frameId:0});},{fixtureUrl:form.url(),type,extra});}
+  assert.equal((await direct('RA_EDUCATION_RECORD_START')).ok,false);
+  assert.equal((await direct('RA_PUBLICATION_RECORD_STATUS',{payload:{index:1}})).ok,false);
+  assert.equal((await direct('RA_PUBLICATION_RECORD_PAUSE')).ok,true);
+  await form.waitForTimeout(1000);const paused=await direct('RA_PUBLICATION_RECORD_STATUS');assert.equal(paused.ok,true);assert.equal(paused.data.state.phase,'paused');
+  assert.equal((await direct('RA_PROJECT_RECORD_START')).ok,false);assert.equal((await direct('RA_PUBLICATION_RECORD_RESUME')).ok,true);
+  for(let i=0;i<400;i++){const result=await direct('RA_PUBLICATION_RECORD_STATUS');if(result.data?.state.phase==='complete')break;await form.waitForTimeout(50);}
+  const complete=await direct('RA_PUBLICATION_RECORD_STATUS');assert.equal(complete.data.state.phase,'complete');
+  state=await form.evaluate(()=>window.agentFixture.state());assert.equal(state.counts[4].add,3);assert.equal(state.counts[4].save,3);assert.equal(state.submits,0);
+  assert.equal((await direct('RA_PUBLICATION_RECORD_STOP')).ok,true);await popup.close();
+  report.checks.push('Independent actual paper lifecycle supports status, pause, resume and stop with page mutual exclusion and strict messages');
   const serialized = JSON.stringify(requests);
   for (const fact of [profile.basic.name, profile.basic.birthday, profile.education[0].school, profile.projects[0].name, profile.internships[0].organization, token, url]) assert.ok(!serialized.includes(fact));
   for(const fact of awardFacts)if(fact)assert.ok(!serialized.includes(fact));
+  for(const fact of paperFacts)if(fact)assert.ok(!serialized.includes(fact));
   assert.ok(requests.filter(request => request.tasks).every(request => Object.keys(request).sort().join(',') === 'canComplete,pending,protocol,requestId,tasks'));
   report.checks.push('Model requests contain offered references/counts or sanitized field metadata, never personal answers, URL or owner token');
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []); report.checks.push('Zero external browser requests and page errors');

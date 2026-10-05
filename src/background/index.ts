@@ -3,6 +3,7 @@ import { projectProjectionRequestSchema, projectProfile } from '../profile/proje
 import { educationProjectionRequestSchema, educationProfile } from '../profile/educationProjection';
 import { internshipProjectionRequestSchema, internshipProfile } from '../profile/internshipProjection';
 import { awardProjectionRequestSchema, awardProfile } from '../profile/awardProjection';
+import { publicationProjectionRequestSchema, publicationProfile } from '../profile/publicationProjection';
 import { AI_CONNECTION_KEY } from '../ai/connection';
 import { clearSessionSemanticRecipes } from '../ai/sessionRecipes';
 import { createRecordSemanticPortHandler } from './recordSemanticPort';
@@ -20,20 +21,21 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: unknown) => void) => {
-  const parsed = projectProjectionRequestSchema.or(educationProjectionRequestSchema).or(internshipProjectionRequestSchema).or(awardProjectionRequestSchema).safeParse(message);
+  const parsed = projectProjectionRequestSchema.or(educationProjectionRequestSchema).or(internshipProjectionRequestSchema).or(awardProjectionRequestSchema).or(publicationProjectionRequestSchema).safeParse(message);
   if (!parsed.success) return false;
   const pageUrl = sender.url ?? sender.tab?.url ?? '';
   if (sender.id !== chrome.runtime.id || !sender.tab?.id || !/^https?:\/\//u.test(pageUrl)) {
     sendResponse({ ok: false, error: '不可信的档案投影请求' });
     return false;
   }
-  if (['RA_PROFILE_INTERNSHIP','RA_PROFILE_AWARDS'].includes(parsed.data.type) && (sender.frameId !== 0 || !Number.isSafeInteger(sender.tab.id) || sender.tab.id <= 0)) {
+  if (['RA_PROFILE_INTERNSHIP','RA_PROFILE_AWARDS','RA_PROFILE_PUBLICATIONS'].includes(parsed.data.type) && (sender.frameId !== 0 || !Number.isSafeInteger(sender.tab.id) || sender.tab.id <= 0)) {
     sendResponse({ ok: false, error: '不可信的档案投影请求' }); return false;
   }
   void loadProfile()
     .then(profile => sendResponse({ ok: true, data: parsed.data.type === 'RA_PROFILE_EDUCATION'
       ? educationProfile(profile) : parsed.data.type === 'RA_PROFILE_INTERNSHIP' ? internshipProfile(profile)
-        : parsed.data.type === 'RA_PROFILE_AWARDS' ? awardProfile(profile) : projectProfile(profile) }))
+        : parsed.data.type === 'RA_PROFILE_AWARDS' ? awardProfile(profile)
+          : parsed.data.type === 'RA_PROFILE_PUBLICATIONS' ? publicationProfile(profile) : projectProfile(profile) }))
     .catch(() => sendResponse({ ok: false, error: '无法读取本地档案' }));
   return true;
 });
