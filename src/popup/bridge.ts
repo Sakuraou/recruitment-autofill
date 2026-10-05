@@ -32,20 +32,20 @@ export async function send<T>(tabId: number, request: ContentRequest): Promise<T
     ? '网页仍运行旧版脚本，请先保留未保存内容，再刷新招聘网页以加载连续填写功能。' : response.error);
   return response.data;
 }
-export async function scanPage(settled = false, signal?: AbortSignal): Promise<PagePlan> {
+export async function scanPage(settled = false, signal?: AbortSignal, agentRunToken?: string): Promise<PagePlan> {
   signal?.throwIfAborted();
   const [tab, profile] = await Promise.all([currentTab(), loadProfile()]);
   try { await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }); }
   catch { throw new Error('无法访问此页面。请确认是普通网页；file:// 测试页需要在扩展详情开启文件访问，或使用本地测试服务器。'); }
   signal?.throwIfAborted();
-  const scan = settled && signal ? await scanPageCancelable(tab.id, signal)
+  const scan = settled && signal ? await scanPageCancelable(tab.id, signal, agentRunToken)
     : await send<ScanResult>(tab.id, { type: settled ? 'RA_SCAN_SETTLED' : 'RA_SCAN' });
   signal?.throwIfAborted();
   if (scan.url !== tab.url) throw new Error('页面已变化，请重新扫描。');
   if (scan.contentVersion !== EXTENSION_VERSION) throw new Error(`扩展已是 v${EXTENSION_VERSION}，但网页仍运行旧版脚本。请先保留未保存内容，再刷新招聘网页后扫描。`);
   return { tabId: tab.id, scan, matches: matchFields(scan.fields, profile), profile };
 }
-export async function fillPlan(plan: PagePlan, selectedIds: Set<string>, mode: 'auto' | 'review', signal?: AbortSignal): Promise<FillOutcome[]> {
+export async function fillPlan(plan: PagePlan, selectedIds: Set<string>, mode: 'auto' | 'review', signal?: AbortSignal, agentRunToken?: string): Promise<FillOutcome[]> {
   signal?.throwIfAborted();
   if (plan.scan.contentVersion !== EXTENSION_VERSION) throw new Error('网页脚本版本不一致，请刷新招聘网页并重新扫描。');
   const [tab, latestProfile] = await Promise.all([currentTab(), loadProfile()]);
@@ -56,7 +56,7 @@ export async function fillPlan(plan: PagePlan, selectedIds: Set<string>, mode: '
     .map(match => ({ fieldId: match.fieldId, value: match.value!, confirmed: true }));
   if (!items.length) throw new Error('没有已确认且可填写的候选。');
   signal?.throwIfAborted();
-  if (signal) return fillPageCancelable(plan.tabId, { scanId: plan.scan.scanId, items }, signal);
+  if (signal) return fillPageCancelable(plan.tabId, { scanId: plan.scan.scanId, items }, signal, agentRunToken);
   return send<FillOutcome[]>(plan.tabId, { type: 'RA_FILL', payload: { scanId: plan.scan.scanId, items } });
 }
 

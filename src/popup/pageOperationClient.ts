@@ -37,8 +37,8 @@ function operate<T>(tabId: number, operation: PageOperation, signal: AbortSignal
   });
 }
 
-export function fillPageCancelable(tabId: number, payload: FillRequest, signal: AbortSignal): Promise<FillOutcome[]> {
-  return operate(tabId, { type: 'RA_FILL', payload }, signal, message => {
+export function fillPageCancelable(tabId: number, payload: FillRequest, signal: AbortSignal, agentRunToken?: string): Promise<FillOutcome[]> {
+  return operate(tabId, { type: 'RA_FILL', payload, ...(agentRunToken ? { agentRunToken } : {}) }, signal, message => {
     const parsed = fillReplySchema.safeParse(message);
     if (!parsed.success) return undefined;
     if (parsed.data.ok && (parsed.data.data.length !== payload.items.length
@@ -47,8 +47,8 @@ export function fillPageCancelable(tabId: number, payload: FillRequest, signal: 
   });
 }
 
-export function scanPageCancelable(tabId: number, signal: AbortSignal): Promise<ScanResult> {
-  return operate(tabId, { type: 'RA_SCAN_SETTLED' }, signal, message => {
+export function scanPageCancelable(tabId: number, signal: AbortSignal, agentRunToken?: string): Promise<ScanResult> {
+  return operate(tabId, { type: 'RA_SCAN_SETTLED', ...(agentRunToken ? { agentRunToken } : {}) }, signal, message => {
     const parsed = scanReplySchema.safeParse(message);
     if (!parsed.success) return undefined;
     if (parsed.data.ok) {

@@ -73,7 +73,7 @@ try {
   assert.deepEqual(result.saves, result.adds); assert.equal(result.submits + result.deletes, 0); assert.ok(result.scrolls > 4);
   report.checks.push('Production popup starts workflow without scan or record selection; closing popup preserves execution: undergraduate, master, project 1, project 2 automatically added and saved in order');
   report.firstRun = result;
-  await view.locator('.workflow-panel').screenshot({ path: resolve(artifacts, 'workflow-popup.png') });
+  await view.getByRole('region', { name: '中国移动连续填写', exact: true }).screenshot({ path: resolve(artifacts, 'workflow-popup.png') });
   await page.screenshot({ path: resolve(artifacts, 'workflow-completed.png') });
   await view.getByRole('button', { name: '连续填写教育与项目', exact: true }).click();
   await view.getByText(/教育与项目本轮结束：保存 0 条，已有 4 条/).waitFor();
@@ -92,7 +92,7 @@ try {
   await view.getByText(/教育证明：请在网页上传/).waitFor();
   assert.equal((await state(view)).phase, 'blocked');
   assert.equal(await page.evaluate(() => window.fixture.saves.educationInfo), 0);
-  await view.locator('.workflow-panel').screenshot({ path: resolve(artifacts, 'workflow-missing-proof.png') });
+  await view.getByRole('region', { name: '中国移动连续填写', exact: true }).screenshot({ path: resolve(artifacts, 'workflow-missing-proof.png') });
   await page.locator('#fixture-upload-proof').click();
   await view.getByRole('button', { name: '继续连续填写', exact: true }).click();
   await view.getByText(/教育与项目本轮结束：保存 1 条/).waitFor();
@@ -159,7 +159,7 @@ try {
   assert.equal(awardResult.cadre, 'N'); assert.equal(awardResult.cadreSaves, 1);
   assert.deepEqual(awardResult.saves, { educationInfo: 0, projectInfo: 0, awardInfo: 3 });
   assert.equal(awardResult.submits + awardResult.deletes, 0);
-  await view.locator('.workflow-panel').screenshot({ path: resolve(artifacts, 'workflow-awards-popup.png') });
+  await view.getByRole('region', { name: '中国移动连续填写', exact: true }).screenshot({ path: resolve(artifacts, 'workflow-awards-popup.png') });
   await page.locator('#awardInfo').screenshot({ path: resolve(artifacts, 'workflow-awards.png') });
   await view.getByRole('button', { name: '连续填写在校奖励', exact: true }).click();
   await view.getByText(/在校奖励本轮结束：保存 0 条，已有 3 条/).waitFor();

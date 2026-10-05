@@ -6,6 +6,7 @@ interface Dependencies {
   extensionUrl(path: string): string;
   /** Reserve the shared page lock; release only after execute actually settles. */
   acquire(): () => void;
+  authorize?(request: PageOperation): boolean;
   invalidate(): void;
   execute(request: PageOperation, signal: AbortSignal): Promise<unknown>;
 }
@@ -46,7 +47,7 @@ export function createPageOperationPortHandler(deps: Dependencies): (port: chrom
         request = pageOperationSchema.parse(message);
       } catch { reply({ ok: false, error: '无效的可取消填写请求' }); return; }
       let release: () => void;
-      try { release = deps.acquire(); }
+      try { if (deps.authorize && !deps.authorize(request)) throw new Error('ownership'); release = deps.acquire(); }
       catch { reply({ ok: false, error: '另一个填写任务尚未结束，请先停止该任务' }); return; }
       void (async () => {
         try {

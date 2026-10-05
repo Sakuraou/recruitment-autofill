@@ -53,6 +53,7 @@ export interface FillRequest { scanId: string; items: FillItem[] }
 export interface FillOutcome { fieldId: string; status: 'filled' | 'skipped' | 'error'; reason: string }
 export type ContentRequest = { type: 'RA_SCAN' } | { type: 'RA_FILL'; payload: FillRequest } | { type: 'RA_SELECTION' }
   | { type: 'RA_SCAN_SETTLED' }
+  | { type: 'RA_AGENT_RECORD_CHECK'; payload: { token: string; kind: 'education' | 'project' | 'internship' } }
   | { type: 'RA_VERIFY_SCAN'; payload: { scanId: string } }
   | { type: 'RA_WORKFLOW_START'; payload: import('../workflow/model').WorkflowRequest }
   | { type: 'RA_WORKFLOW_STATUS' | 'RA_WORKFLOW_PAUSE' | 'RA_WORKFLOW_RESUME' | 'RA_WORKFLOW_STOP' }
@@ -63,5 +64,5 @@ export type ContentRequest = { type: 'RA_SCAN' } | { type: 'RA_FILL'; payload: F
     | 'RA_EDUCATION_RECORD_START' | 'RA_EDUCATION_RECORD_STATUS' | 'RA_EDUCATION_RECORD_PAUSE'
     | 'RA_EDUCATION_RECORD_RESUME' | 'RA_EDUCATION_RECORD_STOP'
     | 'RA_INTERNSHIP_RECORD_START' | 'RA_INTERNSHIP_RECORD_STATUS' | 'RA_INTERNSHIP_RECORD_PAUSE'
-    | 'RA_INTERNSHIP_RECORD_RESUME' | 'RA_INTERNSHIP_RECORD_STOP' };
+    | 'RA_INTERNSHIP_RECORD_RESUME' | 'RA_INTERNSHIP_RECORD_STOP'; agentRunToken?: string };
 export type ContentResponse<T> = { ok: true; data: T } | { ok: false; error: string };

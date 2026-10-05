@@ -13,6 +13,8 @@ import { MobileWorkflowControls } from './MobileWorkflow';
 import { ProjectRecordControls } from './ProjectRecords';
 import { EducationRecordControls } from './EducationRecords';
 import { InternshipRecordControls } from './InternshipRecords';
+import { fillWithAgent } from './agentBridge';
+import type { AgentRunStatus } from '../agent/runController';
 
 export function PopupApp() {
   const [plan, setPlan] = useState<PagePlan>();
@@ -24,6 +26,8 @@ export function PopupApp() {
   const [outcomes, setOutcomes] = useState<FillOutcome[]>([]);
   const [jd, setJd] = useState('');
   const aiPending = useRef<AbortController | undefined>(undefined);
+  const [agentStatus, setAgentStatus] = useState<AgentRunStatus>();
+  const [agentActive, setAgentActive] = useState(false);
   const candidates = useMemo(() => new Map(plan?.scan.fields.map(field => [field.id, recordCandidates(field, plan.profile)]) ?? []), [plan?.scan, plan?.profile]);
   function chooseRecord(fieldId: string, profileKey: string) {
     if (!plan || busy) return;
@@ -95,6 +99,28 @@ export function PopupApp() {
     } catch (error) { setPlan(undefined); setMessage(controller.signal.aborted ? '已停止后续 AI 填写，请检查网页中已经填入的内容。' : errorMessage(error)); }
     finally { if (aiPending.current === controller) { aiPending.current = undefined; setBusy(false); } }
   }
+  async function fillAgent() {
+    if (aiPending.current) return;
+    const controller = new AbortController(); aiPending.current = controller;
+    setBusy(true); setAgentActive(true); setSelected(new Set()); setOutcomes([]);
+    setAgentStatus({ phase: 'observing', steps: 0 }); setMessage('Agent 正在检查本页的字段和经历栏目…');
+    try {
+      const value = await fillWithAgent(controller.signal, status => { if (!controller.signal.aborted) setAgentStatus(status); });
+      if (controller.signal.aborted) { setMessage('Agent 已停止，请检查已经填写的内容；当前网页草稿保留。'); return; }
+      if (value.plan) { setPlan(value.plan); setShowResults(true); }
+      const state = value.result.state;
+      const explanation = state === 'complete' ? '本页可访问且支持的任务已核验完成，请检查网页'
+        : state === 'needs-user' ? '仍有待办或需要补充的资料，请检查当前栏目'
+        : state === 'stopped' ? '已停止后续填写，网页草稿保留'
+        : state === 'limit-reached' ? '达到本次处理上限，可检查网页后再次启动'
+        : state === 'unavailable' ? '服务不可用或页面已变化，请检查兼容 API 服务和当前网页'
+        : '本轮未能继续，请检查当前页面和剩余字段';
+      const pending = value.result.pending;
+      setMessage(`Agent 已执行 ${value.result.steps} 步，普通字段写入 ${value.outcomes.filter(item => item.status === 'filled').length} 项。${explanation}。${pending
+        ? `待办：${pending.fields} 个字段、${pending.records} 条待核验经历、${pending.blockers} 处需处理。` : ''}`);
+    } catch (error) { setMessage(controller.signal.aborted ? 'Agent 已停止，网页草稿保留。' : errorMessage(error)); }
+    finally { if (aiPending.current === controller) { aiPending.current = undefined; setBusy(false); setAgentActive(false); } }
+  }
   const matches = plan?.matches ?? [];
   function chooseRecordGroup(fieldId: string, profileKey: string) {
     if (!plan || busy) return;
@@ -118,15 +144,20 @@ export function PopupApp() {
       <button type="button" className="text-button" onClick={() => { if (isExtensionContext()) void chrome.runtime.openOptionsPage(); else window.location.href = './options.html'; }}>我的档案 ↗</button></header>
     <section className="popup-intro"><div className="eyebrow">LESS REPETITION. MORE OPPORTUNITY.</div><h1>这一页，交给你的档案。</h1><p>本地识别重复信息，每一次申请由你确认。</p></section>
     {plan && <div className="scan-host">{new URL(plan.scan.url).host || '本地文件'} · {plan.scan.title}</div>}
-    <MobileWorkflowControls />
-    <EducationRecordControls />
-    <InternshipRecordControls />
-    <ProjectRecordControls />
+    <section className="workflow-panel" aria-label="Agent 连续填写">
+      <h2>Agent 连续填写本页（试用）</h2>
+      <p>自动推进普通字段、教育、项目和实习，逐条添加并核验。需要已配置的兼容 API 本地服务。</p>
+      <button type="button" className="primary" disabled={busy} onClick={() => void fillAgent()}>启动 Agent 连续填写</button>
+      {agentActive && agentStatus && <p role="status">{({ observing: '正在检查网页', thinking: '正在安排下一步', acting: '正在填写并核验' } as Record<string,string>)[agentStatus.phase] ?? '正在处理'} · 已执行 {agentStatus.steps} 步</p>}
+      <small>运行期间请保持弹窗打开；关闭会停止后续操作并保留网页草稿。奖项、论文、附件和最终提交仍列为待办。</small>
+    </section>
+    {!agentActive && <><MobileWorkflowControls /><EducationRecordControls /><InternshipRecordControls /><ProjectRecordControls /></>}
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>
       <button type="button" className="primary" disabled={busy || !autoCount} onClick={() => void fill('auto')}>一键填写高置信度字段</button></div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void fillAi()}>AI 识别并填写本页</button>
-      {aiPending.current && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 AI 填写</button>}</div>
+      {aiPending.current && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>{agentActive ? '停止 Agent' : '停止 AI 填写'}</button>}</div>
+
     {message && <div className="notice" role="status">{message}</div>}
     {plan?.scan.warnings.map(warning => <div className="notice" key={warning}>{warning}</div>)}
     {!plan && !message && <div className="popup-profile-empty"><strong>从一份真实档案开始</strong>先在「我的档案」保存信息，再扫描当前网申页面。</div>}

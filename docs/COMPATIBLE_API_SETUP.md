@@ -51,7 +51,7 @@ npm run semantic:serve -- --config "E:\你的配置目录\模型.json"
 
 目前模型负责字段含义，扩展执行本地资料读取、动态观察和各条经历的事务流程。只有已核验的含义和答案能进入写入器；模型返回多余答案、脚本、工具调用、错误字段或不完整 JSON 时停止。
 
-下一轮优先开放受限的 Agent 步骤决策：观察栏目及可用控件，选择一个有明确目标的动作，执行后重新观察。截图回退、未知按钮探索以及更多重复栏目需要单独接入，当前不能视为已完成。
+v0.6.33 增加「启动 Agent 连续填写」入口，完整发布回归通过。升级后重启本机服务，再使用Agent。兼容接口启动的本机服务同时提供下一步决策：观察本页可执行任务，推进普通字段、教育、项目和实习，执行后重新观察；模型不能跳过待办来宣称完成。运行期间保持弹窗打开；原单栏连续入口仍可在关闭弹窗后继续。步骤与限制见 [Agent 计划](AGENT_NEXT_STEP.md)。截图回退、未知按钮探索以及更多重复栏目尚待接入。
 
 接口依据：[DeepSeek JSON 输出](https://api-docs.deepseek.com/guides/json_mode/)、[通义兼容 Chat API](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)、[通义结构化输出](https://help.aliyun.com/zh/model-studio/qwen-structured-output)。
 

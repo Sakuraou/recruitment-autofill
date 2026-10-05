@@ -2,10 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { timingSafeEqual } from 'node:crypto';
 import { parseSemanticProposal, semanticRequestSchema, type SemanticRequest } from '../ai/semanticProtocol';
 import type { CompanionProvider, CompanionResult } from './responsesProvider';
+import { agentStepRequestSchema, parseAgentStepProposal } from '../agent/nextStepProtocol';
+import type { AgentProvider, AgentProviderResult } from './agentProvider';
 
 export const SEMANTIC_SERVICE_HOST = '127.0.0.1';
 export const SEMANTIC_SERVICE_PORT = 43127;
-interface ServerConfig { token: string; provider?: CompanionProvider; deadlineMs?: number }
+interface ServerConfig { token: string; provider?: CompanionProvider; agentProvider?: AgentProvider; deadlineMs?: number }
 const MAX_BODY_BYTES = 128_000;
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -38,6 +40,17 @@ function normalizedResult(value: CompanionResult, request: SemanticRequest): Com
   return allowed.includes(value.state) && value.proposal === null ? { state: value.state, proposal: null } : empty('invalid-output');
 }
 
+function normalizedAgentResult(value: AgentProviderResult | CompanionResult, request: ReturnType<typeof agentStepRequestSchema.parse>): AgentProviderResult {
+  if (typeof value !== 'object' || value === null || Object.keys(value).length !== 2
+    || !Object.hasOwn(value, 'state') || !Object.hasOwn(value, 'proposal')) return { state: 'invalid-output', proposal: null };
+  if (value.state === 'ready') {
+    const proposal = parseAgentStepProposal(value.proposal, request);
+    return proposal ? { state: 'ready', proposal } : { state: 'invalid-output', proposal: null };
+  }
+  const allowed = ['disabled', 'refused', 'invalid-output', 'unavailable', 'cancelled', 'timeout', 'busy'];
+  return allowed.includes(value.state) && value.proposal === null ? { state: value.state, proposal: null } : { state: 'invalid-output', proposal: null };
+}
+
 /** No profile storage or request logging. The startup wrapper always binds the fixed loopback address. */
 export function createSemanticServer(config: ServerConfig) {
   if (!/^[a-f\d]{64}$/u.test(config.token)) throw new Error('配对令牌必须为 32 字节随机十六进制值');
@@ -53,7 +66,7 @@ export function createSemanticServer(config: ServerConfig) {
         reply(response, 403, empty('unavailable')); return;
       }
       const path = request.url;
-      if (path !== '/v1/bindings' && path !== '/v1/health') { reply(response, 404, empty('unavailable')); return; }
+      if (path !== '/v1/bindings' && path !== '/v1/next-step' && path !== '/v1/health') { reply(response, 404, empty('unavailable')); return; }
       if (request.method === 'OPTIONS') {
         const method = request.headers['access-control-request-method'];
         const requestedHeaders = String(request.headers['access-control-request-headers'] ?? '').toLowerCase().split(',').map(header => header.trim()).filter(Boolean);
@@ -74,21 +87,27 @@ export function createSemanticServer(config: ServerConfig) {
       if (!/^application\/json(?:\s*;.*)?$/iu.test(request.headers['content-type'] ?? '')) { reply(response, 415, empty('unavailable')); return; }
       const declaredLength = Number(request.headers['content-length']);
       if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) { request.resume(); reply(response, 413, empty('unavailable')); return; }
-      let parsed: ReturnType<typeof semanticRequestSchema.safeParse>;
-      try { parsed = semanticRequestSchema.safeParse(JSON.parse(await readBody(request))); }
+      const isAgent = path === '/v1/next-step';
+      let input: unknown;
+      try { input = JSON.parse(await readBody(request)); }
       catch (error) { reply(response, error instanceof Error && error.message === 'size' ? 413 : 400, empty('unavailable')); return; }
+      const parsed = isAgent ? agentStepRequestSchema.safeParse(input) : semanticRequestSchema.safeParse(input);
       if (!parsed.success) { reply(response, 400, empty('unavailable')); return; }
-      if (!config.provider) { reply(response, 503, empty('disabled')); return; }
+      if (isAgent ? !config.agentProvider : !config.provider) { reply(response, 503, empty('disabled')); return; }
       if (busy) { reply(response, 429, empty('busy')); return; }
       busy = true;
-      const controller = new AbortController(); let finish: (result: CompanionResult) => void = () => {};
-      const stopped = new Promise<CompanionResult>(resolve => { finish = resolve; });
+      const controller = new AbortController(); let finish: (result: CompanionResult | AgentProviderResult) => void = () => {};
+      const stopped = new Promise<CompanionResult | AgentProviderResult>(resolve => { finish = resolve; });
       const timer = setTimeout(() => { finish(empty('timeout')); controller.abort(); }, deadline);
       const disconnected = () => { if (!response.writableEnded) { finish(empty('cancelled')); controller.abort(); } };
       response.on('close', disconnected);
-      const operation = Promise.resolve().then(() => config.provider!(parsed.data, controller.signal)).catch(() => empty('unavailable'));
+      const operation = Promise.resolve().then<CompanionResult | AgentProviderResult>(() => isAgent
+        ? config.agentProvider!(agentStepRequestSchema.parse(parsed.data), controller.signal)
+        : config.provider!(semanticRequestSchema.parse(parsed.data), controller.signal)).catch(() => empty('unavailable'));
       try {
-        const result = normalizedResult(await Promise.race([operation, stopped]), parsed.data);
+        const output = await Promise.race([operation, stopped]);
+        const result = isAgent ? normalizedAgentResult(output, agentStepRequestSchema.parse(parsed.data))
+          : normalizedResult(output as CompanionResult, semanticRequestSchema.parse(parsed.data));
         reply(response, result.state === 'ready' || result.state === 'refused' ? 200 : 503, result);
       } finally { busy = false; clearTimeout(timer); response.removeListener('close', disconnected); }
     };

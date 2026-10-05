@@ -8,8 +8,8 @@ export const fillRequestSchema = z.object({
   items: z.array(z.object({ fieldId: z.string().min(1).max(150), value: z.string().max(50_000), confirmed: z.boolean() }).strict()).max(500),
 }).strict();
 export const pageOperationSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema }).strict(),
-  z.object({ type: z.literal('RA_SCAN_SETTLED') }).strict(),
+  z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema, agentRunToken: z.uuid().optional() }).strict(),
+  z.object({ type: z.literal('RA_SCAN_SETTLED'), agentRunToken: z.uuid().optional() }).strict(),
 ]);
 export type PageOperation = z.infer<typeof pageOperationSchema>;
 export const fillReplySchema = z.discriminatedUnion('ok', [

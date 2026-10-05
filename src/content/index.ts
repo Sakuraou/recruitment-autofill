@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { AgentPageLease } from '../agent/pageLease';
+import { verifyRecordPresence } from '../agent/recordCompletion';
+import { createAgentOwnerPortHandler } from './agentOwnerPort';
 import type { ContentResponse } from '../shared/types';
 import { fillScan } from './autofill';
 import { scanDocument, type ScanState } from './scanner';
@@ -28,6 +31,7 @@ declare global {
 }
 
 const requestSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('RA_AGENT_RECORD_CHECK'), payload: z.object({ token: z.uuid(), kind: z.enum(['education','project','internship']) }).strict() }).strict(),
   z.object({ type: z.literal('RA_SCAN') }).strict(),
   z.object({ type: z.literal('RA_SCAN_SETTLED') }).strict(),
   z.object({ type: z.literal('RA_VERIFY_SCAN'), payload: z.object({ scanId: z.string().min(1).max(100) }).strict() }).strict(),
@@ -43,20 +47,20 @@ const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('RA_RECORD_V2_PAUSE') }).strict(),
   z.object({ type: z.literal('RA_RECORD_V2_RESUME') }).strict(),
   z.object({ type: z.literal('RA_RECORD_V2_STOP') }).strict(),
-  z.object({ type: z.literal('RA_PROJECT_RECORD_START') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_START'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_STATUS') }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_PAUSE') }).strict(),
-  z.object({ type: z.literal('RA_PROJECT_RECORD_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_PROJECT_RECORD_RESUME'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_PROJECT_RECORD_STOP') }).strict(),
-  z.object({ type: z.literal('RA_EDUCATION_RECORD_START') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_START'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_EDUCATION_RECORD_STATUS') }).strict(),
   z.object({ type: z.literal('RA_EDUCATION_RECORD_PAUSE') }).strict(),
-  z.object({ type: z.literal('RA_EDUCATION_RECORD_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_EDUCATION_RECORD_RESUME'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_EDUCATION_RECORD_STOP') }).strict(),
-  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_START') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_START'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_INTERNSHIP_RECORD_STATUS') }).strict(),
   z.object({ type: z.literal('RA_INTERNSHIP_RECORD_PAUSE') }).strict(),
-  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_RESUME') }).strict(),
+  z.object({ type: z.literal('RA_INTERNSHIP_RECORD_RESUME'), agentRunToken: z.uuid().optional() }).strict(),
   z.object({ type: z.literal('RA_INTERNSHIP_RECORD_STOP') }).strict(),
   z.object({ type: z.literal('RA_FILL'), payload: fillRequestSchema }).strict(),
 ]);
@@ -81,8 +85,16 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       return createRecordV2FixtureSession(document, projectProjection, requestProjectProjection);
     } } : {}),
   });
+  const agentLease = new AgentPageLease(() => document.URL, () => filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage()
+    || internshipWorkflow.holdsPage() || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
+    || ['ready', 'running', 'paused'].includes(recordV2.status().state));
+  const ownedAgentWorkflows = new Set<{ holdsPage(): boolean; stop(): unknown }>();
+  chrome.runtime.onConnect.addListener(createAgentOwnerPortHandler({ extensionId: chrome.runtime.id,
+    extensionUrl: path => chrome.runtime.getURL(path), version: EXTENSION_VERSION, lease: agentLease,
+    releaseOwnedTasks: () => { for (const flow of ownedAgentWorkflows) if (flow.holdsPage()) flow.stop(); ownedAgentWorkflows.clear(); } }));
   chrome.runtime.onConnect.addListener(createPageOperationPortHandler({
     extensionId: chrome.runtime.id, extensionUrl: path => chrome.runtime.getURL(path),
+    authorize: request => agentLease.mayWrite(request.agentRunToken),
     acquire: () => {
       if (filling || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || workflow.isRunning() || ['ready', 'running', 'paused'].includes(recordV2.status().state))
         throw new Error('page occupied');
@@ -112,6 +124,18 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     const parsed = requestSchema.safeParse(message);
     if (!parsed.success) { sendResponse({ ok: false, error: '无效的扩展请求' }); return false; }
     const request = parsed.data;
+    if (request.type === 'RA_AGENT_RECORD_CHECK') {
+      if (!agentLease.mayWrite(request.payload.token)) { sendResponse({ ok: false, error: 'Agent 任务已失效' }); return false; }
+      const kind = request.payload.kind;
+      const flow = kind === 'education' ? educationWorkflow : kind === 'project' ? projectWorkflow : internshipWorkflow;
+      const load = kind === 'education' ? requestEducationProjection : kind === 'project' ? requestProjectProjection : requestInternshipProjection;
+      void load().then(projection => {
+        if (!agentLease.mayWrite(request.payload.token)) throw new Error('stopped');
+        const presence = verifyRecordPresence(scanDocument(), projection);
+        sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: flow.status(), presence } });
+      }).catch(() => sendResponse({ ok: false, error: '无法核验当前栏目或 Agent 已停止' }));
+      return true;
+    }
     if (request.type === 'RA_PROJECT_RECORD_START' || request.type === 'RA_PROJECT_RECORD_STATUS'
       || request.type === 'RA_PROJECT_RECORD_PAUSE' || request.type === 'RA_PROJECT_RECORD_RESUME' || request.type === 'RA_PROJECT_RECORD_STOP'
       || request.type === 'RA_EDUCATION_RECORD_START' || request.type === 'RA_EDUCATION_RECORD_STATUS'
@@ -131,6 +155,9 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
           sendResponse({ ok: true, data: operation === 'STOP' ? targetWorkflow.stop() : targetWorkflow.pause() }); return false;
         }
         if (!['START', 'RESUME'].includes(operation)) throw new Error('无效的栏目操作');
+        const agentRunToken = 'agentRunToken' in request ? request.agentRunToken : undefined;
+        if (!agentLease.mayWrite(agentRunToken)) throw new Error('Agent 正在处理本页，已阻止其他填写任务');
+        if (agentRunToken) ownedAgentWorkflows.add(targetWorkflow);
         if (filling || otherWorkflows.some(flow => flow.holdsPage()) || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase)
           || ['ready', 'running', 'paused'].includes(recordV2.status().state)) {
           throw new Error('另一个填写任务尚未结束，请先停止该任务');
@@ -152,7 +179,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       || request.type === 'RA_RECORD_V2_STOP') {
       try {
         if (request.type !== 'RA_RECORD_V2_STATUS' && request.type !== 'RA_RECORD_V2_STOP'
-          && (educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
+          && (agentLease.holdsPage() || educationWorkflow.holdsPage() || projectWorkflow.holdsPage() || internshipWorkflow.holdsPage() || filling || workflow.isRunning())) throw new Error('另一个填写任务尚未结束');
         if (request.type === 'RA_RECORD_V2_STATUS') {
           sendResponse({ ok: true, data: { version: EXTENSION_VERSION, state: recordV2.status() } }); return false;
         }
@@ -199,6 +226,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     if (educationWorkflow.holdsPage()) { sendResponse({ ok: false, error: '教育任务尚未结束，请先停止该任务再使用其他填写模式' }); return false; }
     if (projectWorkflow.holdsPage()) { sendResponse({ ok: false, error: '项目任务尚未结束，请在扩展中暂停或停止；其它填写模式需先停止项目任务' }); return false; }
     if (request.type === 'RA_WORKFLOW_START' || request.type === 'RA_WORKFLOW_RESUME') {
+      if (!agentLease.mayWrite()) { sendResponse({ ok: false, error: 'Agent 正在处理本页，请先停止' }); return false; }
       try { sendResponse({ ok: true, data: request.type === 'RA_WORKFLOW_START' ? workflow.start(request.payload) : workflow.resume() }); }
       catch (error) { sendResponse({ ok: false, error: error instanceof Error ? error.message : '启动连续填写失败' }); }
       return false;
@@ -231,6 +259,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       sendResponse(valid ? { ok: true, data: valid } : { ok: false, error: '网页内容已变化，已丢弃旧的 AI 结果。请重新扫描。' });
       return false;
     }
+    if (!agentLease.mayWrite()) { sendResponse({ ok: false, error: 'Agent 正在处理本页，请先停止' }); return false; }
     filling = true;
     void fillScan(currentScan, request.payload)
       .then((outcomes) => sendResponse({ ok: true, data: outcomes }))
