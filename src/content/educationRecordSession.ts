@@ -1,6 +1,6 @@
 import { educationFillOrder } from '../profile/educationFillOrder';
 import { bindRecordEditor, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
-import { resolveBoundEducationField, resolveEducationField } from '../matching/educationFieldResolver';
+import { qualifyEducationWeakMeaning, resolveBoundEducationField, resolveEducationField } from '../matching/educationFieldResolver';
 import { resolveEducationHighestField } from '../matching/educationHighestField';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
@@ -208,7 +208,7 @@ class EducationDriver implements RecordOrchestratorDriver {
       const resolved = highest.status === 'not-applicable'
         ? meaning ? resolveBoundEducationField(field, record, meaning) : resolveEducationField(field, record) : highest;
       if (resolved.status !== 'known') {
-        if (resolved.reason === 'field-semantic-unknown') { unknown.add(field.id); continue; }
+        if (resolved.reason === 'field-semantic-unknown' || !meaning && qualifyEducationWeakMeaning(field,record).status==='confirm') { unknown.add(field.id); continue; }
         return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
       }
       values.set(field.id, resolved.value);

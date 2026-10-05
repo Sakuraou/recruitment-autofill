@@ -119,7 +119,7 @@ export async function inferSemanticCandidates(scan: ScanResult, profile: UserPro
   const projectCurrent = () => (!options.projectContext || projectSemanticContextCurrent(options.projectContext, scan, profile, []))
     && (!options.educationContext || educationSemanticContextCurrent(options.educationContext, scan, profile, []))
     && (!options.internshipContext || internshipSemanticContextCurrent(options.internshipContext, scan, profile, []));
-  const created = createSemanticBindingSession(scan, profile, excluded, options.educationContext, options.internshipContext);
+  const created = createSemanticBindingSession(scan, profile, excluded, options.educationContext, options.internshipContext, options.projectContext);
   if (!created.ok) return empty(created.reason === 'no-candidates' ? 'no-candidates' : 'rejected');
   const controller = new AbortController();
   const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(100, Math.min(options.timeoutMs!, 30_000)) : 15_000;

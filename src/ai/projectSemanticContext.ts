@@ -2,7 +2,7 @@ import { profileSchema, type UserProfile } from '../profile/schema';
 import type { ScanResult } from '../shared/types';
 import type { ScanState } from '../content/scanner';
 import { currentControlFingerprint } from '../content/controlObservation';
-import { resolveBoundProjectField, type ProjectFieldResolution } from '../matching/projectFieldResolver';
+import { qualifyProjectWeakMeaning, resolveProjectField, resolveBoundProjectField, type ProjectFieldResolution } from '../matching/projectFieldResolver';
 import { isRecordPlanCurrentForSnapshot, isRecordTransactionCurrentForPlan, type ActiveRecordTransaction, type ReadyRecordPlan } from '../planner/recordPlanner';
 import { matchesIssuedRecordRunTarget, RecordRunContext, type RecordRunCapture } from '../planner/recordRunContext';
 
@@ -75,5 +75,25 @@ export function projectSemanticFieldIds(context: ProjectSemanticContext, scan: S
 export function resolveCurrentProjectField(context: ProjectSemanticContext, scan: ScanResult, profile: UserProfile, fieldId: string, path: string): ProjectFieldResolution | undefined {
   if (!projectSemanticContextCurrent(context, scan, profile, [fieldId])) return undefined;
   const local = contexts.get(context)!; const field = scan.fields.find(item => item.id === fieldId);
-  return field ? resolveBoundProjectField(field, profile.projects[local.input.activeTransaction.intentIndex]!, path) : undefined;
+  if(!field)return undefined;
+  const record=profile.projects[local.input.activeTransaction.intentIndex]!;const direct=resolveProjectField(field,record);
+  if(direct.status==='request-human' && direct.reason==='field-semantic-ambiguous'){
+   const weak=qualifyProjectWeakMeaning(field,record);
+   if(weak.status!=='confirm' || weak.path!==path)return Object.freeze({status:'request-human',reason:'field-semantic-ambiguous'});
+  }
+  return resolveBoundProjectField(field,record,path);
+}
+
+/** Read-only qualification of one original field inside a genuine current editor. */
+export function projectSemanticWeakPath(context:ProjectSemanticContext,scan:ScanResult,profile:UserProfile,fieldId:string):string|undefined {
+ if(!projectSemanticContextCurrent(context,scan,profile,[fieldId]))return undefined;
+ const local=contexts.get(context)!;const field=scan.fields.find(item=>item.id===fieldId);if(!field)return undefined;
+ const result=qualifyProjectWeakMeaning(field,profile.projects[local.input.activeTransaction.intentIndex]!);
+ return result.status==='confirm'?result.path:undefined;
+}
+export function projectSemanticUnknownField(context:ProjectSemanticContext,scan:ScanResult,profile:UserProfile,fieldId:string):boolean {
+ if(!projectSemanticContextCurrent(context,scan,profile,[fieldId]))return false;
+ const local=contexts.get(context)!;const field=scan.fields.find(item=>item.id===fieldId);if(!field)return false;
+ const result=resolveProjectField(field,profile.projects[local.input.activeTransaction.intentIndex]!);
+ return result.status==='request-human' && result.reason==='field-semantic-unknown';
 }

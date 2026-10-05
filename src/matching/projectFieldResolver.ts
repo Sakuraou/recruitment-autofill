@@ -1,4 +1,5 @@
-import type { ProjectProjectionEntry } from '../profile/projection';
+import { weakMeaningEvidenceAgrees, type WeakMeaningQualification } from './weakMeaningEvidence';
+import { projectProjectionEntrySchema, type ProjectProjectionEntry } from '../profile/projection';
 import type { FieldDescriptor, MatchResult } from '../shared/types';
 import { detectField } from './fieldMatcher';
 import { matchOption } from './optionMatcher';
@@ -23,25 +24,31 @@ function dateValue(value: string, field: FieldDescriptor): string | ProjectField
   return field.type === 'month' ? value.slice(0, 7) : value;
 }
 
+function projectMeaning(field: FieldDescriptor) {
+  const withoutCaption = (text: string): string => ownershipCaptions.has(normalize(text)) ? '' : text;
+  const scoped = { ...field, label: withoutCaption(field.label), ariaLabel: withoutCaption(field.ariaLabel),
+    tableHeader: withoutCaption(field.tableHeader), title: withoutCaption(field.title), placeholder: withoutCaption(field.placeholder) };
+  const hasPrimaryLabel = [scoped.label, scoped.ariaLabel, scoped.tableHeader].some(text => text.trim());
+  return detectField({ ...scoped, sectionText: '项目经历', previousText: '', parentText: '',
+    ...(hasPrimaryLabel ? { name: '', htmlId: '', title: '', placeholder: '' } : {}) });
+}
+function fieldProblem(field: FieldDescriptor): boolean {
+ return !!field.blockedReason || field.disabled || field.readOnly || field.kind==='checkbox'
+  || /隐私协议|用户协议|我同意|授权|承诺|声明|验证码|校验码|证明人|联系人|上传|附件|签名|consent|signature|i\s+agree|captcha|verification\s+code|referee|certifier|contact|upload|attachment/iu.test([
+   field.label,field.ariaLabel,field.tableHeader,field.title,field.placeholder].join(' '));
+}
 /** Call only for a field owned by an already-verified project editor. */
 export function resolveProjectField(field: FieldDescriptor, record: ProjectProjectionEntry): ProjectFieldResolution {
   const reject = (reason: ProjectFieldReason): ProjectFieldResolution => Object.freeze({ status: 'request-human', reason });
-  if (field.blockedReason || field.kind === 'checkbox') return reject('field-unsupported');
-  if (/隐私协议|用户协议|我同意|授权|承诺|声明|consent|signature|i\s+agree/iu.test([
-    field.label, field.ariaLabel, field.tableHeader, field.title, field.placeholder,
-  ].join(' '))) return reject('field-unsupported');
+  if (fieldProblem(field)) return reject('field-unsupported');
   // Editor ownership supplies collection context; it does not turn personal,
   // education, authorization or unknown labels into project fields.
   // Section headings and enclosing editor text provide ownership, never an
   // answer label. In particular, “项目经历” above an unknown input must not
   // turn that input into the project's description.
-  const withoutCaption = (text: string): string => ownershipCaptions.has(normalize(text)) ? '' : text;
-  const scoped = { ...field, label: withoutCaption(field.label), ariaLabel: withoutCaption(field.ariaLabel),
-    tableHeader: withoutCaption(field.tableHeader), title: withoutCaption(field.title), placeholder: withoutCaption(field.placeholder) };
-  const hasPrimaryLabel = [scoped.label, scoped.ariaLabel, scoped.tableHeader].some(text => text.trim());
-  const detected = detectField({ ...scoped, sectionText: '项目经历', previousText: '', parentText: '',
-    ...(hasPrimaryLabel ? { name: '', htmlId: '', title: '', placeholder: '' } : {}) });
-  if (!detected || detected.alias.scope !== 'projects' || !keys.has(detected.alias.key)) return reject('field-semantic-unknown');
+  const detected = projectMeaning(field);
+  if (!detected) return reject('field-semantic-unknown');
+  if (detected.alias.scope !== 'projects' || !keys.has(detected.alias.key)) return reject('field-semantic-ambiguous');
   if (detected.ambiguous || detected.confidence < AUTO_CONFIDENCE) return reject('field-semantic-ambiguous');
   return resolveProjectValue(field, record, detected.alias.key as Exclude<keyof ProjectProjectionEntry, 'id'>,
     detected.confidence, detected.source);
@@ -51,12 +58,9 @@ export function resolveProjectField(field: FieldDescriptor, record: ProjectProje
 export function resolveBoundProjectField(field: FieldDescriptor, record: ProjectProjectionEntry, path: string): ProjectFieldResolution {
   const key = path.startsWith('projects.') ? path.slice(9) : '';
   if (!keys.has(key)) return Object.freeze({ status: 'request-human', reason: 'field-semantic-unknown' });
-  if (field.blockedReason || field.disabled || field.readOnly || field.kind === 'checkbox'
+  if (fieldProblem(field)
     || field.kind === 'input' && (!['text', 'search', 'url', 'date', 'month'].includes(field.type)
-      || field.type === 'url' && key !== 'url' || ['date', 'month'].includes(field.type) && !['startDate', 'endDate'].includes(key))
-    || /隐私协议|用户协议|我同意|授权|承诺|声明|consent|signature|i\s+agree/iu.test([
-      field.label, field.ariaLabel, field.tableHeader, field.title, field.placeholder,
-    ].join(' '))) return Object.freeze({ status: 'request-human', reason: 'field-unsupported' });
+      || field.type === 'url' && key !== 'url' || ['date', 'month'].includes(field.type) && !['startDate', 'endDate'].includes(key))) return Object.freeze({ status: 'request-human', reason: 'field-unsupported' });
   return resolveProjectValue(field, record, key as Exclude<keyof ProjectProjectionEntry, 'id'>, 0.9, 'rule');
 }
 
@@ -92,4 +96,21 @@ function resolveProjectValue(field: FieldDescriptor, record: ProjectProjectionEn
     value = matched.value;
   }
   return Object.freeze({ status: 'known', key: `projects.${key}`, value, confidence });
+}
+
+/** Read-only eligibility; current-record provenance and model agreement are checked by the caller. */
+export function qualifyProjectWeakMeaning(field: FieldDescriptor, record: ProjectProjectionEntry): WeakMeaningQualification {
+ const blocked=(reason:'not-weak'|'conflicting-evidence'|'local-value-unavailable'):WeakMeaningQualification=>Object.freeze({status:'blocked',reason});
+ const direct=[field.label,field.ariaLabel,field.tableHeader,field.title,field.placeholder].join(' ');
+ if(field.hasValue || field.disabled || field.readOnly || field.blockedReason || fieldProblem(field)
+  || /是否|有无|有没有|不是|并非|不属于|不包含|无需|已取得|已获得|已经获得|最高|验证码|校验码|证明人|联系人|上传|附件|签名|\b(?:not|without|whether|earned|obtained|highest|captcha|referee|certifier|contact|upload|attachment)\b/iu.test(direct))return blocked('not-weak');
+ const local=resolveProjectField(field,record);const detected=projectMeaning(field);
+ if(local.status!=='request-human' || local.reason!=='field-semantic-ambiguous' || !detected || detected.ambiguous
+  || detected.confidence>=AUTO_CONFIDENCE || detected.alias.scope!=='projects' || !keys.has(detected.alias.key)
+  )return blocked('not-weak');
+ if(['startDate','endDate'].includes(detected.alias.key) && !(['date','month'].includes(field.type) || field.kind==='select'))return blocked('not-weak');
+ if(!weakMeaningEvidenceAgrees(field,'projects',detected.alias.key))return blocked('conflicting-evidence');
+ const path='projects.'+detected.alias.key;
+ if(!projectProjectionEntrySchema.safeParse(record).success || resolveBoundProjectField(field,record,path).status!=='known')return blocked('local-value-unavailable');
+ return Object.freeze({status:'confirm',path});
 }

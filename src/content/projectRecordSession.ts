@@ -1,5 +1,5 @@
 import { bindRecordEditor, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
-import { resolveBoundProjectField, resolveProjectField } from '../matching/projectFieldResolver';
+import { qualifyProjectWeakMeaning, resolveBoundProjectField, resolveProjectField } from '../matching/projectFieldResolver';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
   type RecordRunCaptureSource } from '../planner/recordRunContext';
@@ -201,7 +201,7 @@ class ProjectDriver implements RecordOrchestratorDriver {
       const meaning = control && this.#semanticPaths.get(control.node);
       const resolved = meaning ? resolveBoundProjectField(field, record, meaning) : resolveProjectField(field, record);
       if (resolved.status !== 'known') {
-        if (resolved.reason === 'field-semantic-unknown') { unknown.add(field.id); continue; }
+        if (resolved.reason === 'field-semantic-unknown' || !meaning && qualifyProjectWeakMeaning(field,record).status==='confirm') { unknown.add(field.id); continue; }
         return { status: 'request-human', reason: resolved.reason, writtenFieldCount: 0, rollbackComplete: true };
       }
       values.set(field.id, resolved.value);

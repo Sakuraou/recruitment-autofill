@@ -22,3 +22,5 @@ export function weakMeaningEvidenceAgrees(field: FieldDescriptor, scope: AliasSc
   return primary.every(text => agrees(text) && text.normalize('NFKC').split(/\s*(?:[/、;；]|或者|或是|以及|和|与|及|或|\bor\b|\band\b)\s*/iu)
     .every(fragment => !!fragment.trim() && agrees(fragment)));
 }
+
+export type WeakMeaningQualification = Readonly<{status:'confirm';path:string}> | Readonly<{status:'blocked';reason:'not-weak'|'conflicting-evidence'|'local-value-unavailable'}>;

@@ -395,12 +395,13 @@ export async function bindRecordEditor(input: RecordEditorBindInput): Promise<Re
       items.length, rollbackComplete);
   }
 
-  // Choices may reveal controls asynchronously. Observe only this editor;
-  // manual rewrites, replacement and cancellation cannot grant a saving capability.
-  if (input.allowExpansion === true && bindings.some(binding => !binding.preserved
-    && (binding.control.node.tagName === 'SELECT' || binding.control.adapter === 'radio-group' || binding.control.adapter === 'aria-combobox'))) {
+  // Any answer can reveal controls asynchronously, including plain text.
+  // Observe only this editor; manual rewrites, replacement and cancellation
+  // cannot grant a saving capability.
+  if (input.allowExpansion === true && items.length > 0) {
     const quiet = await waitForDomStability({ root: editor, signal, quietWindowMs: 750, timeoutMs: 3_000,
-      predicate: () => bindings.every(binding => bindingOwned(binding, scanState.document)
+      predicate: () => editor.getAttribute('aria-busy') !== 'true' && !editor.querySelector('[aria-busy="true"]')
+        && bindings.every(binding => bindingOwned(binding, scanState.document)
         && bindingIdentity(binding.control) === binding.rollbackIdentity
         && currentValueMatches(binding.control, binding.value)) });
     if (quiet.status !== 'stable') {
