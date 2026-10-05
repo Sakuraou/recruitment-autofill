@@ -5,7 +5,7 @@ import { errorMessage } from '../shared/errors';
 import type { RecordWorkflowState } from '../workflow/recordState';
 
 
-type RecordCommand = `RA_${'PROJECT' | 'EDUCATION' | 'INTERNSHIP' | 'AWARD' | 'PUBLICATION'}_RECORD_${'START' | 'STATUS' | 'PAUSE' | 'RESUME' | 'STOP'}`;
+type RecordCommand = `RA_${'PROJECT' | 'EDUCATION' | 'INTERNSHIP' | 'AWARD' | 'PUBLICATION' | 'STUDENT_WORK'}_RECORD_${'START' | 'STATUS' | 'PAUSE' | 'RESUME' | 'STOP'}`;
 export interface RecordControlsConfig {
   readonly messages: Readonly<Record<'status' | 'start' | 'pause' | 'resume' | 'stop', RecordCommand>>;
   readonly section: string; readonly title: string; readonly description: string;
@@ -65,7 +65,9 @@ export function RecordControls({ config }: { config: RecordControlsConfig }) {
     } catch (cause) { if (current()) setError(errorMessage(cause)); }
     finally { if (current()) setBusy(false); }
   }
-  if (!state || (!state.canStart && state.phase === 'idle')) return null;
+  if (!state || (!state.canStart && state.phase === 'idle')) return error
+    ? <section className="workflow-panel" aria-label={config.section}><h2>{config.title}</h2><p className="notice" role="alert">{error}</p></section>
+    : null;
   const active = ['preparing', 'running', 'pausing', 'paused', 'review'].includes(state.phase);
   return <section className="workflow-panel" aria-label={config.section}>
     <h2>{config.title}</h2>

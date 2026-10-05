@@ -9,7 +9,7 @@ import { matchFields } from '../src/matching/ruleMatcher';
 import { installPublicationSessionPage, publicationSessionProfile } from './fixtures/publication-session-page';
 afterEach(() => { document.body.innerHTML = ''; });
 const idle = (total=0, canStart=false): AgentRecordCheck => ({state:{phase:'idle',total,canStart},presence:{state:'unverified',total,matched:0}});
-const checks = (total=0) => ({education:idle(),project:idle(),internship:idle(),award:idle(),publication:idle(total,true)});
+const checks = (total=0) => ({education:idle(),project:idle(),internship:idle(),award:idle(),publication:idle(total,true),'student-work':idle()});
 function source() {
  const profile=createEmptyProfile();profile.research.papers=publicationSessionProfile.publications.map(paper=>profileSchema.shape.research.shape.papers.element.parse(paper));return profile;
 }
@@ -68,5 +68,5 @@ it('six offered tasks fit the bounded protocol and unknown actions stay rejected
  const parsed=agentStepRequestSchema.safeParse(request);expect(parsed.success).toBe(true);
  if(parsed.success){expect(parseAgentStepProposal({requestId:request.requestId,status:'act',ref:'task-5',reason:'available-task'},parsed.data)?.ref).toBe('task-5');
  expect(parseAgentStepProposal({requestId:request.requestId,status:'act',ref:'task-6',reason:'available-task'},parsed.data)).toBeUndefined();}
- expect(agentStepRequestSchema.safeParse({...request,tasks:[...request.tasks,{ref:'task-6',kind:'student-work-records',count:1}]}).success).toBe(false);
+ expect(agentStepRequestSchema.safeParse({...request,tasks:[...request.tasks,{ref:'task-6',kind:'unsupported-records',count:1}]}).success).toBe(false);
 });

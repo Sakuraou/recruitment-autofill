@@ -1,6 +1,6 @@
 {
   "name": "recruitment-autofill",
-  "version": "0.6.36",
+  "version": "0.6.37",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,7 +13,7 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --reporter=default --reporter=json --outputFile=artifacts/unit-results.json",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-record-radio-ownership.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-internship-semantic-context.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-internship-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-internship-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs && node scripts/test-record-weak-extension.mjs && node scripts/test-compatible-api-extension.mjs && node scripts/test-agent-extension.mjs && node scripts/test-scalar-weak-extension.mjs",
+    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-record-radio-ownership.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-internship-semantic-context.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-internship-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-internship-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs && node scripts/test-record-weak-extension.mjs && node scripts/test-compatible-api-extension.mjs && node scripts/test-agent-extension.mjs && node scripts/test-scalar-weak-extension.mjs && node scripts/test-student-work-extension.mjs",
     "test:record-v2": "node scripts/test-record-v2.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "serve:example": "node scripts/serve-example.mjs",
@@ -24,7 +24,9 @@
     "test:agent": "vitest run tests/agent-",
     "test:agent:e2e": "node scripts/test-agent-extension.mjs",
     "test:scalar-weak": "vitest run tests/scalar-weak-",
-    "test:scalar-weak:e2e": "node scripts/test-scalar-weak-extension.mjs"
+    "test:scalar-weak:e2e": "node scripts/test-scalar-weak-extension.mjs",
+    "test:student-work": "vitest run tests/student-work- tests/agent-student-work",
+    "test:student-work:e2e": "node scripts/test-student-work-extension.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",

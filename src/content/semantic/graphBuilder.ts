@@ -19,6 +19,7 @@ import { isEducationHighestQuestionGroup } from './educationQuestionGroup';
 import { isInternshipProofQuestionGroup, isInternshipPresenceQuestionGroup } from './internshipQuestionGroup';
 import { isAwardPresenceQuestionGroup, isAwardCadreQuestionGroup } from './awardQuestionGroup';
 import { isPublicationPresenceQuestionGroup } from './publicationQuestionGroup';
+import { isStudentWorkPresenceQuestionGroup } from './studentWorkQuestionGroup';
 import { classifyAction, type ActionCandidate, type ClassifiedAction } from './actionClassifier';
 import {
   detectRecordStructures,
@@ -323,13 +324,14 @@ function transparentRecordQuestion(container: Element): boolean {
   const expectedRole = isEducationHighestQuestionGroup(container) ? 'education'
     : isInternshipProofQuestionGroup(container) || isInternshipPresenceQuestionGroup(container) ? 'internship'
     : isAwardPresenceQuestionGroup(container) || isAwardCadreQuestionGroup(container) ? 'award'
-    : isPublicationPresenceQuestionGroup(container) ? 'publication' : undefined;
+    : isPublicationPresenceQuestionGroup(container) ? 'publication'
+    : isStudentWorkPresenceQuestionGroup(container) ? 'student-work' : undefined;
   if (!expectedRole) return false;
   for (let ancestor = container.parentElement, depth = 0; ancestor && depth < 10; ancestor = ancestor.parentElement, depth++) {
     if (!ancestor.matches('fieldset,section,form,[role="region"],[role="group"],[role="form"]')) continue;
     const candidates = ancestor.matches('form') ? candidatesFor(ancestor).filter(item => item.evidence === 'aria-name') : candidatesFor(ancestor);
     if (!candidates.length) {
-      if (['internship','award','publication'].includes(expectedRole) && !ancestor.matches('form')) return false;
+      if (['internship','award','publication','student-work'].includes(expectedRole) && !ancestor.matches('form')) return false;
       continue;
     }
     const roles = new Set(candidates.map(candidate => classifySection([candidate]).role).filter(role => role !== 'other'));

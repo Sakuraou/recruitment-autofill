@@ -14,6 +14,7 @@ import { ProjectRecordControls } from './ProjectRecords';
 import { EducationRecordControls } from './EducationRecords';
 import { InternshipRecordControls } from './InternshipRecords';
 import { PublicationRecordControls } from './PublicationRecords';
+import { StudentWorkRecordControls } from './StudentWorkRecords';
 import { AwardRecordControls } from './AwardRecords';
 import { fillWithAgent } from './agentBridge';
 import type { AgentRunStatus } from '../agent/runController';
@@ -148,14 +149,14 @@ export function PopupApp() {
     {plan && <div className="scan-host">{new URL(plan.scan.url).host || '本地文件'} · {plan.scan.title}</div>}
     <section className="workflow-panel" aria-label="Agent 连续填写">
       <h2>Agent 连续填写本页（试用）</h2>
-      <p>自动推进普通字段、教育、项目、实习、奖励和专业论著，逐条添加并核验。需要已配置的兼容 API 本地服务。</p>
+      <p>自动推进普通字段、教育、项目、实习、奖励、专业论著和校内职务，逐条添加并核验。需要已配置的兼容 API 本地服务。</p>
       <button type="button" className="primary" disabled={busy} onClick={() => void fillAgent()}>启动 Agent 连续填写</button>
       {agentActive && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 Agent</button>}
       {agentActive && agentStatus && <p role="status">{({ observing: '正在检查网页', thinking: '正在安排下一步', acting: '正在填写并核验' } as Record<string,string>)[agentStatus.phase] ?? '正在处理'} · 已执行 {agentStatus.steps} 步</p>}
-      <small>运行期间请保持弹窗打开；关闭会停止后续操作并保留网页草稿。陌生字段、论文、附件和最终提交仍列为待办。</small>
+      <small>运行期间请保持弹窗打开；关闭会停止后续操作并保留网页草稿。陌生字段、资料不完整的经历、附件和最终提交仍列为待办。</small>
     </section>
     {message && <div className="notice" role="status">{message}</div>}
-    {!agentActive && <><MobileWorkflowControls /><EducationRecordControls /><InternshipRecordControls /><ProjectRecordControls /><AwardRecordControls /><PublicationRecordControls /></>}
+    {!agentActive && <><MobileWorkflowControls /><EducationRecordControls /><InternshipRecordControls /><ProjectRecordControls /><AwardRecordControls /><PublicationRecordControls /><StudentWorkRecordControls /></>}
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>
       <button type="button" className="primary" disabled={busy || !autoCount} onClick={() => void fill('auto')}>一键填写高置信度字段</button></div>

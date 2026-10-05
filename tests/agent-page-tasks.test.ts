@@ -7,7 +7,7 @@ import { installEducationSessionPage, educationSessionProfile } from './fixtures
 import { installWeakProjectSessionPage } from './fixtures/weak-project-session-page';
 const profile = profileSchema.parse({ ...createEmptyProfile(), basic: { name: '虚构姓名' }, education: educationSessionProfile.education });
 const idle = (total = 0, canStart = false): AgentRecordCheck => ({ state: { phase: 'idle', total, canStart }, presence: { state: 'unverified', total, matched: 0 } });
-const checks = () => ({ education: idle(2), project: idle(), internship: idle(), award:idle(), publication:idle() });
+const checks = () => ({ education: idle(2), project: idle(), internship: idle(), award:idle(), publication:idle(),'student-work':idle() });
 afterEach(() => { document.body.innerHTML = ''; });
 function observe(attempted = new Set<string>(), overrides = {}) {
   const scan = scanDocument().result;

@@ -4,6 +4,8 @@ import { educationProjectionResponseSchema } from '../profile/educationProjectio
 import { projectProjectionResponseSchema } from '../profile/projection';
 import { internshipProjectionResponseSchema } from '../profile/internshipProjection';
 import { publicationProjectionResponseSchema } from '../profile/publicationProjection';
+import { studentWorkProjectionResponseSchema } from '../profile/studentWorkProjection';
+import { studentWorkCardComparator } from '../content/studentWorkRecordIdentity';
 import { publicationCardComparator } from '../content/publicationRecordIdentity';
 import { awardProjectionResponseSchema } from '../profile/awardProjection';
 import { educationCardComparator } from '../content/educationRecordIdentity';
@@ -22,8 +24,9 @@ export function verifyRecordPresence(scan: ScanState, projection: unknown): Reco
   const internship = internshipProjectionResponseSchema.safeParse(projection);
   const award = awardProjectionResponseSchema.safeParse(projection);
   const publication = publicationProjectionResponseSchema.safeParse(projection);
-  const records = education.success ? education.data.education : project.success ? project.data.projects : internship.success ? internship.data.internships : award.success ? award.data.awards : publication.success ? publication.data.publications : undefined;
-  const kind = education.success ? 'education' : project.success ? 'project' : internship.success ? 'internship' : award.success ? 'award' : publication.success ? 'publication' : undefined;
+  const studentWork = studentWorkProjectionResponseSchema.safeParse(projection);
+  const records = education.success ? education.data.education : project.success ? project.data.projects : internship.success ? internship.data.internships : award.success ? award.data.awards : publication.success ? publication.data.publications : studentWork.success ? studentWork.data.studentWork : undefined;
+  const kind = education.success ? 'education' : project.success ? 'project' : internship.success ? 'internship' : award.success ? 'award' : publication.success ? 'publication' : studentWork.success ? 'student-work' : undefined;
   if (!records || !kind || !records.length || new Set(records.map(record => record.id)).size !== records.length) return fail();
   const graph = scan.result.semanticGraph; const total = records.length;
   if (!verifyScanObservation(scan)) return fail(total);
@@ -46,6 +49,7 @@ export function verifyRecordPresence(scan: ScanState, projection: unknown): Reco
     else if (internship.success) { const comparator = internshipCardComparator(card, internship.data.internships); ready = comparator.ready; verdicts = internship.data.internships.map(record => comparator.compare(record).verdict); }
     else if (award.success) { const comparator = awardCardComparator(card, award.data.awards); ready = comparator.ready; verdicts = award.data.awards.map(record => comparator.compare(record).verdict); }
     else if (publication.success) { const comparator = publicationCardComparator(card, publication.data.publications); ready = comparator.ready; verdicts = publication.data.publications.map(record => comparator.compare(record).verdict); }
+    else if (studentWork.success) { const comparator = studentWorkCardComparator(card); ready = comparator.ready; verdicts = studentWork.data.studentWork.map(record => comparator.compare(record).verdict); }
     // A card cannot prove multiple distinct source records. Uncertain identity must not disappear in a count.
     if (!ready || verdicts.filter(verdict => verdict === 'same').length > 1 || verdicts.includes('insufficient')) return fail(total);
     evidence.push(verdicts);

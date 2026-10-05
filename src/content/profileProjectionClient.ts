@@ -8,6 +8,20 @@ import { awardProjectionRequestSchema, awardProjectionResponseSchema,
   type AwardProjectionResponse } from '../profile/awardProjection';
 import { publicationProjectionRequestSchema, publicationProjectionResponseSchema,
   type PublicationProjectionResponse } from '../profile/publicationProjection';
+import { studentWorkProjectionRequestSchema, studentWorkProjectionResponseSchema,
+  type StudentWorkProjectionResponse } from '../profile/studentWorkProjection';
+
+/** Fixed campus-position facts only. No applicant, private identity, index, selector or caller path. */
+export async function requestStudentWorkProjection(): Promise<StudentWorkProjectionResponse> {
+  const response = await chrome.runtime.sendMessage(studentWorkProjectionRequestSchema.parse({ type: 'RA_PROFILE_STUDENT_WORK' })) as unknown;
+  if (!response || typeof response !== 'object' || (response as { ok?: unknown }).ok !== true) throw new Error('无法读取校内职务档案投影');
+  const parsed = studentWorkProjectionResponseSchema.safeParse((response as { data?: unknown }).data);
+  if (!parsed.success) throw new Error('校内职务档案投影格式无效');
+  return Object.freeze({ ...parsed.data, ...(parsed.data.fact ? { fact: Object.freeze({ ...parsed.data.fact }) } : {}),
+    studentWork: Object.freeze(parsed.data.studentWork.map(record => Object.freeze({ ...record,
+      ...(record.endDateFact ? { endDateFact: Object.freeze({ ...record.endDateFact }) } : {}),
+    }))) });
+}
 
 /** Fixed paper-only request. No profile path, record index, applicant facts or page selector. */
 export async function requestPublicationProjection(): Promise<PublicationProjectionResponse> {
