@@ -1386,3 +1386,5 @@ I-011E专业论著已建立隔离最小资料投影和当前论文纯字段解�
 ### 2026-10-05 · I-011F正式候选接入（验收进行中）
 
 已按冻结快照SHA256合入36个src/tests变化，加入实际MV3脚本与npm命令，候选源码版本v0.6.37；完整lint/类型/单元验收即将启动。安装包dist仍v0.6.36，回退在 artifacts/i011f-official36-dist；在完整验收完成前不宣布v0.6.37发布。下一步先接续在运行的全量检查，必要浏览器组与候选实际MV3完成后更新正式统计、安装说明与计划。
+
+2026-10-05 14:07 UTC：候选实现已提交 `11c7604`，正式 lint 和 strict 类型通过。完整单元在执行（会话7143，Vitest PID8020；日志 artifacts/i011f-official-unit.log）。后续控制器已启动（会话40758，artifacts/finish-i011f-official.mjs），等本轮新的成功单元JSON后只构建一次，顺序执行23组浏览器脚本；每步记录退出码/时间/日志，失败停止且保留已通过结果。状态 artifacts/i011f-official-progress.json，控制日志 artifacts/i011f-official-controller.log。只接受本轮新报告，并以源码指纹310b178c35006b63e5c42498fbc7deccb0c600693ee27cc5e5126efeda691c47保证运行中无变化。下一轮先收取或接续这些进程，禁止重复启动；全部通过后再做发布汇总/安装说明，不把已合入源码当作已发布。
