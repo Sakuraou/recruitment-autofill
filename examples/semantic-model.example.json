@@ -1,0 +1,7 @@
+{
+  "provider": "openai-compatible",
+  "baseUrl": "https://api.deepseek.com/v1",
+  "model": "YOUR_MODEL_NAME",
+  "apiKeyEnv": "RA_MODEL_API_KEY",
+  "outputFormat": "json_object"
+}
