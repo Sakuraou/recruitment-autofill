@@ -14,7 +14,7 @@ async function request(){const ownership=owner();const response=await message({t
 beforeEach(async()=>{vi.resetModules();delete window.__recruitmentAutofillInstalled;connections=[];owners=[];opens=0;selections=0;delay=20;
  document.body.innerHTML='<section aria-label="个人信息"><label for="c">招聘选项</label><button id="c" type="button" role="combobox" aria-controls="l" aria-expanded="false">请选择</button><div id="l" role="listbox" hidden></div><label>姓名<input id="other"></label></section>';
  node=document.querySelector<HTMLElement>('#c')!;list=document.querySelector<HTMLElement>('#l')!;
- const original=node,originalList=list;node.addEventListener('click',()=>{opens++;original.setAttribute('aria-expanded','true');originalList.hidden=false;setTimeout(()=>{originalList.innerHTML='<div role="option" data-value="internal-a">选项甲</div><div role="option" data-value="internal-b">选项乙</div>';},delay);});list.addEventListener('click',()=>selections++);
+ const original=node,originalList=list;node.addEventListener('click',()=>{opens++;original.setAttribute('aria-expanded','true');originalList.hidden=false;if(delay>=0)setTimeout(()=>{originalList.innerHTML='<div role="option" data-value="internal-a">选项甲</div><div role="option" data-value="internal-b">选项乙</div>';},delay);});list.addEventListener('click',()=>selections++);
  vi.stubGlobal('chrome',{runtime:{id:source.id,getURL:(path:string)=>`chrome-extension://${source.id}/${path}`,onConnect:{addListener:(fn:(port:chrome.runtime.Port)=>void)=>connections.push(fn)},onMessage:{addListener:(fn:Listener)=>{listener=fn;}},sendMessage:vi.fn(async()=>{throw new Error('profile read was not requested');})}});
  await import('../src/content/index');
 });
@@ -62,4 +62,35 @@ it('eligibility cannot refer to a record editor even when its combo is empty and
 it('eligibility rejects changed original control nodes and extra payload',async()=>{
  const s=await request();node.replaceWith(node.cloneNode(true));expect((await message({type:'RA_AGENT_OPTION_CHECK',agentRunToken:s.ownership.token,payload:{scanId:s.scan.scanId}})).ok).toBe(false);
  expect((await message({type:'RA_AGENT_OPTION_CHECK',agentRunToken:s.ownership.token,payload:{scanId:s.scan.scanId,selector:'button'}})).ok).toBe(false);expect(opens).toBe(0);
+});
+function secondCombo(){
+ document.querySelector('section')!.insertAdjacentHTML('beforeend','<label for="second">另一招聘选项</label><button id="second" type="button" role="combobox" aria-expanded="false" aria-controls="second-list">请选择</button><div role="listbox" id="second-list" hidden></div>');
+ const second=document.querySelector<HTMLElement>('#second')!,secondList=document.querySelector<HTMLElement>('#second-list')!;let clicks=0;
+ second.addEventListener('click',()=>{clicks++;second.setAttribute('aria-expanded','true');secondList.hidden=false;secondList.innerHTML='<div role="option">选项乙</div>';});
+ return {second,count:()=>clicks};
+}
+it('private unanswered content handoff installs a fresh scan and exposes no selected answer',async()=>{
+ delay=-1;const s=await request();expect(await message(s.value)).toEqual({ok:true,data:{version:EXTENSION_VERSION,status:'empty',reason:'options-empty'}});
+ expect((await message({type:'RA_VERIFY_SCAN',payload:{scanId:s.scan.scanId}})).ok).toBe(false);const response=await message({type:'RA_SCAN'}),scan=response.data as ScanResult;
+ expect(scan.scanId).not.toBe(s.scan.scanId);expect(scan.fields.find(f=>f.htmlId==='c')).toMatchObject({hasValue:false,options:[]});expect(opens).toBe(1);expect(selections).toBe(0);
+});
+it('content preview keeps original attempts across UUID rescans and offers the second combo',async()=>{
+ delay=-1;const second=secondCombo(),s=await request();expect((await message(s.value)).data).toMatchObject({status:'empty'});
+ node.setAttribute('aria-expanded','false');list.hidden=true;const scan=(await message({type:'RA_SCAN'})).data as ScanResult,field=scan.fields.find(f=>f.htmlId==='second')!;
+ expect((await message({type:'RA_AGENT_OPTION_CHECK',agentRunToken:s.ownership.token,payload:{scanId:scan.scanId}})).data).toMatchObject({fieldIds:[field.id]});
+ const first=scan.fields.find(f=>f.htmlId==='c')!;expect((await message({...s.value,payload:{scanId:scan.scanId,fieldId:first.id}})).data).toMatchObject({status:'pending',reason:'observation-already-attempted'});
+ expect((await message({...s.value,payload:{scanId:scan.scanId,fieldId:field.id}})).data).toMatchObject({status:'observed',optionCount:1});expect(second.count()).toBe(1);expect(opens).toBe(1);expect(selections).toBe(0);
+});
+it('same-owner stop after the unanswered handoff revokes all remaining observation tasks',async()=>{
+ delay=-1;const second=secondCombo(),s=await request();await message(s.value);expect((await message({type:'RA_OBSERVE_OPTIONS_STOP',agentRunToken:s.ownership.token})).ok).toBe(true);
+ const scan=(await message({type:'RA_SCAN'})).data as ScanResult;expect((await message({type:'RA_AGENT_OPTION_CHECK',agentRunToken:s.ownership.token,payload:{scanId:scan.scanId}})).data).toMatchObject({fieldIds:[]});expect(second.count()).toBe(0);
+});
+it.each(['manual','replace','outside'] as const)('content %s invalidation cannot be transformed into an empty continuation',async mode=>{
+ delay=-1;const second=secondCombo(),s=await request();node.addEventListener('click',()=>{if(mode==='manual')node.textContent='手改';if(mode==='replace')node.replaceWith(node.cloneNode(true));if(mode==='outside')document.body.append(document.createElement('aside'));});
+ expect((await message(s.value)).data).toMatchObject({status:'pending'});const scan=(await message({type:'RA_SCAN'})).data as ScanResult;
+ expect((await message({type:'RA_AGENT_OPTION_CHECK',agentRunToken:s.ownership.token,payload:{scanId:scan.scanId}})).data).toMatchObject({fieldIds:[]});expect(second.count()).toBe(0);expect(opens).toBe(1);
+});
+it('a forged stop after empty proof adoption does not consume the second eligible control',async()=>{
+ delay=-1;secondCombo();const s=await request();await message(s.value);expect((await message({type:'RA_OBSERVE_OPTIONS_STOP',agentRunToken:crypto.randomUUID()})).ok).toBe(false);
+ const scan=(await message({type:'RA_SCAN'})).data as ScanResult;expect((await message({type:'RA_AGENT_OPTION_CHECK',agentRunToken:s.ownership.token,payload:{scanId:scan.scanId}})).data).toMatchObject({fieldIds:[scan.fields.find(f=>f.htmlId==='second')!.id]});expect(opens).toBe(1);
 });

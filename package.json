@@ -1,6 +1,6 @@
 {
   "name": "recruitment-autofill",
-  "version": "0.6.38",
+  "version": "0.6.39",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,7 +13,7 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --reporter=default --reporter=json --outputFile=artifacts/unit-results.json",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-record-radio-ownership.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-internship-semantic-context.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-internship-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-internship-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs && node scripts/test-record-weak-extension.mjs && node scripts/test-compatible-api-extension.mjs && node scripts/test-agent-extension.mjs && node scripts/test-scalar-weak-extension.mjs && node scripts/test-student-work-extension.mjs && node scripts/test-option-observation-extension.mjs",
+    "test:e2e": "npm run build && node scripts/test-dom-stability.mjs && node scripts/test-control-adapters.mjs && node scripts/test-record-radio-ownership.mjs && node scripts/test-education-identity.mjs && node scripts/test-education-session.mjs && node scripts/test-internship-session.mjs && node scripts/test-internship-semantic-context.mjs && node scripts/test-extension.mjs && node scripts/test-semantic-extension.mjs && node scripts/test-project-semantic-extension.mjs && node scripts/test-project-pilot.mjs && node scripts/test-education-pilot.mjs && node scripts/test-internship-pilot.mjs && node scripts/test-education-semantic-extension.mjs && node scripts/test-internship-semantic-extension.mjs && node scripts/test-education-highest-pilot.mjs && node scripts/test-workflow.mjs && node scripts/test-record-v2.mjs && node scripts/test-record-weak-extension.mjs && node scripts/test-compatible-api-extension.mjs && node scripts/test-agent-extension.mjs && node scripts/test-scalar-weak-extension.mjs && node scripts/test-student-work-extension.mjs && node scripts/test-option-observation-extension.mjs && node scripts/test-option-observation-multiple-extension.mjs",
     "test:record-v2": "node scripts/test-record-v2.mjs",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "serve:example": "node scripts/serve-example.mjs",
@@ -28,7 +28,9 @@
     "test:student-work": "vitest run tests/student-work- tests/agent-student-work",
     "test:student-work:e2e": "node scripts/test-student-work-extension.mjs",
     "test:option-observation": "vitest run tests/option-observation tests/agent-option",
-    "test:option-observation:e2e": "node scripts/test-option-observation-extension.mjs"
+    "test:option-observation:e2e": "node scripts/test-option-observation-extension.mjs",
+    "test:option-multiple": "vitest run tests/option-observation tests/agent-option",
+    "test:option-multiple:e2e": "node scripts/test-option-observation-multiple-extension.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",

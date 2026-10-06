@@ -23,6 +23,7 @@ const statusSchema = z.object({ version: z.literal(EXTENSION_VERSION), state: st
 const optionCheckSchema = z.object({version:z.literal(EXTENSION_VERSION),scanId:z.uuid(),fieldIds:z.array(z.string().min(1).max(160)).max(1)}).strict();
 const optionResultSchema = z.discriminatedUnion('status',[
   z.object({version:z.literal(EXTENSION_VERSION),status:z.literal('observed'),optionCount:z.number().int().min(1).max(200)}).strict(),
+  z.object({version:z.literal(EXTENSION_VERSION),status:z.literal('empty'),reason:z.literal('options-empty')}).strict(),
   z.object({version:z.literal(EXTENSION_VERSION),status:z.literal('pending'),reason:z.string().min(1).max(80)}).strict(),
 ]);
 const kinds = ['education','project','internship','award','publication','student-work'] as const;
@@ -63,7 +64,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
   let owner: AgentPageOwner | undefined; let plan: PagePlan | undefined; const outcomes: FillOutcome[] = [];
   const combined = new AbortController(); const abort = () => combined.abort();
   const observed = new WeakMap<AgentObservation, PagePlan>(); const attempted = new Set<string>(); let steps = 0;
-  const observedOptionFields = new WeakMap<AgentObservation,string>();const attemptedOptions=new Set<string>();
+  const observedOptionFields = new WeakMap<AgentObservation,string>();
   try {
     external.throwIfAborted(); const originalContext = await ports.context(); external.throwIfAborted();
     plan = await ports.scan(external); external.throwIfAborted();
@@ -83,7 +84,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
       if (!await current()) throw new Error('Agent context changed');
       const checks: Record<AgentRecordKind, AgentRecordCheck> = { education: results[0]!, project: results[1]!, internship: results[2]!, award:results[3]!, publication:results[4]!, 'student-work':results[5]! };
       const fieldFingerprint=agentFieldFingerprint(latest.scan);let optionFieldIds:string[]=[];
-      if(ports.optionCheck&&attempted.has(fieldFingerprint)&&!attemptedOptions.has(fieldFingerprint)){
+      if(ports.optionCheck&&attempted.has(fieldFingerprint)){
         const check=optionCheckSchema.parse(await ports.optionCheck(originalTab,latest.scan.scanId,token));
         if(check.scanId!==latest.scan.scanId||!await current())throw new Error('Agent option observation changed');
         optionFieldIds=check.fieldIds;
@@ -92,7 +93,11 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
       if (!tasks) throw new Error('Agent page observation invalid');
       plan = latest;
       const observation: AgentObservation = { ...tasks, context: originalContext,
-        fingerprint: JSON.stringify([agentFieldFingerprint(latest.scan), tasks, results.map(result => ({ state: result.state, presence: result.presence }))]) };
+        // This ordinal is private loop evidence, never a model task or action
+        // authority. The content session binds attempts to original DOM nodes;
+        // fresh scan UUIDs cannot reset its budget or retry an attempted node.
+        fingerprint: JSON.stringify([agentFieldFingerprint(latest.scan), tasks, results.map(result => ({ state: result.state, presence: result.presence })),
+          optionFieldIds[0]?latest.scan.fields.findIndex(field=>field.id===optionFieldIds[0]):-1]) };
       observed.set(observation, latest);if(optionFieldIds[0])observedOptionFields.set(observation,optionFieldIds[0]);
       progress?.({ phase: 'observing', steps, pending: { ...observation.pending } }); return observation;
     };
@@ -104,12 +109,12 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
         const value = observed.get(observation); if (!value || !await current()) return { state: 'failed' };
         if(kind==='observe-options'){
           const fieldId=observedOptionFields.get(observation);if(!fieldId)return{state:'failed'};
-          attemptedOptions.add(agentFieldFingerprint(value.scan));
           const result=optionResultSchema.parse(await ports.command(originalTab,{type:'RA_OBSERVE_OPTIONS',agentRunToken:token,payload:{scanId:value.scan.scanId,fieldId}}));
           signal.throwIfAborted();if(!await current())return{state:'failed'};
-          // A failed observation may include a replaced control or a manual
-          // answer. A new scan must not turn that failure into write authority.
-          return{state:result.status==='observed'?'progress':'needs-user'};
+          // Only the fixed content entry emits empty after consuming a real
+          // private proof and installing its unanswered scan. A pending reason
+          // alone, replacement or manual answer still stops the whole run.
+          return{state:result.status==='observed'?'progress':result.status==='empty'?'deferred':'needs-user'};
         }
         if (kind === 'fill-visible') {
           const filled = await ports.fields(value, signal, token); signal.throwIfAborted(); outcomes.push(...filled);

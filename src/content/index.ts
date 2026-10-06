@@ -3,8 +3,6 @@ import { AgentPageLease } from '../agent/pageLease';
 import { verifyRecordPresence } from '../agent/recordCompletion';
 import { createAgentOwnerPortHandler } from './agentOwnerPort';
 import { OptionObservationSession, optionObservationRequestSchema } from './optionObservationSession';
-import { captureOptionObservation } from './optionObservation';
-import { agentOptionFieldIds } from '../agent/optionFieldScope';
 import type { ContentResponse } from '../shared/types';
 import { fillScan } from './autofill';
 import { scanDocument, type ScanState } from './scanner';
@@ -161,7 +159,7 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
         || currentScan.result.scanId !== request.payload.scanId || !verifyScanObservation(currentScan)) {
         sendResponse({ ok: false, error: '当前页面、扫描或 Agent 拥有者已改变' }); return false;
       }
-      const eligible = [...agentOptionFieldIds(currentScan.result)].find(id => captureOptionObservation(currentScan!, id));
+      const eligible = optionObservation.nextField(request.agentRunToken, currentScan);
       sendResponse({ ok: true, data: { version: EXTENSION_VERSION, scanId: currentScan.result.scanId, fieldIds: eligible ? [eligible] : [] } }); return false;
     }
     if (request.type === 'RA_OBSERVE_OPTIONS_STOP') {
@@ -172,10 +170,13 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     }
     if (request.type === 'RA_OBSERVE_OPTIONS') {
       void optionObservation.run(request, sender).then(result => {
-        if (result.status === 'observed') {
+        if (result.status === 'observed' || result.status === 'pending' && result.reason === 'options-empty') {
           const fresh = optionObservation.takeScan(request.agentRunToken);
           if (!fresh) { sendResponse({ ok: true, data: { version: EXTENSION_VERSION, status: 'pending', reason: 'observation-invalidated' } }); return; }
           currentScan = fresh;
+          if (result.status === 'pending') {
+            sendResponse({ ok: true, data: { version: EXTENSION_VERSION, status: 'empty', reason: 'options-empty' } }); return;
+          }
         }
         sendResponse({ ok: true, data: { version: EXTENSION_VERSION, ...result } });
       }).catch(() => sendResponse({ ok: false, error: '无法观察此控件，请检查网页' }));

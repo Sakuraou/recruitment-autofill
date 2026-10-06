@@ -16,6 +16,9 @@ interface PrivateIssue {
 }
 const issues = new WeakMap<OptionObservationCapability, PrivateIssue>();
 const observations = new WeakMap<OptionObservationResult, ScanState>();
+const emptyObservations = new WeakMap<OptionObservationResult, {
+  scan: ScanState; issue: PrivateIssue; signal: AbortSignal; current: () => boolean;
+}>();
 const protectedMeaning = /验证码|身份认证|密码|口令|同意|协议|隐私|授权|承诺|声明|captcha|verification|password|consent|agreement|privacy|authoriz/iu;
 function attrs(node: Element, allowed: readonly string[] = []): string {
   return JSON.stringify([...node.attributes].filter(a => !allowed.includes(a.name))
@@ -97,6 +100,18 @@ function withoutContext(fingerprint: string): string {
     ['parentText', 'previousText', 'sectionText'].includes(key) ? undefined : value);
 }
 
+function visibleEmptyList(issue: PrivateIssue): boolean {
+  return issue.control.node.getAttribute('aria-expanded') === 'true'
+    && !hiddenReason(issue.list) && issue.list.children.length === 0 && !issue.list.textContent?.trim();
+}
+
+function freshOriginalControls(issue: PrivateIssue): ScanState | undefined {
+  const fresh = scanDocument(issue.scan.document);
+  return fresh.controls.size === issue.scan.controls.size
+    && [...fresh.controls.values()].every(control => [...issue.scan.controls.values()].some(original => original.node === control.node))
+    ? fresh : undefined;
+}
+
 /** One bounded expansion; there is deliberately no write, selection, save or arbitrary click path. */
 export async function observeOptions(capability: OptionObservationCapability, signal: AbortSignal,
   current: () => boolean): Promise<OptionObservationResult> {
@@ -116,10 +131,18 @@ export async function observeOptions(capability: OptionObservationCapability, si
         const inspection = issue.control.controller.inspect();
         return inspection.options.length === options.length ? options.length : false;
       } });
+    // Only a bounded timeout with all original evidence still current can be
+    // classified as empty. Invalid/hidden/selected/oversized lists remain errors.
+    if (settled.status === 'timeout' && issueCurrent(issue, signal, current) && visibleEmptyList(issue)) {
+      const fresh = freshOriginalControls(issue);
+      if (!fresh || !issueCurrent(issue, signal, current) || !visibleEmptyList(issue)) return pending('page-structure-changed');
+      const result = pending('options-empty');
+      emptyObservations.set(result, { scan: fresh, issue, signal, current });
+      return result;
+    }
     if (settled.status !== 'stable' || !issueCurrent(issue, signal, current)) return pending('options-not-stable');
-    const fresh = scanDocument(issue.scan.document);
-    if (fresh.controls.size !== issue.scan.controls.size
-      || [...fresh.controls.values()].some(control => ![...issue.scan.controls.values()].some(original => original.node === control.node))) return pending('page-structure-changed');
+    const fresh = freshOriginalControls(issue);
+    if (!fresh) return pending('page-structure-changed');
     const result = Object.freeze({ status: 'observed' as const, optionCount: settled.value });
     observations.set(result, fresh);
     return result;
@@ -130,4 +153,13 @@ export async function observeOptions(capability: OptionObservationCapability, si
 export function readOptionObservation(result: OptionObservationResult): ScanState | undefined {
   const scan = observations.get(result);
   return scan && verifyScanObservation(scan) ? scan : undefined;
+}
+
+/** Private evidence of an unanswered original empty list; never a selected answer. */
+export function readEmptyOptionObservation(result: OptionObservationResult): ScanState | undefined {
+  const empty = emptyObservations.get(result);
+  try {
+    return empty && issueCurrent(empty.issue, empty.signal, empty.current) && visibleEmptyList(empty.issue)
+      && verifyScanObservation(empty.scan) ? empty.scan : undefined;
+  } catch { return undefined; }
 }
