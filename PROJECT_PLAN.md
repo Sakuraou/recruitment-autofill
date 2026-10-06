@@ -1450,3 +1450,5 @@ Agent可对能核验的主文档空ARIA组合框进行一次有界选项观察�
 冻结 artifacts/i012b-entry-agent-checkpoint；源码已合入v0.6.39候选，尚未正式发布。当前dist仍为已验证v0.6.38；完整回退保留 artifacts/i012b-official38-dist。正式完整检查见 artifacts/start-i012b-validation.mjs，阶段/子进程/源码指纹和日志见 artifacts/i012b-official-progress.json；使用本地Node工具直接执行同一质量检查，避免受限环境的npx用户目录探测警告。预计148文件3610项与25浏览器组，仅实际完成的报告才能算通过。
 
 下一轮执行提示词：先读计划、验收、Git与正式进度；接续现有检查，不重复启动控制器或重跑未改变源码的通过项。失败保留此前日志，最小复现修复后只重验受影响阶段；全部通过后核对新报告、版本、生产v2关闭的content.js和运行资源SHA256，再本地发布并更新安装说明。随后推进局部截图裁剪/脱敏；当前仍不探索任意按钮、复杂级联或不可访问区域，不猜资料，验证码和最终投递用户处理。
+
+2026-10-06 11:17 UTC：候选实现本地提交6024b5c；正式lint/strict类型已退出0，完整单元正在执行。控制器PID22308、单元PID22260、工具会话72549；状态 artifacts/i012b-official-progress.json，控制日志 i012b-official-controller.log。源码冻结指纹83fd72ace61df37b73dbc7cccf8505dc2720edee79966b856d22980d5227d78a；成功单元后只构建一次，再顺序25组浏览器脚本。此前已发布v0.6.38完整回退保留，当前候选不得宣称正式发布。截图下一轮设计在 artifacts/i012c-planning-draft.md，仅计划，尚无截图或视觉模型能力。
