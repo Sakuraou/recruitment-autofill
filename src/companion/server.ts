@@ -4,18 +4,19 @@ import { parseSemanticProposal, semanticRequestSchema, type SemanticRequest } fr
 import type { CompanionProvider, CompanionResult } from './responsesProvider';
 import { agentStepRequestSchema, parseAgentStepProposal } from '../agent/nextStepProtocol';
 import type { AgentProvider, AgentProviderResult } from './agentProvider';
+import { MAX_VISUAL_BODY_BYTES, visualRequestSchema, type VisualProvider } from './visualRequest';
 
 export const SEMANTIC_SERVICE_HOST = '127.0.0.1';
 export const SEMANTIC_SERVICE_PORT = 43127;
-interface ServerConfig { token: string; provider?: CompanionProvider; agentProvider?: AgentProvider; deadlineMs?: number }
+interface ServerConfig { token: string; provider?: CompanionProvider; agentProvider?: AgentProvider; visualProvider?: VisualProvider; deadlineMs?: number }
 const MAX_BODY_BYTES = 128_000;
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage, limit = MAX_BODY_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
     let bytes = 0; let complete = false; const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => {
       if (complete) return;
       bytes += chunk.byteLength;
-      if (bytes > MAX_BODY_BYTES) { complete = true; chunks.length = 0; reject(new Error('size')); }
+      if (bytes > limit) { complete = true; chunks.length = 0; reject(new Error('size')); }
       else chunks.push(chunk);
     });
     request.on('end', () => { if (!complete) { complete = true; resolve(Buffer.concat(chunks).toString('utf8')); } });
@@ -66,7 +67,7 @@ export function createSemanticServer(config: ServerConfig) {
         reply(response, 403, empty('unavailable')); return;
       }
       const path = request.url;
-      if (path !== '/v1/bindings' && path !== '/v1/next-step' && path !== '/v1/health') { reply(response, 404, empty('unavailable')); return; }
+      if (path !== '/v1/bindings' && path !== '/v1/next-step' && path !== '/v1/health' && path !== '/v1/visual-bindings') { reply(response, 404, empty('unavailable')); return; }
       if (request.method === 'OPTIONS') {
         const method = request.headers['access-control-request-method'];
         const requestedHeaders = String(request.headers['access-control-request-headers'] ?? '').toLowerCase().split(',').map(header => header.trim()).filter(Boolean);
@@ -85,15 +86,17 @@ export function createSemanticServer(config: ServerConfig) {
       if (request.method !== (path === '/v1/health' ? 'GET' : 'POST')) { reply(response, 405, empty('unavailable')); return; }
       if (path === '/v1/health') { reply(response, 200, { protocol: 1, ready: !!config.provider }); return; }
       if (!/^application\/json(?:\s*;.*)?$/iu.test(request.headers['content-type'] ?? '')) { reply(response, 415, empty('unavailable')); return; }
+      const isVisual = path === '/v1/visual-bindings';
+      const bodyLimit = isVisual ? MAX_VISUAL_BODY_BYTES : MAX_BODY_BYTES;
       const declaredLength = Number(request.headers['content-length']);
-      if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) { request.resume(); reply(response, 413, empty('unavailable')); return; }
+      if (Number.isFinite(declaredLength) && declaredLength > bodyLimit) { request.resume(); reply(response, 413, empty('unavailable')); return; }
       const isAgent = path === '/v1/next-step';
       let input: unknown;
-      try { input = JSON.parse(await readBody(request)); }
+      try { input = JSON.parse(await readBody(request, bodyLimit)); }
       catch (error) { reply(response, error instanceof Error && error.message === 'size' ? 413 : 400, empty('unavailable')); return; }
-      const parsed = isAgent ? agentStepRequestSchema.safeParse(input) : semanticRequestSchema.safeParse(input);
+      const parsed = isVisual ? visualRequestSchema.safeParse(input) : isAgent ? agentStepRequestSchema.safeParse(input) : semanticRequestSchema.safeParse(input);
       if (!parsed.success) { reply(response, 400, empty('unavailable')); return; }
-      if (isAgent ? !config.agentProvider : !config.provider) { reply(response, 503, empty('disabled')); return; }
+      if (isVisual ? !config.visualProvider : isAgent ? !config.agentProvider : !config.provider) { reply(response, 503, empty('disabled')); return; }
       if (busy) { reply(response, 429, empty('busy')); return; }
       busy = true;
       const controller = new AbortController(); let finish: (result: CompanionResult | AgentProviderResult) => void = () => {};
@@ -101,13 +104,15 @@ export function createSemanticServer(config: ServerConfig) {
       const timer = setTimeout(() => { finish(empty('timeout')); controller.abort(); }, deadline);
       const disconnected = () => { if (!response.writableEnded) { finish(empty('cancelled')); controller.abort(); } };
       response.on('close', disconnected);
-      const operation = Promise.resolve().then<CompanionResult | AgentProviderResult>(() => isAgent
+      const operation = Promise.resolve().then<CompanionResult | AgentProviderResult>(() => isVisual
+        ? config.visualProvider!(visualRequestSchema.parse(parsed.data), controller.signal)
+        : isAgent
         ? config.agentProvider!(agentStepRequestSchema.parse(parsed.data), controller.signal)
         : config.provider!(semanticRequestSchema.parse(parsed.data), controller.signal)).catch(() => empty('unavailable'));
       try {
         const output = await Promise.race([operation, stopped]);
         const result = isAgent ? normalizedAgentResult(output, agentStepRequestSchema.parse(parsed.data))
-          : normalizedResult(output as CompanionResult, semanticRequestSchema.parse(parsed.data));
+          : normalizedResult(output as CompanionResult, semanticRequestSchema.parse(isVisual ? visualRequestSchema.parse(parsed.data).request : parsed.data));
         reply(response, result.state === 'ready' || result.state === 'refused' ? 200 : 503, result);
       } finally { busy = false; clearTimeout(timer); response.removeListener('close', disconnected); }
     };
@@ -117,3 +122,4 @@ export function createSemanticServer(config: ServerConfig) {
   server.maxConnections = 10;
   return server;
 }
+

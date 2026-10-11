@@ -10,7 +10,9 @@ const sender:chrome.runtime.MessageSender={id:'award-test',url:'https://fictiona
 beforeEach(async()=>{vi.resetModules();get.mockReset();get.mockResolvedValue({'recruitment.profile.v1':profile});vi.stubGlobal('chrome',{
  runtime:{id:'award-test',onMessage:{addListener:(callback:Listener)=>{listener=callback;}},onConnect:{addListener:vi.fn()},onInstalled:{addListener:vi.fn()},onStartup:{addListener:vi.fn()}},
  storage:{local:{get,setAccessLevel:vi.fn()},onChanged:{addListener:vi.fn()}},
- });await import('../src/background/index');});
+ });Object.assign(chrome, { tabs: { onActivated: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() }, onRemoved: { addListener: vi.fn() } }, windows: { onFocusChanged: { addListener: vi.fn() } } });
+  Object.assign(chrome.runtime, { getURL: (path: string) => 'chrome-extension://' + chrome.runtime.id + '/' + path });
+  await import('../src/background/index'); await new Promise(resolve => setTimeout(resolve, 0)); get.mockClear();});
 afterEach(()=>vi.unstubAllGlobals());
 it('returns only all award facts and the two explicit applicant facts to the same-extension top frame',async()=>{
  const respond=vi.fn();expect(listener({type:'RA_PROFILE_AWARDS'},sender,respond)).toBe(true);await vi.waitFor(()=>expect(respond).toHaveBeenCalledOnce());
@@ -42,3 +44,4 @@ it.each(['basic','applicant','duplicate','envelope'] as const)('invalid %s clien
  vi.stubGlobal('chrome',{runtime:{sendMessage:vi.fn(async()=>({ok:mode!=='envelope',data}))}});
  const {requestAwardProjection}=await import('../src/content/profileProjectionClient');await expect(requestAwardProjection()).rejects.toThrow(/奖励档案投影/);
 });
+

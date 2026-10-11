@@ -1,3 +1,6 @@
+import { createLatestLocalRefresh } from '../ai/latestLocalRefresh';
+import { hasVisualRequestConsent, loadVisualConsent, VISUAL_SETTINGS_KEY } from '../ai/visualSettings';
+import { resolveActiveCaptureContext } from '../visual/activeCaptureContext';
 import { loadProfile, PROFILE_STORAGE_KEY } from '../profile/storage';
 import { projectProjectionRequestSchema, projectProfile } from '../profile/projection';
 import { educationProjectionRequestSchema, educationProfile } from '../profile/educationProjection';
@@ -5,11 +8,60 @@ import { internshipProjectionRequestSchema, internshipProfile } from '../profile
 import { awardProjectionRequestSchema, awardProfile } from '../profile/awardProjection';
 import { publicationProjectionRequestSchema, publicationProfile } from '../profile/publicationProjection';
 import { studentWorkProjectionRequestSchema, studentWorkProfile } from '../profile/studentWorkProjection';
-import { AI_CONNECTION_KEY } from '../ai/connection';
+import { AI_CONNECTION_KEY, loadAiConnection, type AiConnection } from '../ai/connection';
 import { clearSessionSemanticRecipes } from '../ai/sessionRecipes';
+import { semanticRedactor } from '../ai/semanticPrivacy';
+import { createVisualLoopbackProvider } from '../ai/visualLoopbackProvider';
 import { createRecordSemanticPortHandler } from './recordSemanticPort';
+import { createVisualSemanticPortHandler } from './visualSemanticPort';
+import { installMv3CaptureBackground } from '../visual/mv3CaptureBackgroundInstaller';
 
 chrome.runtime.onConnect.addListener(createRecordSemanticPortHandler());
+let captureContextRevision = 0;
+chrome.tabs.onActivated.addListener(() => { captureContextRevision++; });
+chrome.tabs.onUpdated.addListener((_tabId, change) => { if (change.url || change.status === 'loading') captureContextRevision++; });
+chrome.tabs.onRemoved.addListener(() => { captureContextRevision++; });
+chrome.windows.onFocusChanged.addListener(() => { captureContextRevision++; });
+// The isolated runtime copy wires the trusted popup port to the MV3 capture adapter.
+// The adapter keeps activeTab capture behind sender, HTTPS-tab, and context checks.
+installMv3CaptureBackground(
+  chrome.runtime,
+  {
+    captureVisibleTab: (windowId, options, callback) => { chrome.tabs.captureVisibleTab(windowId, options, callback); },
+    getActiveTabContext: () => resolveActiveCaptureContext({
+      revision: () => captureContextRevision,
+      getBrowserWindow: () => chrome.windows.getLastFocused({ windowTypes: ['normal'] }),
+      getActiveTabs: windowId => chrome.tabs.query({ active: true, windowId }),
+    }),
+  },
+  chrome.runtime.id,
+  chrome.runtime.getURL('popup.html'),
+);
+
+let cachedVisualConsent: unknown;
+let cachedAiConnection: AiConnection | undefined;
+let cachedProfile: Awaited<ReturnType<typeof loadProfile>> | undefined;
+const refreshVisualState = createLatestLocalRefresh(
+  () => Promise.all([loadVisualConsent(), loadAiConnection(), loadProfile()]),
+  state => {
+    cachedVisualConsent = state?.[0]; cachedAiConnection = state?.[1]; cachedProfile = state?.[2];
+  },
+);
+void refreshVisualState();
+chrome.runtime.onConnect.addListener(createVisualSemanticPortHandler({
+  extensionId: chrome.runtime.id,
+  enabled: () => hasVisualRequestConsent(cachedAiConnection, cachedVisualConsent) && cachedProfile !== undefined,
+  userConfirmed: () => cachedAiConnection?.userConfirmed === true,
+  redactRequest: request => {
+    if (!cachedProfile) return request;
+    const redact = semanticRedactor(cachedProfile);
+    return { ...request, fields: request.fields.map(field => ({ ...field,
+      label: redact(field.label), ariaLabel: redact(field.ariaLabel), tableHeader: redact(field.tableHeader), title: redact(field.title), placeholder: redact(field.placeholder),
+      options: field.options.map(option => ({ ...option, label: redact(option.label) })),
+    })) };
+  },
+  provider: async (request, image, signal) => cachedAiConnection ? createVisualLoopbackProvider({ protocol: cachedAiConnection.protocol, token: cachedAiConnection.token })(request, { mime: 'image/png', redacted: true, bytes: image }, signal) : { state: 'unavailable', proposal: null },
+}));
 
 async function restrictStorage() {
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -18,7 +70,17 @@ async function restrictStorage() {
 chrome.runtime.onInstalled.addListener(() => { void restrictStorage().catch(() => console.error('[网申助手] 存储访问限制设置失败')); });
 chrome.runtime.onStartup.addListener(() => { void restrictStorage().catch(() => console.error('[网申助手] 存储访问限制设置失败')); });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes[PROFILE_STORAGE_KEY] || changes[AI_CONNECTION_KEY])) void clearSessionSemanticRecipes();
+  if (area === 'local' && (changes[PROFILE_STORAGE_KEY] || changes[AI_CONNECTION_KEY] || changes[VISUAL_SETTINGS_KEY])) { void clearSessionSemanticRecipes(); void refreshVisualState(); }
+});
+
+chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
+  if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'RA_VISUAL_STATUS') return false;
+  if (Object.keys(message).length !== 1 || sender.id !== chrome.runtime.id
+    || sender.url?.split(/[?#]/u)[0] !== chrome.runtime.getURL('popup.html')) {
+    reply({ enabled: false }); return false;
+  }
+  reply({ enabled: hasVisualRequestConsent(cachedAiConnection, cachedVisualConsent) && cachedProfile !== undefined });
+  return false;
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: unknown) => void) => {

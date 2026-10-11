@@ -1,0 +1,7 @@
+import{describe,it,expect}from'vitest';import{createLatestLocalRefresh}from'../src/ai/latestLocalRefresh';
+function deferred<T>(){let resolve!:(value:T)=>void,reject!:(e:Error)=>void;const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no});return{promise,resolve,reject}}
+describe('latest local opt-in refresh',()=>{
+ it('publishes disabled synchronously before load completes',async()=>{const d=deferred<boolean>(),states:(boolean|undefined)[]=[];const refresh=createLatestLocalRefresh(()=>d.promise,s=>states.push(s));const task=refresh();expect(states).toEqual([undefined]);d.resolve(true);await task;expect(states).toEqual([undefined,true])});
+ it('old enabled load cannot restore consent after newer revocation',async()=>{const old=deferred<boolean>(),current=deferred<boolean>();let count=0;const states:(boolean|undefined)[]=[];const refresh=createLatestLocalRefresh(()=>count++?current.promise:old.promise,s=>states.push(s));const a=refresh(),b=refresh();current.resolve(false);await b;old.resolve(true);await a;expect(states).toEqual([undefined,undefined,false])});
+ it('failed latest load leaves disabled rather than restoring old state',async()=>{const old=deferred<boolean>(),current=deferred<boolean>();let count=0;const states:(boolean|undefined)[]=[];const refresh=createLatestLocalRefresh(()=>count++?current.promise:old.promise,s=>states.push(s));const a=refresh(),b=refresh();current.reject(Error('storage unavailable'));await b;old.resolve(true);await a;expect(states).toEqual([undefined,undefined])});
+});

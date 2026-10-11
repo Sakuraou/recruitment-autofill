@@ -34,7 +34,7 @@ function proposal(value: SemanticRequest) {
 }
 function fixture() {
   const profile = createEmptyProfile(); profile.basic.name = '虚构候选'; profile.revision = crypto.randomUUID();
-  const connection = { protocol: 1 as const, enabled: true as const, token: 'ab'.repeat(32), cacheRevision: crypto.randomUUID() };
+  const connection = { protocol: 1 as const, enabled: true as const, userConfirmed: true as const, token: 'ab'.repeat(32), cacheRevision: crypto.randomUUID() };
   const provider: SemanticProvider = { propose: vi.fn(async value => proposal(value as SemanticRequest)) };
   const deps = { extensionId: 'fictional-extension', connection: vi.fn(async () => connection), profile: vi.fn(async () => profile),
     tab: vi.fn(async () => ({ id: 7, url }) as chrome.tabs.Tab), provider: vi.fn(() => provider) };

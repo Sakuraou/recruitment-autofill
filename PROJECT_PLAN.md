@@ -1,10 +1,10 @@
 # 校招智能网申助手：可迭代项目计划
 
-> 最后更新：2026-10-06
+> 最后更新：2026-10-10
 > 当前版本：v0.6.39（多陌生控件观察调度，完整验证通过）
-> 当前迭代：I-012B verified；I-012C截图基础隔离推进，尚无截图能力
+> 当前迭代：I-012C 实际测试页面截图、原扫描/DOM/owner、遮挡、PNG 和本地候选组合通过；待接安装扩展，正式运行时仍未启用截图/API
 > 最近完整验证：2026-10-06，148文件3610项、lint、strict类型及构建；25组464浏览器项。
-> 等待用户：否  
+> 等待用户：否
 > 总目标：让陌生招聘页面也能被可靠地理解、规划和填写；遇到无法唯一判断的情况时准确停下，不重复新增、不覆盖已有内容、不误报完成、不触发最终提交。
 
 ## 1. 计划如何维护
@@ -35,7 +35,7 @@
 
 ### 3.1 每轮闭环
 
-```text
+```tex
 观察真实失败或测试缺口
 → 分类到正确能力层
 → 写最小失败夹具
@@ -69,7 +69,7 @@
 
 每个候选任务记录四项 0–5 分：用户影响、通用性、安全风险、实现成本。优先级参考：
 
-```text
+```tex
 3 × 用户影响 + 2 × 通用性 + 2 × 安全风险 - 实现成本
 ```
 
@@ -85,7 +85,7 @@
 
 ## 4. 目标架构
 
-```text
+```tex
 DOM / ARIA / 可见结构 / 组件适配器
                 ↓
         Page Semantic Graph
@@ -101,9 +101,9 @@ DOM / ARIA / 可见结构 / 组件适配器
 
 页面语义图至少表达：
 
-```text
+```tex
 Page → Step → Section → RecordList → ExistingRecordCard / AddAction
-                                  → RecordEditor → Field / OptionList
+                                  → RecordEditor → Field / OptionLis
                                                  → SaveAction / CancelAction
 ```
 
@@ -129,7 +129,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 阅读 PROJECT_PLAN.md 和当前 Git diff。审查未提交改动是否包含真实个人资料、密钥、生成物或无关文件；运行完整质量检查和端到端测试。对失败进行复现与归因，不通过删除测试来获得绿色结果。更新基线文档和验证记录，形成一个可回退的本地提交。不得推送远端。
 ```
 
@@ -153,7 +153,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 在不破坏现有 FieldDescriptor 和 RA_SCAN 消息兼容性的前提下，引入 Page Semantic Graph。先用脱敏夹具覆盖项目列表、已有卡片、添加按钮、编辑器、保存和取消，再实现只读构图。节点必须有稳定指纹、可见标签、角色、风险等级和所属关系；不得返回 DOM 对象或当前输入值。完成后运行相关测试和 npm run check，并更新 PROJECT_PLAN.md。
 ```
 
@@ -177,7 +177,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 把中国移动流程中的逐条新增、保存回读和不确定保存保护抽象为站点无关的 Record Planner 与 Transaction Executor。先读取已有卡片并与档案做一对一匹配，只处理未匹配记录。每个动作都声明预期后置条件，使用 DOM 变化等待，保存结果不明时停止。用六项目、两段教育、三项奖励和延迟保存夹具验收，不得依靠固定站点 ID。
 ```
 
@@ -203,7 +203,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 建立可注册的 ControlAdapter 层，先覆盖 ARIA 通用协议，再逐个实现常见组件。每个适配器必须读取当前状态、执行最小交互、等待稳定并回读验证；失败时给出组件类型和具体阶段。为 portal 弹层、虚拟列表、搜索下拉、日期和级联建立独立夹具。禁止使用坐标盲点和无限滚动。
 ```
 
@@ -227,7 +227,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 升级 UserProfile，使未知、明确没有、不适用和进行中成为可验证状态，并为高风险事实记录来源与确认状态。设计向后兼容迁移，补齐常见校招字段和真实日期校验。所有推导必须有明确规则；无法证明的事实保持 unknown。新增导入、迁移、编辑和匹配测试。
 ```
 
@@ -252,7 +252,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 接入受控语义模型，只发送脱敏 Page Semantic Graph、允许的档案路径和候选选项。模型只返回符合严格 Schema 的 bindField、openControl、selectOption、addRecord、saveRecord、waitFor 或 requestHuman 计划。由本地 Policy Engine 检查节点指纹、类型、风险和后置条件后执行。加入提示词注入、无效 JSON、超时、离线和缓存失效测试。
 ```
 
@@ -276,7 +276,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 仅为 DOM 和 ARIA 无法消除的歧义增加局部多模态回退。根据节点边界框截取最小区域，在本地遮盖输入值和个人字段。模型返回视觉角色和候选节点，不返回坐标点击命令。探索器每次只执行一个可回滚动作，比较前后语义图并验证预期效果，达到步数上限或出现非预期变化时停止。
 ```
 
@@ -300,7 +300,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 执行提示词：
 
-```text
+```tex
 建立覆盖多框架、多种重复记录和异步行为的站点测试矩阵。问题报告只保存脱敏结构、动作时间线、预期后置条件和实际差异。站点配方必须带 origin、路由、页面指纹、版本和失效条件。完成完整回归、隐私检查和可复现打包后再提升版本。
 ```
 
@@ -391,7 +391,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 | I-011F | 校内职务全部记录 | verified | 完整139文件3429项、23组443浏览器项 | 陌生控件有限观察 |
 | I-012A | 单次选项观察 | verified | 完整145文件3529项、24组453浏览器项 | 多陌生控件调度→局部截图脱敏 |
 | I-012B | 多陌生控件调度 | verified | 完整148文件3610项、25组464浏览器项 | I-012C局部截图及语义遮挡 |
-| I-012C | 局部截图基础 | in_progress | 隔离几何51、原DOM69/13浏览器、像素39/10浏览器、扫描准入41/12浏览器，strict类型/lint通过 | 保守语义像素遮挡→活动标签页/捕获核验→实际MV3；尚无截图/视觉API |
+| I-012C | 局部截图基础 | in_progress | 隔离35文件388单元项；36脚本268浏览器项累计证据，含实际测试页截图组合20项；未变模块复用，失败/外部请求/页面错误为零 | 安装扩展验证截图前原DOM证明、content局部遮挡及background视觉请求；视觉开关默认关闭，尚未启用真实模型 |
 
 ## 7. 本轮记录
 
@@ -430,7 +430,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-002B 执行提示词：
 
-```text
+```tex
 阅读 I-002A 的语义图、严格验证器和安全测试。先用脱敏夹具表达一个重复记录栏目：栏目容器、两个已有摘要卡片、添加按钮、一个打开的编辑器、字段、保存与取消。只在 DOM 结构能证明所属关系时创建 RecordList/Record，并把 add 指向 RecordList，把 edit/save/cancel/delete 指向同一结构内的 Record；无法证明目标的动作继续省略。不得点击、聚焦、滚动、修改页面或读取当前字段值。验证同名栏目不跨区绑定、已有卡片计数准确、编辑器状态准确、所有 target 均为同栏目祖先，并运行专项测试与 npm run check。
 ```
 
@@ -448,7 +448,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-002C 执行提示词：
 
-```text
+```tex
 在 I-002B 已验证的只读记录拓扑上增加第二阶段上下文分类。只有在 RecordList/RecordEditor 已由独立结构证据确认后，才把列表内裸“+”解释为新增，把编辑器内原生 submit 且名称严格为“保存/Save”解释为 save-record；原生 submit 的风险仍为 restricted。补充明确空列表、只有编辑入口的标准摘要卡片和隐藏模板夹具。任何上下文冲突、多个候选目标、导航/下拉/日期结构都继续省略。不得点击、填写或读取实时字段值；运行专项测试、npm run check 和浏览器 E2E，并更新本计划。
 ```
 
@@ -466,7 +466,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-003 执行提示词：
 
-```text
+```tex
 阅读 I-002C 的只读语义图、现有流程等待逻辑和安全测试。先定义一个与站点无关、可取消且有硬超时的 DOM 稳定等待器：只观察指定根节点和白名单结构变化，在满足预期谓词后连续经历静默窗口才返回 stable；明确区分 stable、timeout、aborted、root-disconnected 和 predicate-failed，不把超时当成功。用延迟出现、连续突变、无关突变、根节点替换、开放 Shadow DOM、主动取消和硬超时夹具先写失败测试，再实现 MutationObserver 生命周期与清理。不得点击、填写、滚动、读取个人值或无限等待；完成后运行专项测试、npm run check 和浏览器 E2E，并更新 PROJECT_PLAN.md。
 ```
 
@@ -486,7 +486,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004A 执行提示词：
 
-```text
+```tex
 阅读 I-002C 的 Page Semantic Graph、I-003 的稳定等待契约、现有中国移动记录流程和安全测试。先定义完全纯函数的 Record Planner 契约：档案记录意图、网页记录候选、唯一身份证据、计划步骤、动作节点引用、前置条件、后置条件和 request-human 原因。只允许引用已经验证的语义节点 ID，不保存 DOM、选择器、页面原文或个人字段值；已有记录与档案记录必须做一对一分配，重复候选、身份不足、列表计数不完整、编辑器占用或缺少唯一 add/save 动作时失败关闭。用六条档案记录、部分已有、重复身份、顺序不同、空列表和歧义夹具先写失败测试，再实现计划生成；本阶段不得点击、填写、滚动或接入大模型。完成后运行专项测试与 npm run check，并更新 PROJECT_PLAN.md。
 ```
 
@@ -505,7 +505,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B 执行提示词：
 
-```text
+```tex
 阅读 I-004A 的去敏 Record Planner 契约、I-003 的 DOM 稳定等待器、现有 scanner semanticTargets 与中国移动旧流程。先实现只存在于内容脚本内存中的 RunContext 和 CandidateContinuityTracker：由内部生成 run/snapshot/transaction token，跨重扫仅在结构证据足够时延续 candidateHandle 和 editorHandle；令牌、句柄、字段值及其哈希不得写入 storage、消息日志或问题报告。实现绑定 transactionToken、snapshotToken、editorHandle、editorRevision 和 profileRevision 的 FieldsVerifiedReceipt，只有逐字段回读全部成功后才能签发；任一 input/change/reset、编辑器替换或档案修订都使旧收据失效。随后实现最小 Transaction Executor，只消费当前快照的一步授权：执行前重新核对计划能力、快照、动作节点、风险、目标和前置条件，先安装 waitForDomStability 再点击 add/save；稳定后重扫、重建去敏快照并重新规划。每个 `(run, snapshot, step)` 只能消费一次，pause/stop 必须由 AbortController 取消；uncertain add/save、用户草稿、句柄连续性丢失或后置条件失败时 request-human，永不重试提交动作。先用六项目、部分已有、卡片重排、延迟保存、保存生成错误卡、编辑器替换、字段核验后被修改、重复消息和暂停恢复夹具写失败测试；本轮 populate-editor 使用脱敏虚构 binder 或测试桩，不接入陌生站真实个人值。最终提交、删除、上传和 next-step 始终为零。完成后运行专项、npm run check 和浏览器 E2E，并更新本计划。
 ```
 
@@ -521,7 +521,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-B 执行提示词：
 
-```text
+```tex
 阅读 RecordRunContext、Record Planner 能力链和 waitForDomStability。先定义不可伪造、不可序列化复用的 FieldsVerifiedReceipt：收据必须由当前 issued populate-editor 计划、活动事务、RecordRunCapture、editorHandle、editorRevision、profileRevision 和完整 fieldNodeId 集共同签发；签发前由脱敏测试 binder 逐字段写入并即时回读，任一字段失败则不签发。把 recordFieldsVerified 改为必须消费该收据，并把 editorRevision/profileRevision 写入后续事务；保存规划前重新捕获，字段 input/change/reset、编辑器或表单替换、档案修订、快照跳代及收据重放均失败关闭。随后建立只执行一个计划步骤的 TransactionExecutor：执行前核对当前快照和 semanticTargets，先安装 DOM 稳定等待器再点击 add/save，动作计划与 `(run,snapshot,step)` 只消费一次；timeout、aborted、root-disconnected 或后置条件不唯一时请求人工处理且不重试。先用虚构 DOM 与 binder 覆盖正常链、字段被改、重复消息、延迟编辑器、延迟保存、错误新卡、暂停和停止；不接入真实档案，不触发 delete、upload、next-step 或最终 submit。完成后运行专项与 npm run check；只有接入内容脚本消息入口后再运行完整浏览器 E2E。
 ```
 
@@ -536,7 +536,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-B2 执行提示词：
 
-```text
+```tex
 实现只消费一个已签发 RecordPlanStep 的 TransactionExecutor。输入必须包含当前 RecordRunCapture、当前 ScanState.semanticTargets、活动事务和 RunContext；执行前重新核对计划来源、run/snapshot/version、动作节点、目标节点、风险、disabled 状态、editorHandle/editorRevision/profileRevision 与全部 preconditions。open-create/save-created 先对目标根安装 waitForDomStability，再用 semanticTargets 中当前且连接的 Element 触发一次 click；waiter 只有在重扫后的语义后置条件唯一成立并经历静默窗口后才成功。populate-editor 先用纯虚构 binder 逐字段写入并即时回读，然后重扫并原子签发/消费 FieldsVerifiedReceipt。每个 snapshot+step 只能消费一次；重复消息、timeout、aborted、root-disconnected、predicate-failed、动作目标替换、字段再次变化或结果不唯一时返回 request-human，绝不重试 add/save。用延迟编辑器、延迟保存、错误新卡、重复消息、暂停、停止和目标替换夹具验收；delete、upload、next-step、submit 的点击计数必须始终为零。完成专项与 npm run check 后再决定是否接入内容脚本消息入口。
 ```
 
@@ -552,7 +552,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-B3 执行提示词：
 
-```text
+```tex
 阅读 TransactionExecutor、FieldsVerifiedReceipt、RecordRunContext 和 scanner semanticTargets。实现仅存在于内容脚本内存中的 Editor Binder 契约：它只消费当前 issued populate-editor 计划、相邻 RecordRunCapture、精确 editorHandle/editorRevision/profileRevision 和完整 fieldNodeId 集；字段目标必须仍是捕获时的同一 DOM 对象、位于同一编辑器且可编辑。先用虚构 ProfileFieldProvider 提供值，不读取真实档案，不把值、哈希、DOM、令牌写入日志或 storage。默认保留非空原值；逐字段使用原生 setter 与 input/change 事件写入，并立即用控件语义回读；任一字段失败时撤销本轮可逆写入或 request-human，绝不点击保存。成功后必须重新捕获相邻快照，再原子签发并消费 FieldsVerifiedReceipt，字段事件造成的 editorRevision 变化要与填后捕获精确绑定。覆盖 input、textarea、原生 select、radio/checkbox、不可编辑、自定义控件拒绝、字段目标替换、已有值保护、部分写入失败、档案修订变化、重复消息、暂停和停止；不接入真实个人值，不点击 add/save/delete/upload/next-step/submit。完成专项和 npm run check 后再决定是否接入内容脚本消息入口。
 ```
 
@@ -568,7 +568,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-C 执行提示词：
 
-```text
+```tex
 阅读 RecordPlanner、RecordRunContext、TransactionExecutor、RecordEditorBinder 和现有内容脚本消息生命周期。先实现不接 UI 的内存 RecordTransactionOrchestrator：输入为一次新扫描、去敏的记录意图/身份比较和值提供器；每轮只捕获、规划并调度一个 open-create、populate-editor 或 save-created 步骤，步骤成功后必须使用返回的新 capture 重新规划，禁止在一个旧快照上连续操作。为每个列表维持唯一活动事务和明确 paused/stopped/request-human/completed 状态；pause/stop 传播到 RunContext，恢复必须重新扫描而不是复用旧能力。用六个虚构项目、两个页面已有、卡片重排、保存生成错误卡、编辑器替换、已有草稿、重复消息、延迟新增/保存和中途暂停构建端到端夹具；只有身份唯一的新卡才能完成对应 intent，错误新卡和计数异常必须 request-human。所有 delete、upload、next-step、submit 点击计数保持为零。先完成纯模块测试与 npm run check，再以独立显式消息接入内容脚本并运行完整浏览器 E2E；在真实站点试用前保留功能开关。
 ```
 
@@ -583,7 +583,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-C2 执行提示词：
 
-```text
+```tex
 在纯模块夹具中把 RecordTransactionOrchestrator 接到真实 TransactionExecutor 与 RecordEditorBinder，构造六个虚构项目、两个页面已有记录的完整循环。每次新增、填写、保存后重扫并重新生成候选身份比较；保存产生的新卡只有与当前 intent 唯一 same 且其他 intent 为 different 时才消费 save-invoked 事务。覆盖卡片重排、错误新卡、重复摘要、保存未关闭编辑器、计数跳变、已有草稿和中途暂停；错误或不足身份一律 request-human，绝不继续新增。断言 add/save 次数等于实际缺失记录数，delete/upload/next-step/submit 始终为零。完成专项和 npm run check 后，再设计有功能开关的内容脚本入口与完整浏览器 E2E。
 ```
 
@@ -599,7 +599,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-C2B 执行提示词：
 
-```text
+```tex
 扩展多记录 DOM 夹具，覆盖保存后一次增加两张卡、保存后编辑器未关闭、已有摘要重复匹配同一 intent、字段存在冲突草稿以及 populate/save 之间网站二次修改字段。逐项断言 request-human 原因、add/save 次数停止在异常发生处，且 delete/upload/next-step/submit 始终为零。修正任何暴露的跨步骤状态漏洞，重复运行专项与完整 npm run check。全部对抗场景通过后才把编排器标记 verified，并进入带功能开关的内容脚本入口设计。
 ```
 
@@ -614,7 +614,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D 执行提示词：
 
-```text
+```tex
 设计默认关闭的 repeatable-record-v2 功能开关和独立内容脚本消息入口。入口只接收启动、单步推进、暂停、恢复、停止和状态读取；不得从消息传入 Planner 能力、DOM 节点、令牌或任意回调。内容脚本内部从最新 scanDocument 构造 RunContext、身份比较和值提供器，并只在明确启用且页面/档案版本一致时创建 Orchestrator。先接入纯虚构测试档案与测试页面，保持现有移动站工作流和逐字段填写路径不变；为消息重复、页面导航、扩展重载、开关关闭、暂停/停止和 request-human 建浏览器 E2E。确认 delete/upload/next-step/submit 零点击后，再决定真实档案适配和受控试用范围。
 ```
 
@@ -630,7 +630,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D2 执行提示词：
 
-```text
+```tex
 保持 repeatable-record-v2 的发布默认值为 false。建立一个只在本地虚构 E2E 页面、明确测试构建标记和固定页面指纹同时满足时才可创建的内部 SessionFactory；消息不得携带档案、字段值、选择器、DOM 或计划。工厂从内容脚本内固定虚构记录意图、scanDocument、RecordRunContext、RecordPlanner、TransactionExecutor、RecordEditorBinder 和 RecordTransactionOrchestrator 组成会话，每次 RA_RECORD_V2_ADVANCE 只推进一步。浏览器 E2E 覆盖禁用构建、非法消息载荷、重复 start、并发 advance、暂停/恢复、页面导航、request-human、扩展页面重开，以及六条虚构项目中两条已有、四条新增的完整循环；断言 add/save 各 4 次，delete/upload/next-step/submit 永远为 0。测试页面之外必须始终返回未启用或驱动未安装。完成后运行专项、npm run check 和完整 npm run test:e2e，再评估是否为真实档案建立只读适配层。
 ```
 
@@ -647,7 +647,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D3 执行提示词：
 
-```text
+```tex
 保持生产 repeatable-record-v2 开关关闭，也不要把真实档案放入测试夹具或消息参数。设计后台可信档案投影协议：只有本扩展注入的顶层内容脚本、当前 activeTab 且由用户操作获得权限时，才能向 service worker 请求一个固定记录类型的最小只读投影；后台从受限 chrome.storage.local 读取并用现有 UserProfile schema 校验，只返回该记录类型允许的字段、档案修订号和不含原值的身份槽位描述，不返回 basic 身份证、手机号、邮箱或完整档案。请求不能携带字段路径、选择器、代码或任意回调。先仅支持虚构测试构建的 project 投影，并证明页面脚本无法读取、popup 不能伪装 content sender、失效 tab/导航/修订会停止会话；所有响应和错误日志不得含个人值。完成单元与真实 MV3 测试后，再把固定 fixture intent/value provider 替换为投影适配器，生产开关仍保持关闭。
 ```
 
@@ -662,7 +662,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D4 执行提示词：
 
-```text
+```tex
 把固定虚构 SessionFactory 的 value provider 改为内部 ProjectProjectionProvider，但仅在测试构建且固定 localhost 页面指纹通过时启用；生产构建继续 false。内容脚本启动会话前发送严格空载荷 RA_PROFILE_PROJECT，校验返回 recordType、profileRevision、项目 id 和字段类型，随后把项目记录投影转换为值提供器。会话每次 capture/advance 前检查投影修订号未变化；档案更新、响应结构异常、项目 id 重复、未知字段、页面导航或消息超时立即 request-human，不重试 add/save。增加“投影中途修订”“投影值缺失”“重复 id”“后台响应注入额外属性”“真实页面非测试指纹永远不创建会话”的单元和 MV3 测试。不要把任何投影值写入日志、storage、错误报告或消息回传；生产开关保持关闭。
 ```
 
@@ -675,7 +675,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D5 执行提示词：
 
-```text
+```tex
 先建立 ControlAdapter 抽象和失败夹具，不改变生产 repeatable-record-v2 默认关闭。覆盖原生 input、textarea、select、radio/checkbox，以及带稳定 aria combobox/listbox 的常见控件：读取当前值、打开控件、列出唯一选项、选择、写入、等待 React/Vue/异步回填并核验最终值；已有非空值必须保护，日期、证件类型、学校代码等无法唯一映射时 request-human，禁止按第一个选项猜测。把现有 EditorBinder 的原生路径迁移到适配器，保留脱敏收据和目标替换检查。新增 React 受控 input、Vue 异步 select、portal listbox、动态替换节点和未知自定义控件夹具；未知控件必须停下，不执行点击风暴。专项、npm run check、完整 npm run test:e2e 全部通过后，再决定是否将适配器接入真实页面白名单。
 ```
 
@@ -737,7 +737,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D5g 执行提示词：
 
-```text
+```tex
 为记录绑定器的 radio 回滚增加真实 React 浏览器夹具：填写后后续字段失败，回滚后重绘，要求 DOM 与框架状态都恢复；单选组选项被替换、改名、禁用或移除时不得误报恢复。若缺少安全的清空路径，保留当前选择并明确 rollback-incomplete，请求人工处理，禁止通过点击其它选项或表单 reset 猜测恢复。新增原生非受控 radio 对照和受控页面拒绝/重绘回写测试，运行专项、npm run check 与完整 npm run test:e2e。消除这项已知回滚风险后，盘点 D5 可支持的控件契约，进入通用记录试点评估，不继续无目标扩展控件清单；日期弹层、级联及未知控件继续明确停下，生产 Record v2 保持关闭。
 ```
 
@@ -751,7 +751,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D6a 执行提示词：
 
-```text
+```tex
 建立项目卡片的页面内身份比较，移除对 data-ra-v2-intent 夹具编号的依赖。只读取当前记录内明确可见名称、描述和完整日期，比较结论不携带个人值，不进入语义图、消息或日志。不同名称可判为不同；同名必须有第二项可靠一致证据，缺失、冲突和重复则请求人工处理。先写不同布局、同名不同日期、隐藏/截断内容和保存错卡的失败测试，再接入现有测试会话，保持生产开关关闭。专项、npm run check 与完整浏览器回归通过后，继续跨布局字段投影和生产试用入口评估。
 ```
 
@@ -766,7 +766,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D6b 执行提示词：
 
-```text
+```tex
 复现 Record v2 在步骤之间用户手动新增、移除、重排卡片或打开另一编辑器时使用旧快照的问题。在不增加事务快照版本或放宽邻接校验的前提下，要求驱动在规划和完成判断前核验当前记录拓扑、目标实例、动作语义和字段状态；有变化即零新增/零保存并明确停止。检查同步属性改写和没有 input 事件的值变化，不用页面私有变量做证据。专项、npm run check 与完整浏览器回归通过后，继续建立项目编辑器的跨布局字段投影，保留生产开关关闭。
 ```
 
@@ -780,7 +780,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D6c 执行提示词：
 
-```text
+```tex
 将固定测试会话中的两个正则字段判断替换为通用项目字段投影。复用现有字段语义证据比较与唯一选项匹配，但已验证的项目编辑器归属只能限定 projects 集合，不能把姓名、教育或协议字段当作项目内容。覆盖名称、简介、职责、角色、单位、日期、成果和技术栈；未知或歧义返回明确原因，日期精度不足不补日，字数不足不截断，选择不能采用网页内部值猜测。先用英文标签、表格与 dt/dd 编辑器复现，再验证六项目全量循环和未知字段停下。专项、全量及浏览器回归通过后评估正式试用入口，仍不宣称所有网站兼容。
 ```
 
@@ -793,7 +793,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D6d 执行提示词：
 
-```text
+```tex
 将已验证的项目驱动从固定 localhost 夹具中抽取，保留测试配方的原有边界；普通页面路径仅按语义图选择唯一、主文档内的项目列表和明确添加动作，绑定初始 URL 与列表元素。所有捕获继续要求当前页面、原列表实例与唯一项目归属；不从外部消息接收选择器、档案路径或动作参数。先建立无标记、不同地址、加号按钮和其他栏目共存的失败测试，再验证六项目闭环；多列表、已打开编辑器、列表替换与导航均在动作前停止。生产入口暂不开放，完成全量与浏览器回归后接入独立且明确限定项目栏目的试用控制，关闭弹窗后仍可继续、暂停和停止。
 ```
 
@@ -806,7 +806,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D6e 执行提示词：
 
-```text
+```tex
 为普通项目驱动建立页面内自主控制器，并提供独立“连续填写全部项目（试用）”入口。严格空载荷消息读取最小项目投影；点击启动后自动有界推进，即使弹窗关闭也继续。暂停、停止、读取档案期间导航/停止、迟到结果、重复启动和两个填写模式并行要有失败测试。状态不得携带个人值，完成只表示项目栏目，不误报整份简历。未知字段显示中文原因、保留草稿，停止后才允许其它模式写入。通过生产 MV3 的真实弹窗启动、关闭恢复、重启去重、暂停/停止和未知字段浏览器验证，再开启明确限定项目栏目的试用；原 Record v2 测试消息继续关闭，未知控件及 LLM 仍按契约处理。
 ```
 
@@ -822,7 +822,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-004B-D6f 执行提示词：
 
-```text
+```tex
 为从零项目开始的普通页面建立失败夹具，覆盖明确空状态、加号到项目列表的唯一 aria-controls/owns 关系，以及首条保存后的单卡状态。识别过程只接受可证明的归属，不把孤立加号、没有空状态的未知容器或关联另一栏目当成新建能力。先验证零到六条每条新增/保存一次，再验证已有一条和重复启动、多目标/错误目标、隐藏空状态及未知卡片。保持步骤间新鲜度、保存前字段观察、协作暂停和消息边界不变。通过专项、全量和生产 MV3 入口回归后更新契约与下一步，不继续无目标扩展控件；随后处理事实状态，再接入受控文本模型回退。
 ```
 
@@ -836,7 +836,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-005A 执行提示词：
 
-```text
+```tex
 先复现档案导入接受 2 月 30 日、非闰年 2 月 29 日和倒置时间段的问题。统一真实公历日期及 YYYY-MM 精度校验，教育、项目、实习、任职和所有单日期字段均复用；保留空值与月份精度，不补日。起止精度不同则用可能日期区间判断，只拒绝必然倒置，不创造具体日期。最小项目投影也要校验同一契约，保留旧 schemaVersion:1 的有效数据、顺序与全部字段，错误时不写存储。加入导入预览保留原档案和后台投影边界测试，专项、全量与浏览器回归通过后继续事实状态设计；不因这一轮完毕结束总任务。
 ```
 
@@ -850,7 +850,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-005B 执行提示词：
 
-```text
+```tex
 建立向后兼容的集合事实元数据，明确区分未确认、有、明确没有和不适用；空数组保持未知。记录来源、用户确认与更新时间；明确没有和现有记录冲突时拒绝保存，但不清除记录。先写无元数据旧档案、未知、未确认否、明确否、冲突、来源与备份往返用例，再提供档案页面入口。只对普通事实类单选/复选/下拉问题提供集合存在性的匹配；组合问题、协议、已有答案、联系人及未知选项保持原边界。使用现有控件回读和动态重扫验证选择“有”之后显现的字段，不以空数组或默认选项回答“否”。通过专项、全量及实际 MV3 导入/编辑/保存/匹配后，继续进行中的日期状态，随后模型语义回退。
 ```
 
@@ -863,7 +863,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-005C 执行提示词：
 
-```text
+```tex
 为教育、项目和实习/任职增加可选的结束时间事实状态，区分未知、明确日期、进行中和不适用。旧有效档案无损往返；进行中不得与已保存结束日期冲突，也不得补成今天或月底。只有已确认进行中且网页存在唯一可见的“至今”或 Present 等明确等价选项时才自动填写；原生 date/month 没有至今能力时明确停止，不写日期。最小项目投影只加入必要元数据，身份核验同步区分至今与已结束卡片，不能因相同名称误认。增加导入、存储、编辑、普通匹配、项目绑定、去重和实际 MV3 选择用例，专项、全量与浏览器回归通过后进入常见档案字段与不透明修订号，再启动 M5 语义回退。
 ```
 
@@ -877,7 +877,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-005D 执行提示词：
 
-```text
+```tex
 补充明确保存的英文姓名、健康、婚姻、身高体重、求职城市/岗位/薪资和个人/项目作品链接。不得由中文名推算英文名，不把完整英文名当成名或姓，不猜健康、婚姻、薪资或度量单位。缺值和未知单位保持待办，家庭联系人保护继续生效；个人主页不能替代项目仓库地址。链接只允许明确 http/https URL，拒绝脚本、文件和认证信息。保存时生成不含个人值的不透明修订号，每次保存不同；旧档案在首次保存前保持兼容，导入修订号不授权执行旧计划。先建立无损迁移、字段含义、单位、URL、敏感归属及同时间保存失效用例，再实现档案入口和匹配，运行全量与实际扩展编辑保存回归。M4 主缺口补完后立即进入 M5，先建立脱敏语义请求、严格结构输出与本地策略验证，模型只提议已知节点和白名单路径，不返回个人值、选择器或脚本；未配置服务时确定性填写仍可使用。
 ```
 
@@ -891,7 +891,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-006A 执行提示词：
 
-```text
+```tex
 从已通过完整校验的语义图中选取确定性规则仍未知的可编辑字段，只发送短标签、控件类型和规范栏目归属；逐项遮盖已知档案字面值、邮箱、长号码、日期及 URL。原始网页地址、标题、机器 ID、已有值、上下文叙述和选项内部值不能进入请求。签发本地请求令牌，将字段映射、扫描版本、档案修订号及原字段观察保留在私有会话。模型只返回固定字段引用、结构指纹、白名单档案路径和有限枚举，不允许自由文本、值、脚本、选择器或动作。响应严格解析，未知/重复节点、归属冲突、变更页面/档案/字段、伪造会话均拒绝整批提议；空绑定、拒绝和不可用是正常回退。先写失败测试，再实现模块，完整回归后继续本地字段取值与伴随服务，尚未配置时确定性功能仍可用。
 ```
 
@@ -905,7 +905,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-006B 执行提示词：
 
-```text
+```tex
 验证成功的绑定对象必须有本地签发凭据，不能把 JSON 克隆或伪造的成功对象当成可信绑定；取值前再次核对扫描与档案。模型只认含义，本地复用事实读取、字数、日期精度、数字与可见选项匹配，保持 llm 来源，即使选项通过别名匹配也不能洗成自动规则。未知单位、英文姓名分项、缺值、超长文本、模糊或重复选项和没有规划器当前记录上下文的项目字段不提供填写值。建立可取消、有超时上限的纯模型接口，未配置、离线、拒绝、迟到响应和返回时上下文变化均不影响确定性字段；不自动重试网络。先写失败测试再实现，完整验证后继续固定伴随服务与实际生产扩展入口。
 ```
 
@@ -918,7 +918,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-006C 执行提示词：
 
-```text
+```tex
 建立固定 loopback 伴随服务，将最小请求和输出契约抽成共享严格 Schema；扩展、服务和提供方不得各维护不同版本。请求必须认证，CORS 只接受有效扩展 Origin，不接受普通网站、任意上游 URL、额外属性或完整档案。凭据只从伴随服务进程环境读取，不写扩展、仓库或日志；未配置正常回退。固定 Responses 端点，使用严格结构输出，检查 completed/message/output_text、refusal、incomplete、多个输出、HTTP 失败与超时；返回有限状态而非服务原错误。用注入的虚构 fetch/provider 验证本地 HTTP、认证、超量、并发、取消和不完整响应，不读取真实密钥或触发真实调用。完成纯服务验收后立即接生产扩展的明确连接入口与真实 MV3 虚构响应闭环，模型只补未知字段，当前规则不受影响。
 ```
 
@@ -932,7 +932,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-006C2 执行提示词：
 
-```text
+```tex
 将固定本地服务连接接入生产扩展，配对令牌只保存在可信扩展设置中，与个人档案和备份分开；不接收任意端点、不保存 API Key、不默认调用。新增明确的“AI识别并填写本页”入口，该点击批量确认已通过本地核验的候选，无需逐字段勾选；已知信息走原规则、模型只补未知含义，缺事实仍保留待办。模型返回后核对当前标签页、URL、档案和扫描的实际 DOM 节点/字段/图，不通过则不填旧结果；取消、设置/档案变化、页面改变及关闭弹窗均中断后续。通过真实 MV3、真实固定 loopback 服务与虚构上游验证陌生字段填写、脱敏请求、默认零调用、迟到结果、手工改值、旧版本消息和离线回退。升级安装版本并更新指南，经过专项、完整检查与全部浏览器回归后继续动态重扫和语义缓存。
 ```
 
@@ -946,7 +946,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-006D1 执行提示词：
 
-```text
+```tex
 把明确的一次“AI识别并填写本页”意图扩展为有界的联动闭环。每次只执行当前已核验候选，观察普通字段事件引发的新字段后重扫，先运行确定性规则，再为真正未知字段创建新会话；不得复用旧 fieldId、旧响应或旧个人值，不触发添加、保存、下一步、协议或最终提交。最多三轮 AI，每轮必须实际有填写进展；没有候选、未解答、无值、拒绝、超时、离线、网页或档案变化立即停止，展示实际轮次和未完成状态。停止、关闭和设置变化在各个异步边界阻止后续写入。先建立陌生选择题展开第二层/第三层、无进展、重复未知字段、迟到联动、手改和停止夹具，再实现共享编排，运行专项、完整 check 与实际 MV3 全量回归。完成后继续 I-006D2 语义缓存，缓存只含字段含义并绑定页面/字段观察与版本，绝不缓存个人答案或跨站点猜用。
 ```
 
@@ -960,7 +960,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 下一步 I-006D2 执行提示词：
 
-```text
+```tex
 实现只缓存已通过本地核验的字段含义的有界语义配方。先做可验证的内存缓存及明确的使用范围，再决定持久化；不能把未经当前上下文验证的 HTTP 响应写入缓存。绑定原页面、规范栏目、当前页面结构、字段指纹、短线索、控件类型、完整选项观察和版本；过期、导航、档案/连接变化或观察改变不能重放。缓存只包含白名单路径及必要语义观察，不含个人答案、截图、原控件引用、内部选项值、API 密钥或配对令牌。命中仍须创建新会话、复查当前真实 DOM、重新读取本地档案并通过原格式/选项校验，保持 llm 来源，不绕过整体明确意图。覆盖篡改/克隆凭据、迟到/取消响应、跨站点/页面/栏目/版本、选项变化、限量/过期、缓存命中零网络与新个人值读取；用生产 MV3 虚构夹具验证后完整回归，再继续模型与重复记录规划的结合。
 ```
 
@@ -973,7 +973,7 @@ Page → Step → Section → RecordList → ExistingRecordCard / AddAction
 
 I-006D3 执行提示词：
 
-```text
+```tex
 将已核验语义配方接入可信 chrome.storage.session，让同一浏览器会话中的弹窗重开可以复用。只存必要的结构观察摘要、白名单路径和时间，不存个人答案、原 URL、控件 ID、线索原文、内部值或凭据。独立会话随机密钥签名包，严格限量与十分钟时限；Web Lock 串行读写/清空，档案和连接变化清空。异步缓存读取后仍创建/核验新会话、复查真实 DOM、读取最新档案，并检查取消。存储故障、篡改或部分未命中回到原模型流程，关闭 AI 时不能使用缓存。先跑专项与实际 MV3 重开零请求/修改签名后回退/改档案后新值/关闭清空，再完整 check 与 E2E。更新版本和验收范围，继续模型与项目规划结合，不宣称全部网站已适配。
 ```
 
@@ -986,7 +986,7 @@ I-006D3 执行提示词：
 
 I-006D3a 执行提示词：
 
-```text
+```tex
 每次启用 AI 连接生成独立随机修订号，只由扩展签发，不接收连接文件或网页指定。将此修订纳入会话缓存隔离，禁止缓存配对令牌或其摘要。兼容没有修订号的旧连接，让 AI 正常工作但不使用跨弹窗缓存，重新连接后再启用缓存。后台异步清空作为存储回收，正确性不依赖清空时序。先复现旧缓存仍存在而连接修订已变的重放缺口，再覆盖修订轮换、旧设置兼容和真实 MV3 快速重连/旧包恢复后的重新请求，完整验证后继续当前项目上下文与模型绑定。
 ```
 
@@ -999,13 +999,13 @@ I-006D3a 执行提示词：
 
 I-006D4 执行提示词：
 
-```text
+```tex
 阅读 docs/PROJECT_AI_BINDING.md 和现有 Record Planner / Editor Binder。实现只由当前原始 plan/capture/transaction/运行上下文签发的项目取值上下文；使用最新 capture、编辑器/档案修订、原 DOM 目标和 populate-editor 字段集合。项目索引只来自本地活动事务，模型仍只返回白名单路径。复用日期、进行中、URL、字数和唯一选项验证，维持 llm 来源与 review 候选，缺值不猜、不默认第一条。先验证两条不同项目且当前规划第二条，再覆盖无上下文、克隆、消费/停止/新 capture、编辑器/档案变更及越范围绑定；此轮只产生候选，不接入生产点击。通过完整检查后再单独将未知字段接入连续项目流程与真实 MV3。
 ```
 
 ## 8. 每轮通用提示词
 
-```text
+```tex
 阅读 PROJECT_PLAN.md、当前 Git 状态、上一轮记录和相关测试。根据优先级规则选择一个最小可验收工作项，先建立失败夹具，再实施通用修复。保留现有安全边界，不覆盖已有值，不猜测未知事实，不触发删除或最终提交。运行直接相关测试、npm run check；涉及浏览器交互时运行 npm run test:e2e。根据实际结果更新状态板、本轮记录、风险和下一动作。不要为了通过测试而降低断言或删除保护。
 ```
 
@@ -1270,7 +1270,7 @@ I-007E1 执行提示词见 docs/EDUCATION_HIGHEST_FACTS.md。完整验收并提�
 
 后续I-010D只开放普通个人页唯一标量事实的弱标签确认，保留日期精度、单位、本人归属及手改规则；详细执行提示待下轮推进。
 
-### 2026-10-05 · 用户调整优先级：真实 API 与 Agent
+### 2026-10-05 · 用户调整优先级：真实 API 与 Agen
 
 不再先扩展零散弱标签。I-010D的纯模块与语义草稿99项通过，隔离MV3基础、缓存与动态场景通过，但保护字段场景仍待定位，未合并。优先I-011A：复用现有固定本机服务、Responses提供方与脱敏协议，新增配置化Chat Completions提供方（JSON Object及可选JSON Schema），三协议都走原本地取值与填入核验。模型、地址、密钥仅从明确的本机配置读取，不读网页参数。用户选择OpenAI兼容接口；没有用户配置时不发真实云端调用。
 
@@ -1505,3 +1505,463 @@ Agent会逐个观察能核验原身份的陌生空下拉框；某个列表稳定
 完整148文件3610项、lint、strict类型及构建通过；25组464浏览器项，包括实际MV3/兼容HTTP多控件11项。全部虚构资料、本机服务与隔离Chromium，无外部请求或网页错误；真实云模型与招聘站仍待复测。生产v2关闭，v0.6.38完整回退保留。
 
 报告 artifacts/i012b-verification-summary.json、归档 artifacts/i012b-verified-reports；源实现6024b5c，生产资源未重建，SHA256核对通过。下一轮执行提示词：先读计划、验收、Git及 artifacts/i012b-verification-summary.json，已验收且源码未变的检查不重跑。正式v0.6.39已发布。I-012C几何51、原DOM69/Chromium13、像素39/Chromium10、真实扫描准入41/Chromium12仅隔离通过，快照在 artifacts/i012c-*-checkpoint；不能算截图、隐私或视觉模型能力，准入未注册正式消息或Agent。下一步保守语义像素遮挡，排除背景图、伪元素、覆盖、媒体和个人文本，再截图前后原活动tab/window/URL与视口核验、实际MV3像素取消验证，最后有限兼容视觉API。先失败夹具再实现，资料和凭据留本机，模型仅给含义，验证码和最终投递用户处理。
+
+### 2026-10-06 · I-012C语义准入与捕获围栏（仅隔离通过）
+
+语义标签59项单元/15项Chromium、语义准入9项单元/30项Chromium及扫描准入41项回归已通过。新增注入式捕获围栏26项单元/18项Chromium、strict类型和lint通过；所有浏览器夹具外部请求和页面错误均为零。活动上下文快照、占用态、证据复验、取消、重放、克隆、无效视口、上下文变化和原始缓冲别名均有失败夹具。
+
+证据冻结于 artifacts/i012c-draft-workspace/artifacts/i012c-capture-fence-hardened-checkpoint；正式v0.6.39源码和安装资源未变。注入合成像素不算MV3截图、真实招聘网页或云视觉验收。
+
+下一轮执行提示词：为MV3活动页captureVisibleTab适配建立本机虚构页面失败夹具，绑定原扫描/语义准入、活动tab/window/URL及视口，覆盖捕获/解码/本地裁剪遮挡时停止、导航、切页和过期；实际像素与取消验证通过后再接兼容视觉接口。
+
+### 2026-10-06 · I-012C MV3捕获适配（仅隔离通过）
+
+新增 `mv3VisibleCapture.ts`，把一次MV3 `captureVisibleTab(windowId,{format:"png"})` 回调限制在捕获前后相同的活动上下文快照，并对data URL、取消、导航、tab/window/document/视口变化和原生RGBA解码结果失败关闭。单元8项、实际Chromium18项、strict类型/lint通过；浏览器外部请求和页面错误均为零。测试使用本地页面和假的MV3 API，没有扩展权限、真实截图或云视觉请求。
+
+冻结证据于 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-capture-checkpoint`。正式v0.6.39运行源码、安装资源和回退版本未变，不计入发布能力。
+
+下一轮执行提示词：先读计划、验收、Git和正式进度，复用未变证据。将MV3适配器接入最小权限扩展消息边界，验证消息来源、当前lease/语义证明、取消和截图响应不可重放；之后才做本机解码裁剪遮挡和兼容视觉接口。保持未知字段待办，不发送真实个人事实或凭据，不处理验证码和最终投递。
+
+
+### 2026-10-06 · I-012C MV3消息边界（仅隔离通过）
+
+新增 `mv3CaptureMessageBridge.ts`，把捕获证明保存在扩展内私有映射，不接受页面传入证明；请求仅接受扩展 popup、顶层 frame、指定 tab/window 和格式化 requestId，捕获/停止均一次性消费，回放、伪造 sender、嵌套 frame、错 tab、未知请求拒绝。单元3项、实际Chromium12项、strict类型/lint通过；外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-bridge-checkpoint`。这仍未接入真实 background/content 消息监听、扩展权限、截图或云视觉，正式v0.6.39未变。
+
+下一轮执行提示词：在隔离副本中接入最小 background/content 消息适配，使用现有 sender 校验和 AgentPageLease/语义证明，验证请求取消、响应不可重放、导航/停止清理和跨帧拒绝；通过后再接本机解码裁剪遮挡。
+
+
+### 2026-10-06 · I-012C运行时消息适配（仅隔离通过）
+
+新增 `mv3CaptureRuntimeBridge.ts`，只注册并转发两个捕获消息类型，其他 runtime 消息原样忽略；提供可撤销 listener，复用前一层私有证明、sender/frame/tab/window 校验和 requestId 一次性消费。单元2项、实际Chromium9项、strict类型/lint通过；外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-runtime-checkpoint`。
+
+仍未接入真实 background/content 运行时、扩展权限或真实截图；正式v0.6.39未变。下一轮执行提示词：把桥接器放入隔离的 background/content 消息适配，接入 AgentPageLease/语义证明生命周期和停止清理，验证导航、断连、取消和响应回放后再做本机裁剪遮挡。
+
+### 2026-10-06 · I-012C MV3生命周期清理（仅隔离通过）
+
+新增 `mv3CaptureLifecycle.ts`，为捕获请求登记一次性取消回调，完成、单条取消、断连/导航批量取消均清理注册表；重复 requestId、重复取消和取消后完成拒绝，取消回调抛错不会留下活动请求。单元3项、实际Chromium10项、strict类型/lint通过；外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-lifecycle-checkpoint`。
+
+正式v0.6.39未变。下一轮执行提示词：将生命周期清理接到隔离 background/content port 的断连、导航、AgentPageLease 结束和 capture bridge 响应路径，验证响应不可重放与所有停止原因都释放请求，再开始本机裁剪遮挡。
+
+### 2026-10-06 · I-012C MV3生命周期事件绑定（仅隔离通过）
+
+新增 `mv3CaptureLifecycleBindings.ts`，把 port 断连和导航事件绑定到私有捕获注册表，统一取消所有请求；disposer 幂等且移除监听，释放后新请求不再被旧事件取消。单元2项、实际Chromium5项、strict类型/lint通过；外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-bindings-checkpoint`。
+
+正式v0.6.39未变。下一轮执行提示词：在隔离副本接入现有 background/content port 形状和 AgentPageLease 结束回调，验证断连、导航、旧 owner、停止和响应回放全部清理，再开始本机裁剪遮挡。
+
+### 2026-10-06 · I-012C MV3捕获流水线组合（仅隔离通过）
+
+新增 `mv3CapturePipeline.ts`，将一次性捕获围栏、私有消息桥和生命周期清理组合成单一请求路径：签发证明、严格 sender 校验、捕获响应完成后消费请求，断连/导航统一取消。单元2项、实际Chromium8项、strict类型/lint通过；外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-pipeline-checkpoint`。
+
+这仍是隔离组合层，未接入真实 background/content runtime、扩展权限或截图；正式v0.6.39未变。下一轮执行提示词：将组合层接到现有 background/content 端口和 AgentPageLease，做真实扩展权限与 captureVisibleTab 夹具，然后再接本机裁剪遮挡和兼容视觉请求。
+
+
+### 2026-10-06 · I-012C background capture port（isolated only）
+
+Added `mv3CaptureBackgroundPort.ts` to model the actual MV3 background-side boundary: only a trusted popup top-level port for a current HTTPS tab/window may request one PNG capture; malformed, replayed, busy, foreign sender, navigation-changed, and invalid data URL cases fail closed. Unit 3 and Chromium 3 passed with strict type/lint; external requests and page errors were zero. Evidence is frozen in `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-background-port-checkpoint`.
+
+This remains an isolated fake `captureVisibleTab` adapter. It is not wired into the shipped background worker or a real browser capture. Official v0.6.39 is unchanged. Next prompt: wire the port shape into the isolated copy of the real background/content runtime and verify activeTab/port lifecycle before local crop/redaction.
+
+### 2026-10-07 · I-012C background installer boundary（isolated only）
+
+Added `mv3CaptureBackgroundInstaller.ts`, which installs the capture port only at the background `runtime.onConnect` boundary and disposes that listener without adding a content-script listener. Unit 1 and Chromium 3 passed with strict type/lint; external requests and page errors were zero. Evidence is frozen in `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-installer-checkpoint`.
+
+The installer is still isolated and does not modify the shipped worker or claim real `activeTab` screenshot capability. Official v0.6.39 remains unchanged. Next prompt: wire this installer into the isolated copy of the real background/content runtime, then run an extension-level fake-port test before local crop/redaction.
+
+### 2026-10-08 · I-012C product background wiring（isolated only）
+
+将 `mv3CaptureBackgroundInstaller` 接入隔离副本真实 `product/src/background/index.ts` 的 `runtime.onConnect`；背景页通过 `tabs.get` 异步复核当前 tab/window/URL，再调用受 sender 约束的 `captureVisibleTab`。新增异步上下文与停止竞态夹具，background port 单元4项、流水线单元3项；真实产品背景入口在本地 Chromium 假 MV3 runtime/tabs 中通过3项，外部请求和页面错误均为零。证明回滚已覆盖重复 requestId 和生命周期登记失败，避免围栏占用泄漏。
+
+证据摘要更新于 `artifacts/i012c-semantic-label-summary.json`，源哈希已刷新。全部代码仍在 `artifacts/i012c-draft-workspace` 隔离副本；正式 v0.6.39、manifest、权限和发布包未变，不能据此宣称真实扩展截图或视觉模型可用。
+
+下一轮执行提示词：把隔离 background capture port 与现有 content owner/page-operation port 的断连、导航、AgentPageLease 结束事件绑定；先验证旧 owner 和迟到响应不能影响新 owner，再实现本机像素裁剪/遮挡证明，最后才评估 OpenAI 兼容视觉请求。未知资料、个人值和凭据继续留在本机，模型只返回受核验含义，验证码和最终投递由用户处理。
+
+### 2026-10-08 · I-012C本机像素遮挡证明（隔离通过）
+
+新增 `semanticRedactionPipeline.ts`：只接受已通过语义标签准入并绑定图像尺寸的计划，签发一次性私有证明；输出前调用现有数值像素遮挡器，只保留已计算的标签区域，图像尺寸变化、重放和伪造计划关闭。单元3项、实际Chromium3项、strict类型/lint通过，外部请求和网页错误为零。
+
+这是本机RGBA处理夹具，不是图片上传、视觉API或正式扩展能力。证据哈希在 `artifacts/i012c-semantic-label-summary.json`，正式v0.6.39仍未改变。下一轮先把证明消费绑定到内容页 owner/lease 的断连和导航，再增加本机编码器边界；编码后的数据仍不得离开本机，除非后续单独完成兼容API权限、脱敏和用户可见开关验收。
+
+隔离全量回归已重跑：18个单元文件327项、19个Chromium脚本186项，失败0、外部请求0、网页错误0。
+
+本轮又修正了后台边界：popup sender 不再携带或信任页面 tab，capture 请求必须显式绑定目标 tab/window/HTTPS URL；后台从 `tabs.query({active:true,lastFocusedWindow:true})` 获取当前页，并用活动页修订号和前后 URL 做一致性校验。切页、导航、窗口焦点变化、停止和超时均关闭回调。隔离产品背景入口和全部回归仍通过，正式包不变。
+
+
+### 2026-10-08 · I-012C owner 生命周期与本机编码边界（仅隔离通过）
+
+新增 `mv3CaptureOwnerLifecycle.ts`，把内容侧 owner 结束（停止、导航、断连）统一绑定到捕获生命周期的 `cancelAll`；绑定 disposer 幂等，旧 owner 事件不会取消新 owner 请求。新增 `localImageEncoder.ts`，编码器只接受已经通过语义准入与本机遮挡的 RGBA 结果，复制输入缓冲、限制像素和输出字节上限，拒绝字符串 URL、尺寸/缓冲不一致及中止信号。新增1项 owner 单元、3项编码器单元和3项本地 Chromium 检查；完整隔离回归为18个单元文件327项、19个Chromium脚本186项，失败0、外部请求0、网页错误0。
+
+这些仍是隔离 seam：尚未接入正式 content `AgentPageLease`、真实 PNG 编码器、OpenAI 兼容端点或任何图片发送权限。正式 v0.6.39、manifest、权限与发布包未变。证据与哈希在 `artifacts/i012c-semantic-label-summary.json` 和 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。
+
+下一轮执行提示词：把 owner seam 接到隔离副本的 `AgentPageLease`/content port，先验证旧 owner 的停止、导航、断连与迟到响应不能影响新 owner；再在本机引入受限 PNG 编码实现。只有本地脱敏和用户可见开关通过后，才评估 OpenAI 兼容 API 的最小请求适配，继续保留未知资料与验证码/最终投递人工处理。
+
+### 2026-10-08 · I-012C AgentPageLease owner 接线（仅隔离通过）
+
+将 `AgentPageLease` 增加一次性 owner 结束事件：显式停止、断连和检测到 URL 导航都会发出原因，导航在下一次写入检查前自动撤销旧 token。隔离 content 入口创建 `Mv3CaptureLifecycle` 并绑定到该 lease，后续 capture 回调可随 Agent owner 结束统一取消；同时用 bundle 检查了 content 入口的导入和 strict 类型。新增2项 lease 单元，owner/编码边界相关单元合计6项；完整隔离回归为19个单元文件329项、19个Chromium脚本186项，失败0、外部请求0、网页错误0。
+
+这仍未修改正式 content bundle、未接入真实页面截图或 API 请求；隔离 capture lifecycle 当前没有越过 owner seam 发送任何数据。正式 v0.6.39、manifest、权限和发布包保持不变。冻结副本已更新到 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。
+
+下一轮执行提示词：为隔离 content owner 增加一个真实 capture request 注册夹具，验证停止、导航、断连及迟到回调都被同一 lease 取消；再检查 AgentPageLease 与重复记录工作流的互斥，之后才考虑本机 PNG 编码的实际实现。
+
+### 2026-10-08 · I-012C owner-bound capture request gate（仅隔离通过）
+
+新增 `mv3CaptureOwnerRequestGate.ts`，所有捕获请求必须先通过当前 `AgentPageLease` token，再登记到私有 `Mv3CaptureLifecycle`；owner 停止、导航、断连时统一取消，旧句柄完成/取消不可影响新 owner，disposer 会消费剩余请求。新增3项单元和4项本地 Chromium 检查；完整隔离回归为20个单元文件332项、20个Chromium脚本190项，失败0、外部请求0、网页错误0。
+
+仍未触碰正式 v0.6.39、content bundle、manifest、权限或任何网络请求。冻结副本和SHA256摘要已更新到 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint` 与 `artifacts/i012c-semantic-label-summary.json`。
+
+下一轮执行提示词：把 gate 放进隔离 content capture 注册夹具，覆盖真实 capture 回调迟到、stop/navigation/disconnect 竞态及重复记录工作流互斥；通过后再实现本机 PNG 编码，模型请求继续保持未接入状态。
+
+### 2026-10-08 · I-012C本机 PNG 编码边界（仅隔离通过）
+
+新增 `localPngEncoder.ts`：将已脱敏的 RGBA 缓冲在本机编码为带 IHDR/IDAT/IEND 与 CRC 的 PNG，使用有界 zlib 存储块，不依赖浏览器 `CompressionStream`，限制 1,048,576 像素和8 MiB输出，并在每个块检查 AbortSignal。发现 Chromium 的 CompressionStream 夹具会挂起后已删除该依赖；本机编码单元2项、Chromium3项均通过。完整隔离回归为21个单元文件334项、21个Chromium脚本193项，失败0、外部请求0、网页错误0。
+
+本轮只验证本机字节边界，没有上传、模型调用或正式包变更。证据与哈希在 `artifacts/i012c-semantic-label-summary.json`，冻结副本已补入 `localPngEncoder.ts`、测试和浏览器报告。下一轮审查 capture gate 与重复记录工作流互斥，随后才建立只返回结构化含义的 OpenAI 兼容 mock transport；真实个人资料和 API 凭据继续留在本机。
+
+### 2026-10-08 · I-012C OpenAI 兼容语义 mock transport（仅隔离通过）
+
+新增 `openAiCompatibleSemanticClient.ts`，把模型边界限制为字段语义和受限决策：只允许使用页面提供的 `fieldId` 与候选选项，拒绝选择器、脚本、未知选项和任意 HTML；图片输入必须带 `redacted:true` 的本机 PNG，模型调用必须同时满足本机 enabled 与用户确认。响应大小、字段数、置信度和决策种类均有上限，API key 只存在内存请求头，不写日志。3项单元和3项本地 Chromium mock 检查通过；完整隔离回归为22个单元文件337项、22个Chromium脚本196项，失败0、外部请求0、网页错误0。
+
+这是 mock transport：测试使用注入的 fetch，没有请求真实 DeepSeek、通义千问或 OpenAI 端点，正式 v0.6.39、content bundle、manifest、权限和发布包未变。证据与哈希在 `artifacts/i012c-semantic-label-summary.json`，冻结副本已更新。下一轮审查 mock transport 与重复记录工作流的互斥和迟到回调，再设计用户可见的 API 设置与显式启用路径。
+
+### 2026-10-08 · I-012C transport与互斥边界加固（仅隔离通过）
+
+加固 OpenAI 兼容 mock transport：响应体按字节流有界读取，Content-Length 超限立即拒绝；同一 field 的重复决策拒绝，避免模型输出互相覆盖；请求体按 UTF-8 字节计量。owner gate 增加重复记录工作流占用夹具，确认活动记录任务时不会抢占 Agent lease。完整隔离回归为22个单元文件339项、22个Chromium脚本196项，失败0、外部请求0、网页错误0。
+
+这轮仍只使用注入 fetch 和虚构 API key，未访问真实模型服务；正式 v0.6.39、manifest、权限和发布包不变。下一轮继续做迟到模型响应与记录工作流互斥的组合夹具，再设计设置页中的用户可见 enabled/confirmed 开关。
+
+### 2026-10-08 · I-012C owner/记录互斥与模型确认边界（仅隔离通过）
+
+修复 owner capture gate 的主动取消竞态：句柄现在让私有生命周期先触发外部取消回调，再消费句柄，避免“已取消但回调未执行”的晚到响应漏洞；销毁后的 gate 也拒绝新登记。新增重复记录工作流组合夹具：记录会话占用页面时 Agent lease 无法启动，记录停止后的迟到结果不会产生保存，旧会话不能被重放成重复保存。新增2项单元和4项本地 Chromium 检查；同时增加 AI 连接设置的显式 userConfirmed 位和选项页勾选，未明确确认时不会启用模型请求。新增2项单元。
+
+完整隔离回归为24个单元文件344项、23个Chromium脚本200项，失败0、外部请求0、网页错误0；strict TypeScript 通过。代码仍在 artifacts/i012c-draft-workspace，正式 v0.6.39、manifest、权限和发布包未变，未访问真实模型端点。下一轮执行提示词：为 mock 语义决定接入一个端到端的本地“字段观察→有限决策→原子回读”夹具，验证用户确认、重复字段拒绝和 owner 取消在同一流程内生效；仍不启用真实 API。
+
+## 2026-10-09 · 隔离语义执行层
+
+新增 mockSemanticDecisionExecutor：有限字段决策通过本地控件接口写入并回读；默认保护已有值，文本建议须单独确认，事件中取消及后续失败回滚，控件异常保留待办。专项5项单元、strict类型通过，Chromium3项通过，无外部请求或网页错误。这是隔离执行接口，尚未接真实DOM binder或正式安装包；不计为端到端模型填写能力。
+
+下一步：增加真实原生DOM适配夹具与迟到模型响应取消，避免以mock接口验收替代正式入口验收。
+
+### 2026-10-09 · 隔离执行层回滚核验
+
+补上回滚失败的明确状态 rollback-incomplete：恢复写入返回false、回读不等或异常均不得声称已恢复。专项6项单元、strict类型及Chromium3项通过。仅隔离；正式v0.6.39未变。下一轮继续原生DOM适配与迟到响应联动。
+
+### 2026-10-09 · 隔离原生 DOM 语义控件适配
+
+新增 nativeDomSemanticControls：只接收本地扫描后已经确认的 Element，不接受模型 selector；覆盖原生 select、input、textarea 的写入、input/change 事件和选项文本回读。Chromium 4 项通过，TypeScript strict 通过，无外部请求和页面错误。仍是隔离夹具，未接入正式 content binder，也不会自动提交。
+
+下一步：把原生 DOM 控件适配与现有扫描快照、owner gate 及迟到模型响应组合，完成后再评估进入正式版本。
+
+### 2026-10-09 · 隔离语义决策工作流
+
+新增 semanticDecisionWorkflow：模型只产生一次受限语义结果，先检查 owner 是否仍有效，再交给本地原子控件执行；模型禁用、请求失败、取消或 owner 结束都会转人工，不重试、不提交。完整隔离回归为26个单元文件353项、26个Chromium脚本210项，失败0、外部请求0、网页错误0，strict TypeScript 通过。正式 v0.6.39 仍未变。
+
+下一步：将该工作流与现有扫描快照、局部截图脱敏证明及 content port 做隔离组合，验证真实页面节点替换和导航时不会写入旧控件。
+
+### 2026-10-10 · I-012C popup→content→background视觉语义链路（仅隔离通过）
+
+新增隔离 content `visualSemanticClient` 与 `visualSemanticMessage`：请求必须带当前 `AgentPageLease` token、弹窗来源、用户确认和本机已脱敏 PNG；owner 停止、导航、断连和迟到响应立即转人工，content 只转发结构化语义提案，不接受 selector、脚本、HTML 或个人值。隔离 `product/src/content/index.ts` 已注册该消息边界，保持旧 listener 顺序不变。新增 popup `visualSemanticClient`，由已有 owner token 向当前 tab 发一次消息并重新核验响应，超时或 owner 结束不重试。严格类型通过；完整隔离回归 32 个单元文件 372 项、32 个 Chromium 脚本 230 项通过，失败、外部请求和页面错误均为零。冻结副本为 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`，摘要为 `artifacts/i012c-semantic-label-summary.json`。
+
+这仍是隔离副本：没有修改正式 v0.6.39、manifest、权限或发布包；没有从真实页面截屏，没有连接真实兼容 API，也没有执行任何提交、上传或验证码。下一轮先把 popup 的本机截图申请与现有 background capture port 对接，验证截图只在语义遮挡后进入上述通道，再做默认关闭设置和正式包构建回归。
+
+### 2026-10-10 · I-012C DOM 新鲜度与兼容视觉请求（仅隔离通过）
+
+`semanticDomGuard` 已把模型等待期的真实 DOM 节点、URL 和下拉选项签名绑定到一次执行；页面导航、节点替换、选项变化、控件禁用或只读都会使执行转人工。原生适配器拒绝密码、文件、单选、多选和不可写控件。26 个单元文件 356 项、27 个 Chromium 脚本 214 项通过，外部请求和页面错误为零。
+
+兼容 API mock 同轮改为真正的 `image_url` 内容块，脱敏 PNG 不再混入文本 JSON；回环 FTP、查询串、哈希和凭据端点在请求前拒绝。该模块仍只在隔离副本使用注入 fetch，正式 v0.6.39、content bundle、manifest 和权限不变。
+
+下一步：将正式 semanticProtocol 的字段语义绑定与本机脱敏图像接到同一隔离 content port，验证 API 返回只能是允许的字段含义；再以一个真实 MV3 安装夹具检查消息路由。未完成前不进入正式包，也不上传个人资料、不处理验证码或最终提交。
+
+本轮已完成 `product/src/ai/visualSemanticPort.ts`、固定回环 provider 和 `product/src/background/visualSemanticPort.ts`，并把 handler 注册到隔离 background index：正式字段语义请求、本机 PNG、用户确认和 AgentPageLease 绑定在一个本机 companion 请求上，停止/导航/断连会取消请求；background 只接受活动顶层文档、脱敏 PNG 和固定语义输出。29 个单元文件 363 项、29 个 Chromium 脚本 219 项通过；下一轮把 content 侧 owner port 接入该消息通道，再覆盖 popup 发起、断连和迟到响应。
+
+### 2026-10-10 · I-012C popup本机截图申请与遮挡边界（仅隔离通过）
+
+新增隔离 `product/src/popup/visualSemanticCapture.ts`：popup 通过已有 MV3 capture port 请求当前 tab/window/HTTPS URL 的 PNG，先在本机 `redact` 回调中解码和遮挡，只有返回 `redacted:true` 的 PNG 才能交给视觉语义 client；原始 data URL 不进入模型消息。owner 停止、断连、超时、回放 ID、错误 target 和伪造 JPEG 都会停止或转人工。新增4项单元、5项 Chromium 检查；完整隔离回归为34个单元文件381项、34个Chromium脚本242项，失败、外部请求和页面错误均为零。
+
+### 2026-10-10 · I-012C 语义裁剪证明接本机 PNG 编码（仅隔离通过）
+
+新增隔离 `product/src/popup/semanticVisualRedactor.ts`：捕获到的 PNG 先经严格 PNG 数据 URL 校验，再由本机解码器生成 RGBA；只有当前 owner token 能取得一次语义裁剪证明、证明仍对应原扫描和原 DOM 节点、裁剪计划可消费且本机像素遮挡成功时，才调用本机 PNG 编码器。输出重新编码为 `redacted:true` 的 PNG data URL，原图不进入视觉模型；导航、节点替换、owner 结束、遮挡计划拒绝、编码失败、解码失败和伪造 JPEG 都在模型请求前停止。新增6项单元、6项 Chromium 检查；完整隔离回归为34个单元文件383项、34个Chromium脚本243项，失败、外部请求和页面错误均为零。
+
+仍未修改正式 v0.6.39、manifest、权限或发布包，未接入真实 PNG 解码、`captureVisibleTab`、OpenAI 兼容 API 或真实招聘页面。`createSemanticVisualRedactor` 已作为 popup capture 的 owner-bound 回调组合通过隔离检查；下一轮补模型请求计数为零和真实解码器失败夹具，再评估正式包的默认关闭开关。
+
+### 2026-10-10 · I-012C 本机 PNG 解码器边界（仅隔离通过）
+
+新增 `src/localPngDecoder.ts`：在 popup 本机校验 PNG 签名、IHDR 尺寸、像素和字节上限后，使用 `createImageBitmap` 与 `OffscreenCanvas` 解码为新鲜 RGBA；不读取页面 URL、不 fetch、不向模型暴露原始图，取消、伪造签名、超限和解码异常均返回人工处理。`semanticVisualRedactor` 已支持未注入解码器时默认调用这一边界，并仍要求 owner-bound 语义裁剪证明和本机编码。
+
+新增4项单元和4项 Chromium 检查；完整隔离回归为35个单元文件387项、35个Chromium脚本247项，失败、外部请求和页面错误均为零。仍未修改正式 v0.6.39、manifest、权限或发布包；下一轮将把真实解码器接入 capture 组合夹具，验证解码失败时模型请求计数保持零，再评估正式 content/background/popup 接入。
+
+### 2026-10-10 · I-012C 实际截图与本地语义候选组合（隔离通过，待安装扩展验证）
+
+修复默认解码用例使用残缺 PNG 的夹具错误。组合测试发现实际接口缺口：RGBA 图像带额外 `rgba` 属性，传给严格几何检查会导致有效截图被拒；现仅传宽高。另将原 DOM/扫描证明提前到截图之前签发，遮挡回调只能消费一次，并在返回图片前核验重新编码 PNG 的头部和尺寸。
+
+新增 `src/semanticVisualWorkflow.ts`：在 content 文档本地创建仅含当前未知字段的正式语义会话，先取得原扫描/DOM/owner证明，再捕获、解码、遮挡和重新编码，最后才请求字段含义并从本地档案解析待核对候选。全程观察 DOM 变化与输入事件，原扫描、档案或 owner 改变即取消；捕获/模型不响应有总时限，迟到响应不得生成候选。此层不写入网页。
+
+Chromium 使用 Playwright 对虚构表单实际截图（不是合成 RGBA），接真实扫描器、准入、遮挡、PNG解码编码和模拟语义 provider，20项通过：节点替换、手改、导航、停止、无准入、残缺PNG与编码失败均不会发送模型请求；迟到响应和临时输入后恢复原值均转人工。Playwright 默认隐藏光标会临时改样式，被本地变化保护正确拦截；夹具改为保持原光标与动画，不放宽保护。
+
+严格类型与完整隔离单元35文件388项通过；累计36个浏览器脚本268项证据，失败/外部请求/页面错误为零。本轮重跑受影响 redactor 和实际截图工作流，其他未变模块沿用通过报告。摘要从实际 Vitest JSON 和脚本对应报告计算，修复两脚本覆盖同一报告的统计问题，并新增 product 源码哈希。正式v0.6.39未变，不是已安装扩展或真实模型验收。
+
+下一轮执行提示词：读取计划/验收/Git/进程和 `artifacts/i012c-semantic-label-summary.json`。继续在隔离安装扩展中接线：原DOM/扫描证明及遮挡必须放在 content，popup只协调活动tab捕获；创建证明必须在 captureVisibleTab 之前，原始PNG仅在本机传递。以默认关闭视觉开关和固定loopback模拟服务验证完整popup/content/background路由、实际截图、导航/停止与迟到结果。不要将popup中的DOM假接线当正式能力；尚未满足前不复制进生产包。保留新回退快照，模型仅返回字段含义，个人值由本地档案提供。
+
+### 2026-10-10 · I-012C 实际安装 MV3 截图入口（隔离通过）
+
+新增 `artifacts/i012c-draft-workspace/test-installed-capture-browser.mjs`。临时 MV3 扩展安装进独立 Chromium，复用实际 `installMv3CaptureBackground`，从真正 action popup 经 runtime port 调用 `chrome.tabs.captureVisibleTab`，得到非零视口尺寸 PNG。5项通过：普通扩展标签页即使打开同一个 popup.html 也不能冒充 action popup；真正 popup 可捕获；目标 URL 不匹配拒绝；PNG 尺寸有效；表单保持空白。页面、权限和资料均为隔离虚构夹具，无真实账户、模型或写入。
+
+测试发现真正 action popup 不出现在 Playwright 的普通 pages 清单；通过 CDP 等待并连接真实 popup target 验证，不能以普通扩展标签页代替。测试路由应放行本机 chrome-extension 资源；早期标签页失败来自夹具误拦 popup.js，已修复。后台准入规则未放宽。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-capture-browser-report.json`；累计37脚本273项证据、0失败，原35文件388单元结果沿用（生产源码未变）。
+
+仍只是实际安装截图入口通过，content 内原 DOM 证明、遮挡和模型语义尚未与安装扩展完整组合；正式 v0.6.39 不变。下一步执行提示词：复用此真实 action popup/CDP 夹具，在 content 保留原扫描证明和本机 PNG 遮挡，以本机消息将捕获协调结果交回 content，再走现有视觉语义端口到固定 loopback 模拟服务。验证默认关闭零请求、导航与停止、手改、迟到结果，不把单独截图入口算完整视觉功能。
+
+### 2026-10-10 · I-012C 已安装 content 本机遮挡组合（隔离通过）
+
+复用真正 action popup/CDP 截图夹具，新增 `test-installed-content-browser.mjs`：安装 content script，原扫描、DOM、owner及档案均留在 content；先签发一次性证明，再由 popup 请求真实 captureVisibleTab，通过本机 tabs 消息回传 PNG；content 用真实解码、遮挡和编码完成模型安全图片，模拟语义 provider 仅给含义，本机档案产生候选。9项通过，包含默认关闭零模型调用、真实安装路由、本机遮挡图片检查、用户输入取消待截图、迟到PNG不能恢复流程或覆盖用户值。所有页面与事实为虚构，无真实模型/账户/表单写入。
+
+早期准入拒绝来自测试 HTML 没指定 UTF-8，导致标签乱码；夹具明确 charset 后通过，不放宽识别规则。模型 provider 仍在 content 中模拟；尚未接实际 background 视觉端口及 loopback 服务，测试消息协调器也不是正式生产协议。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-content-browser-report.json`。累计38浏览器脚本282项通过；原35单元文件388项证据沿用，生产源码未改。正式 v0.6.39 未变。
+
+下一步提示词：在已安装 content 组合夹具中用现有 requestVisualSemanticFromContent/背景视觉端口替换 content 模拟 provider，以固定 loopback 模拟服务观察只有脱敏 PNG 和字段含义出站，检验默认关闭、取消、导航与迟到结果，再抽取严格一次性本机协调协议供正式接入。不要把当前夹具消息协议当正式发布；保持原DOM准入，不重复未变模块检查。
+
+### 2026-10-10 · I-012C 已安装后台视觉端口与loopback组合（隔离通过）
+
+新增 `test-installed-visual-browser.mjs`，用实际 `requestVisualSemanticFromContent`、`createVisualSemanticPortHandler` 和 `createVisualLoopbackProvider` 替换 content 模拟含义函数。真正 action popup -> capture后台 -> 原content证明/PNG解码遮挡 -> content视觉端口 -> background固定loopback HTTP -> 严格含义校验 -> 本地档案候选，已在隔离安装MV3中跑通。loopback服务仅模拟模型，不连接外部API。11项通过，包括默认关闭、目标拒绝、迟到PNG、手改取消；模型请求待响应时手改会断开视觉port并实际取消HTTP，迟到结果不得返回候选。服务检查图片为裁剪PNG且请求不含本机姓名或页面URL，候选取本机档案，表单不写入。
+
+报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-visual-browser-report.json`。累计39浏览器脚本293项、失败/外部请求/页面错误0；35文件388单元结果沿用，源码未改。正式v0.6.39及发布包不变。夹具捕获协调消息仍为测试协议，后台启用条件为夹具显式启用，不能算生产默认开关验收；未连真实兼容视觉API，也未验收正式popup UI。
+
+下一步执行提示词：从已安装端到端夹具抽取 content/popup 的严格本机捕获协调协议，绑定owner/token/scan/requestId且一次消费，拒绝错误sender、重放及迟到PNG；popup断连必须结束content任务，content导航须取消捕获与视觉请求。接真实默认关闭设置后再纳入正式源代码与发布包验收；当前通过的单独模块不重复测试，只检验新协议及受影响组合。保留隔离安装与端到端报告，不将测试消息监听器直接复制进生产。
+
+### 2026-10-10 · I-012C 本机捕获协调协议（隔离实现，待安装接线）
+
+新增隔离 `product/src/content/visualCaptureCoordinator.ts`，替代下一轮的测试消息轮询设计：受信任popup端口提供严格begin(token/scanId/fieldId/requestId)，content验证原owner及当前scan后启动本地流程；每个任务只能发一次随机captureId挑战，只接受匹配owner/request/challenge的PNG。错sender、额外selector、坏PNG、失效scan、导航、断连和迟到回复关闭任务；popup端口断连结束lease并取消等待。原PNG只供本机流程，无模型/DOM执行权。该实现尚未接正式或隔离安装入口，不算发布能力。
+
+strict及新协议专项9项单元通过。未重跑未改模块：原35文件388项保留，新JSON独立记录并在摘要按不同文件合并为36文件397项；39浏览器脚本293项历史证据沿用，不能算新协议浏览器验证。报告 `artifacts/i012c-draft-workspace/artifacts/coordinator-unit-report.json`。生产v0.6.39不变。
+
+下一步提示词：将已安装视觉链路夹具的begin/pending/png测试监听器替换为此content端口，popup通过tabs.connect协调一次captureId挑战和真实captureVisibleTab；证明仍在content且先于截图。验证真正popup关闭取消HTTP、错challenge及重放、导航/scan替换；随后接默认关闭正式配置。不要复用测试轮询为产品实现，不重复未变测试，保留本轮协议源码及单元JSON快照。
+
+### 2026-10-10 · I-012C 严格协调端口已安装组合（隔离通过）
+
+`test-installed-coordinator-browser.mjs`已把测试轮询换成实际 `createVisualCaptureCoordinator`，使用既有 owner port与popup owner client，绑定真实scanner scanId/fieldId，跨真正popup协调一次挑战截图，进入content本机证明/遮挡，再走实际后台视觉端口与固定loopback模拟服务。6项安装检查通过：本地候选、错challenge不请求模型、截图时端口断连取消、推理时端口断连实际取消HTTP、表单不写入，以及普通扩展标签页无法使用后台截图入口。
+
+发现实际scanner fieldId包含冒号，上一轮协议字符集误拒正常ID，已允许受限冒号并用真实安装字段及专项单元回归；不允许selector或HTML。夹具另修复自行调用port.disconnect不会触发该端自己的onDisconnect的行为：本机停止须先完成本机Promise清理，不等待回调。此修复在测试driver中，不算正式popup client已实现。
+
+strict与受影响9项单元通过，旧模块未重复。累计36文件397单元、40浏览器脚本299项证据0失败。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-coordinator-browser-report.json`。正式v0.6.39未改，真实API及正式UI未验收；本轮仅测试端口断连，尚未测试整个真实popup窗口关闭及协调协议的完整重放/导航组合。
+
+下一步提示词：抽取实际popup协调client，加入严格challenge/result schema、owner signal、一次性状态、总时限和本机停止清理；不可直接复制夹具driver。用本轮已安装端口夹具验收整个popup关闭、图片重放、原scan替换和导航取消，随后默认关闭设置及正式集成。保留协议源码、最新专项JSON和安装报告快照。
+
+### 2026-10-10 · I-012C popup协调客户端及真实popup关闭（隔离通过）
+
+新增 `product/src/popup/visualCaptureCoordinatorClient.ts`：严格挑战/result schema、owner/scan/field/requestId绑定、一次消费、候选只接受当前字段的本机review结果；收到结果前必须已交付本机PNG。owner取消、重复挑战、错误字段、迟到图片与总超时都主动完成本机Promise清理和断连，不依赖自己的onDisconnect回调。客户端无DOM写入或模型执行。
+
+7项专项单元及strict通过。已安装 `test-installed-client-browser.mjs` 用真实客户端替换测试driver，7项检查通过，包括错误挑战不产生HTTP、停止取消待截图/推理、关闭真正action popup target使后台待响应HTTP实际取消。PNG依旧先在content原证明下本机遮挡，再经实际后台视觉端口到loopback模拟服务，候选取本地档案，表单不写。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-client-browser-report.json` 与 `coordinator-client-unit-report.json`。
+
+累计37单元文件404项、41浏览器脚本306项证据0失败；旧模块报告沿用，未重复无变化检查。生产v0.6.39、发布包和默认UI仍未修改；未连接真实API。capture callback仍由夹具提供，尚需提炼实际背景PNG捕获client及默认关闭设置接线。
+
+下一步提示词：把已有后台capture port抽取为本机原PNG捕获client，限定实际活动tab/window/url、owner signal/一次请求/总时限；将popup协调client capture callback接此模块。继续验证导航、节点/scan替换、重放与默认关闭，再正式集成content/background/popup；不能把夹具回调当发布接线。保留本轮客户端源码/专项JSON/真实popup关闭报告快照。
+
+### 2026-10-10 · I-012C 原PNG捕获客户端与安装拒绝复现（未验收）
+
+新增隔离 `product/src/popup/localCaptureClient.ts`：只接受严格活动tab/window/url目标和匹配requestId的有效PNG，owner signal或时限主动断连并完成本机Promise；原图无redacted标记，不能直接交视觉provider。5项专项及strict通过。隔离安装夹具 `test-installed-local-capture-browser.mjs` 已将临时原图回调换为此客户端。
+
+安装组合尚未通过稳定验收：去掉诊断监听后，首个正常流程重复返回manual，后台曾返回ok:false（严格客户端正确拒绝）；增加诊断监听/赋值时曾通过，表明有未定位时序缺口。保留最后无诊断源码及失败报告，不把临时诊断状态的成功算通过，不放宽后台上下文检查。累计38单元文件409项；42浏览器脚本当前1份失败，上一轮41份已通过证据仍独立保留。正式v0.6.39未改。
+
+下一步提示词：先复现 `test-installed-local-capture-browser.mjs` 首次捕获manual，记录实际后台error类别及捕获前后tab/window/url/revision、runtime.lastError（不输出PNG和私人事实）。诊断不能靠增加监听延迟把问题藏掉；对比上一轮client夹具与新rawclient的请求和实际消息，定位上下文失效还是截图API拒绝，然后加必要回归并重跑受影响组合。不要上线，不重复未变模块验证。原源码与失败报告已留回退快照。
+
+### 2026-10-10 · I-012C 原PNG安装拒绝根因修复（隔离通过）
+
+后台诊断复现捕获前`chrome.tabs.query({active:true,lastFocusedWindow:true})`返回空列表，尚未调用captureVisibleTab；真正action popup成为最后聚焦窗口，查询没有取到正常浏览器窗口的活动tab。先前添加监听的偶然成功是焦点时序差异，不是PNG/schema问题。
+
+新增 `src/activeCaptureContext.ts`，明确通过`chrome.windows.getLastFocused({windowTypes:['normal']})`解析正常浏览器窗口，再查询该windowId的活动tab；继续检查原上下文revision、单一tab、tab窗口一致、加载完成及无pendingUrl。已接隔离background index和安装夹具；不放宽sender、target或导航检查，未增加权限。删除临时诊断与250ms等待，正常安装完整流程连续两轮7项通过，包含整个真实popup关闭取消HTTP。4项上下文与5项raw client专项、strict通过。
+
+摘要当前39单元文件413项、42浏览器脚本313项，0失败；仅受影响组合与专项重跑，其他证据复用。报告 `artifacts/i012c-draft-workspace/artifacts/capture-context-unit-report.json`及`i012c-installed-local-capture-browser-report.json`；上一轮失败快照保留。正式v0.6.39未修改，真实API/正式UI及配置仍待验收。
+
+下一步提示词：继续将隔离content/popup/background组合接默认关闭视觉设置与真实scan/owner入口；新增导航、node/scan替换及重放安装验收，检查正常浏览器窗口解析对多窗口focus切换仍拒绝失效target。不要再用lastFocusedWindow的tab查询代替normal窗口；原PNG仅本机，含义请求只用脱敏PNG。达到正式验收前不要标记可安装发布版。
+
+### 2026-10-10 · I-012C 安装生命周期及视觉独立开关（隔离）
+
+新增已安装 lifecycle/navigation 组合夹具，每份9项通过：原图事务重放不请求模型、原DOM节点替换取消证明，以及真正网页导航断开原content owner并实际取消后台HTTP；保持原页面/新页面空白。真实popup关闭的前轮验收保留。本輪没有修改这条核心流程，不重复旧模块检查。
+
+另新增 `product/src/ai/visualSettings.ts`：局部脱敏截图使用独立默认关闭的本机consent key，文字AI连接启用本身不授权图片请求；必须同时有合法配对AI consent与合法视觉consent，且本机profile存在，隔离background视觉port才启用。严格设置schema拒绝额外endpoint和不完整设置；关闭删除key。已接隔离background缓存刷新及storage变化，strict和4项专项通过。此配置尚未接真实popup UI，也尚未与已安装生命周期夹具的固定true开关替换验收；不能称为正式设置已可用。
+
+累计40单元文件417项、44浏览器脚本331项证据0失败。新报告 `visual-settings-unit-report.json`、`i012c-installed-lifecycle-browser-report.json`、`i012c-installed-navigation-browser-report.json`，均在隔离artifacts下。正式v0.6.39与发布包未改，真实API待验收。
+
+下一步提示词：将安装夹具背景固定true启用换为实际loadAiConnection/loadVisualConsent存储与onChanged路径，验证无视觉key时HTTP为0、启用后的真实PNG路径、运行中撤销consent拒绝迟到结果；随后设置UI与content入口默认关闭接线。保持原DOM/owner/scan绑定，不把固定true夹具结果算配置验收，保留本轮源码和报告快照。
+
+### 2026-10-10 · I-012C 已安装视觉存储开关与撤销（隔离通过）
+
+新增 `test-installed-settings-browser.mjs`，使用实际loadAiConnection/loadVisualConsent/hasVisualRequestConsent与chrome.storage.local/onChanged，替换背景夹具固定true开关。4项安装检查通过：仅启用文字AI没有视觉key时HTTP为0；独立视觉key启用后实际PNG/遮挡/含义路径产生本机候选；待响应时删除视觉key，迟到合法proposal被拒绝，表单不写。此次验证的是后台请求开关；默认关闭时仍可进入测试捕获协调，正式popup入口的零截图检查还未完成。
+
+隔离background index缓存刷新同时修复竞态：设置变化先同步清空启用状态，再并行加载三份本机状态，epoch仅允许最新刷新写回，防止旧加载恢复已撤销consent。strict通过；配置helper的4项单元无改动沿用。安装夹具复用实际配置函数与端口，但尚未运行完整正式background index/正式设置UI；不扩大验收结论。
+
+累计40单元文件417项、45浏览器脚本335项证据0失败，生产v0.6.39未改。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-settings-browser-report.json`。下一步提示词：接popup视觉选项UI和content启动前的可信设置状态，让默认关闭不仅HTTP为0且capture为0；把epoch刷新抽取成可测状态模块并验收交错load与撤销。随后接真正background index安装入口及正式包，继续保持原DOM、owner和scan proof；未达发布验收不要宣传可使用。
+
+### 2026-10-11 · I-012C 启动前零截图与设置刷新交错（隔离通过）
+
+新增popup `runVisualCaptureWithLocalConsent`：在可信popup本机读取配对AI及独立视觉consent，关闭或读取失败立即释放owner，不开捕获协调/视觉端口。新增 `latestLocalRefresh.ts` 并接隔离background，刷新先同步禁用，旧加载不能写回新状态；3项专项验证交错启用/撤销及最新加载失败。
+
+已安装 `test-installed-preflight-browser.mjs` 用真实popup preflight、实际本机storage函数、latest refresh和背景视觉端口跑通4项：仅文字AI启用时captureVisibleTab调用为0且HTTP为0；显式视觉key启用后正常流程；等待模型时删key拒绝迟到proposal。夹具等待popup函数完成加载才执行，不把target创建误当脚本加载完成。strict通过。累计41单元文件420项、46浏览器脚本339项证据0失败，旧模块沿用。
+
+正式v0.6.39/发布包仍未改；视觉设置UI、完整正式background index安装与正式content入口尚未验收。新报告 `latest-refresh-unit-report.json`、`i012c-installed-preflight-browser-report.json`均在隔离artifacts。下一步提示词：接设置UI里的独立局部截图识别开关与明确请求范围，用真实正式background index安装（不再仅复用函数）验证默认关闭、存储改变及撤销；然后将preflight接正式popup未知字段入口并验收。保持本机资料/PNG，未过完整包验收不发布。保留本轮源码和报告快照。
+
+### 2026-10-11 · I-012C 完整隔离background入口及视觉设置UI（推进）
+
+新增 `test-installed-background-index-browser.mjs`，实际打包并安装隔离 `product/src/background/index.ts`，不再只用自定义background复用函数。新增只给同扩展popup的严格 `RA_VISUAL_STATUS` 布尔状态消息，夹具等待真实缓存启用状态。4项通过：默认关闭零capture/HTTP、视觉存储显式启用后完整PNG含义路径、运行中删除视觉consent拒绝迟到合法结果；完整后台index的刷新/储存监听、脱敏器和捕获normal窗口解析均参与。服务仍为本机模拟模型，无真实账户/写入。
+
+新增 `VisualConsentEditor.tsx`并接隔离AiConnectionEditor，独立局部截图开关默认关闭，明确仅发送遮挡后字段标签局部图像，原图/档案留本机；启用须已有AI连接且勾选独立确认，关闭可单独删除视觉key。原文字AI许可文案不再混入图片许可。strict通过；UI尚未在实际安装options页面验证，不能算UI验收完成。
+
+累计41单元文件420项、47浏览器脚本343项证据0失败，未变模块沿用。正式v0.6.39/发布包不变。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-background-index-browser-report.json`。下一步提示词：安装真实options页面验证独立开关状态/启用禁用/存储，再接正式content扫描入口与popup未知字段动作。当前content仍为组合夹具，不是完整生产content入口；完成实际包和真实兼容API验收后才发布。保留本轮UI源码/后台index/报告快照。
+
+### 2026-10-11 · I-012C 实际 options 页面独立视觉开关验收
+
+新增安装浏览器脚本 test-installed-options-browser.mjs，打包真实 options/main.tsx、OptionsApp 和完整隔离 background/index。4项通过：无AI配对时勾选仍不能启用；已有文字AI连接仍需独立图片许可；启用写入严格视觉consent，重载恢复状态，关闭删除key；关闭AI后视觉启用被禁用且独立撤销仍可操作。无外部请求、无页面错误，仅虚构本机设置。累计41单元文件420项、48浏览器脚本347项，0失败；旧报告沿用，正式v0.6.39及发布包未变。
+
+下一步执行提示词：接隔离实际content/index里的currentScan与AgentPageLease到visualCaptureCoordinator；由内容端持有原扫描与档案，验证占用状态并准备局部标签遮挡，再接真实popup未知字段入口。当前完整content入口尚未接通，不能将安装options验收计作视觉正式发布。报告位于 artifacts/i012c-draft-workspace/artifacts/i012c-installed-options-browser-report.json。
+
+### 2026-10-11 · I-012C 设置页外部撤销同步及content接入边界
+
+实际options验收暴露补充缺口：页面打开后若另一扩展上下文删除视觉许可，原UI没有同步。VisualConsentEditor现监听local storage变更，使用latest refresh防止迟到读取恢复旧启用状态，外部变更清除独立确认并卸载时移除监听。实际安装options新增外部撤销检查通过，strict通过；累计41单元文件420项、48浏览器脚本348项，0失败。仅改隔离草稿，正式包不变。
+
+接实际content入口前确认资料边界：loadProfile强制TRUSTED_CONTEXTS，content不能直接读storage；现有组合夹具用虚构档案不能照搬成全档案下发。下一步提示词更新：先将视觉流程拆分为content端原扫描/标签像素证明与受信popup端本地档案候选解析；保持全档案不下发content。沿用实际owner端口绑定，模型仅解释字段路径，候选由popup本地解析；对原扫描变化、profile revision改变和撤销分别验证。完成此边界后再接实际content/index与popup未知字段入口。不是等待用户信息的阻塞。
+
+### 2026-10-11 · I-012C 受信popup本地视觉候选解析
+
+新增隔离 localVisualCandidate.ts：popup私有保存原扫描和档案语义session，只暴露脱敏单字段含义请求，接收模型proposal后由本地真实档案解析review候选；一次消费、owner/许可失效、原扫描替换和档案修改均拒绝。4项使用真实scanner/semanticBinding/semanticCandidates单元检查通过，strict通过。累计42单元文件424项、48浏览器脚本348项0失败。修复初次strict发现的只读session请求类型不匹配，复验通过。
+
+尚未接实际content/popup通讯，不算正式发布。下一步提示词：用此受信候选解析替换组合content里全档案解析，设计只传单字段含义request的本机协调端口；原DOM与标签裁剪仍由content验证，已知私有事实遮盖由受信端验证。补充安装级资料不下发content和迟到结果拒绝，然后接实际入口。正式v0.6.39不变。
+
+### 2026-10-11 · I-012C popup独立标签隐私许可
+
+受信localVisualCandidate新增authorizeLabel：只接受原扫描单字段标签原文、120字符内且本机semanticRedactor完全不改变的文字，原档案/扫描快照及live仍有效；只允许一次许可，未许可不接受proposal。可向content返回布尔许可，无需下发档案或私有事实。新增3项真实模块检查（共7项）：未授权合法proposal拒绝、替换及重复标签拒绝、初始个人资料匹配标签拒绝；此前4项继续通过。strict通过，累计42文件427单元项/48脚本348浏览器项0失败。初始测试错误假设私有标签必能创建session，真实redactor会提前拒绝；已按提前拒绝亦不授权的行为修正测试。
+
+仍需content原DOM证明与布尔许可绑定、安装级端口验收和正式入口接入；此布尔许可单独不证明图像像素。下一步：让实际content捕获事务向popup请求原标签许可并绑定requestId/scanId/fieldId/token，popup使用本模块授权，随后仅回传红acted PNG和proposal；禁止传全档案。正式包不变。
+
+### 2026-10-11 · I-012C 本机标签许可作用域协议
+
+新增visualLabelHandshake严格协议：token/requestId/scanId/fieldId与随机challengeId绑定，一次消费许可回执；popup仅返回布尔allowed，不带档案、图像、选择器或候选答案。错误作用域不调用本地私有检查，超长标签、额外字段、旧owner、检查中失效均拒绝。9项单元及strict通过，累计43文件436单元项、48脚本348浏览器项0失败。
+
+协议尚未接实际协调端口，不算安装级完成。下一步执行提示词：将visualLabelHandshake接content协调器和popup client的label-check阶段；content端仅在同一原扫描节点仍当前且许可通过后发capture challenge；popup用localVisualCandidate.authorizeLabel返回作用域回执，完整档案保持trusted context。新增真实安装浏览器检查再接正式入口。正式v0.6.39不变。
+
+### 2026-10-11 · I-012C 标签握手接入实际协调模块
+
+visualCaptureCoordinator新增受控label阶段，配置标签提供器时先发作用域challenge，正回执通过且原owner/current仍有效才启动工作流/PNG；负回执直接结束。popup coordinator client新增本机authorizeLabel回调，回执只含布尔及作用域；配置本机检查后直接capture无法跳过标签阶段。新增4项（协调器11项/client9项）通过、strict通过。重跑完整隔离background安装脚本4项通过，确认原路径未回归。统计43文件440单元项/48浏览器脚本348项；旧浏览器其他报告是历史证据，未逐个重跑。新增标签阶段尚无安装级专用验证，不能算正式入口完成。
+
+保留旧组合夹具的无label路径用于隔离回归，实际生产入口接入必须提供label与本机authorizeLabel，不能使用旧路径。下一步：安装级夹具接真实标签挑战与受信localVisualCandidate，验证拒绝时capture/HTTP均为0，允许时局部PNG流程正常及档案不进content，再接正式content入口。正式v0.6.39/发布包不变。
+
+### 2026-10-11 · I-012C 安装级标签握手验收
+
+新增test-installed-label-gate-browser.mjs，实际Chromium action popup/协调端口使用localVisualCandidate授权标签，完整隔离background参与。5项通过：非action页拒绝、仅文字AI时零capture/HTTP、标签拒绝时零capture/HTTP、标签允许后局部PNG路径成功、运行中撤销拒绝迟到结果。累计43文件440单元项、49脚本353浏览器项，0失败（包含历史报告）。
+
+本夹具仍沿用content内虚构profile的旧组合工作流，未证明生产全档案边界已打通，不能算完整content/popup入口完成。下一步执行提示词：替换content旧工作流为仅原扫描/标签证明/PNG返回，把semantic session/proposal验证与候选解析留popup，传同一受信请求的opaque ref/fingerprint而非全档案；新增安装级消息内容审计与profile revision改变验收后接实际入口。正式发布v0.6.39不变。
+
+### 2026-10-11 · I-012C content像素流程拆分
+
+新增semanticVisualImageWorkflow：不接收完整profile、模型proposal或候选答案，仅绑定原扫描/owner并本机decode/redact/encode，返回遮挡后PNG；外部signal、手改、节点替换、导航、超时、编码失败均拒绝。strict通过，新实际Chromium像素流程12项通过（无模型/写入）。累计440单元项/365浏览器项，50脚本0失败。
+
+真实缺口复现：旧SemanticLabelRegion要求privateFacts非空，空数组会在capture前拒绝；不能用假哨兵绕过生产检查。新浏览器正路径保留明确虚构隐私样本，证明仅像素拆分，不证明生产已不下发私有资料。下一步：将原标签隐私检查从DOM像素eligibility中拆出，以受信作用域标签许可驱动新admission，仍严格保持遮挡/DOM证明；新增空facts但真实许可路径及无许可拒绝，再接端口。正式包仍未改。测试初次沿用旧脚本20项计数错误已改为实际12项。
+
+### 2026-10-11 · I-012C 无档案content标签像素许可
+
+拆分semanticLabelRegion的pixel paint检查与原本privateFacts隐私检查，旧入口仍要求非空facts；新semanticCropAdmission可由本机labelPermission回调验证token/field/原标签，每个issue/plan/consume均重新检查，随后同等严格paint/DOM几何验证。新路径不需私有facts；许可回调必须来自本机已核验握手，不能使用网页或模型boolean。
+
+新增实际Chromium test-label-permission-image-browser：以作用域握手授权、空facts跑通14项，未许可零capture、capture中撤销不返回PNG均通过；旧image流程12项回归、旧标签与admission单元回归、strict通过。累计440单元项/379浏览器项（51脚本，历史报告仍保留）0失败。新的许可源在本浏览器夹具为本机模拟受信端，不是完整安装的popup档案解析。
+
+下一步执行提示词：将已安装标签握手夹具替换为新image-only工作流与空facts，popup持语义session并接模型proposal验证/本地候选；记录消息证明无profile向content传输，再接实际content/popup入口。正式v0.6.39不变。
+
+### 2026-10-11 · I-012C 安装级完整档案边界拆分
+
+协调协议支持受信popup提供脱敏单字段semanticRequest，content仅按原DOM/owner/标签许可遮挡PNG并返回模型proposal；popup拒绝这种模式下content提供ready候选，使用自己的原session验证proposal并从本机档案解析答案。完整profile不再放content夹具。
+
+新增test-installed-profile-boundary-browser，完整隔离background+实际action popup+实际端口6项通过：profile-free content、popup本地解析姓名、popup发送消息不含该私有值、许可拒绝零capture/HTTP、允许走PNG模型含义、consent撤销拒绝迟到响应。模型仍固定本机模拟，资料虚构；未访问真实招聘页或云API。strict及协调器20项回归通过。累计440单元项/385浏览器项（52脚本，含历史报告）0失败。
+
+下一步提示词：把profile-free image/proposal路径接实际content/index与popup/App未知字段动作，必须提供label/semanticRequest模式，补同一原扫描核验及profile变更拒绝的实际安装例；完成正式打包验收后再发布。当前仍是组合bootstrap，正式v0.6.39不变。
+
+### 2026-10-11 · I-012C 实际完整content入口接入
+
+新增profileFreeVisualCoordinator并注册到隔离实际content/index：必需单字段semanticRequest和标签握手，原currentScan/AgentPageLease/占用状态均参与；整个PNG及模型等待期间监测DOM/input/change，变更立即结束owner，返回仅proposal给popup。本机档案不读入content。
+
+新增test-installed-content-index-browser打包实际完整content/index和background/index，真实RA_SCAN+action popup客户端6项通过：独立视觉许可、标签拒绝零capture/HTTP、PNG正常、本机popup解析值、消息无私有姓名、撤销拒迟到。strict通过。累计440单元项/391浏览器项（53脚本，含历史证据）0失败。
+
+尚未接popup/App可见未知字段动作，也未正式发布。下一步：新增实际popup桥接函数使用原PagePlan/本机loadProfile/owner/capture客户端，将截图候选合并回结果；默认需视觉设置启用，无需发送档案到content。安装真实popup UI验证并补profile修改/导航/节点替换，再做完整包验收。正式v0.6.39不变。
+
+### 2026-10-11 · I-012C 实际popup可见识别动作接入（待安装验收）
+
+新增visualBridge并接隔离PopupApp“局部截图识别未知字段”：使用原PagePlan扫描、loadProfile比较、实际owner/capture/受信semantic session，每次最多3个空且规则未知字段；档案/AI/视觉许可storage变更立即abort；仅合并review候选，不执行写入或最终提交。未许可由preflight拒绝，已知/已有/禁用字段不处理。初次strict发现MatchStatus无unknown，改用规则UNKNOWN_FIELD_REASON识别，strict现通过。
+
+此实际popup UI尚未安装验收，不能算可用版本；累计证据仍440单元/391浏览器项（未新增通过数量）。下一步提示词：安装完整popup/main.tsx及实际content/background，真实UI点击扫描与局部识别；验证默认关闭、启用后候选值来自trusted storage、档案修改时abort，陌生字段未猜填。修复安装发现的问题后再完整包验收。正式v0.6.39不变。
+
+### 2026-10-11 · I-012C 完整PopupApp安装验收
+
+新增test-installed-popup-ui-browser：打包实际popup/main.tsx（React界面）、content/index和background/index，在真实action popup点击“扫描页面”和“局部截图识别未知字段”。3项通过：独立视觉许可关闭时captureVisibleTab和HTTP均0；启用后读取trusted storage虚构档案、局部PNG识别产生1项review候选且网页仍空；等待模型时修改profile，UI要求重新扫描、实际HTTP连接关闭，无迟到写入。加强取消检查为真实服务端断连，不只检查提示文本。无外部请求/页面错误。
+
+累计440单元项/394浏览器项（54脚本，含历史证据）0失败。首次全隔离UI闭环完成，仍不是正式发布；未知控件覆盖很保守，只普通单标签空输入，不支持任意截图或所有自定义控件。下一步：用完整PopupApp补导航、节点替换、瞬时手改和迟到响应验收，保存隔离可回退包，再迁移正式src并执行正式构建/检查。真实兼容云API尚未验收，不能声称所有招聘网站可用。正式版本仍v0.6.39。
+
+### 2026-10-11 · I-012C 完整UI节点/手改生命周期验收
+
+新增test-installed-popup-lifecycle-browser，完整实际PopupApp/content/background安装5项通过：默认关闭、启用识别，以及模型等待时节点替换、瞬时输入又清空、保留手改值三个场景。三者均实际关闭HTTP连接，UI无新候选且保留网页值。累计440单元项/399浏览器项（55脚本，含历史报告）0失败。
+
+迁移核查确认正式项目src是产品源码，而隔离product/src之外的src是像素模块；不可整目录覆盖。正式build入口src/content/index.ts、src/background/index.ts。下一步执行提示词：按明确文件映射迁移像素模块到正式src/visual目录，将隔离product/src的相关模块迁移到正式对应目录，调整../../../src引用；迁移前保存完整受影响文件和dist回退快照。先补实际UI导航验收，随后正式strict/lint/相关检查和build。仍未改正式源码、版本或包。
+
+### 2026-10-11 · I-012C 完整UI导航及正式迁移清单
+
+新增installed-popup-navigation脚本3项通过，实际完整PopupApp等待模型时导航使实际HTTP断连，新页面空值保留。累计440单元项/402浏览器项（56脚本，历史证据保留）0失败。
+
+生成formal-migration-manifest.json：24个产品差异文件及其16个像素依赖，共40个明确source/destination映射，包含原/新SHA256；像素迁入正式src/visual。清单仅计划，未改正式源码。下一步提示词：根据清单先在release-stage复制正式src并逐文件覆盖/解析import到新位置，验证stage strict/lint，保存受影响正式文件和dist回退快照，再应用正式迁移及build；不要将草稿整树覆盖。云API真实验收仍未完成，最终可用范围需明确。正式版本仍v0.6.39。
+
+### 2026-10-11 · I-012C 正式源码迁移及静态检查
+
+按40文件映射在release-stage调整import，stage strict/lint通过（补manifest并修3处空catch lint）；保存 artifacts/i012c-formal-rollback-20261011，包括原dist、原文件、manifest及迁移清单，校验原/新SHA后应用到正式src。像素模块在src/visual，未整树覆盖。正式strict初次发现3个旧记录语义端口fixture缺userConfirmed，补明确许可并备份旧测试，正式strict及src/tests lint现通过。
+
+目前正式源码已改，但dist仍旧v0.6.39、未发布。下一步执行提示词：执行正式相关单元（AI连接/记录端口/捕获/新握手），把必要隔离单元按正式路径迁移并跑；完成正式build与真实UI安装包验收，再更新版本与安装说明。不能将源码已迁移等同可安装版本，云API真实验收仍缺。保留回退目录不删除。
+
+### 2026-10-11 · I-012C 正式测试迁移与lease回归修复
+
+迁入8个正式路径I012C测试文件。正式相关首轮163项发现1项回归：导航时新lease直接清token会使普通写入提前可用，违反原所有权释放语义。正式pageLease改为导航先标记revoked并通知取消监听，原token保留到owner释放；监听可立即取消捕获/HTTP，旧tag不再可写。lease/协调器/捕获/context针对复验通过。测试wire夹具3文件限定允许any（明确用于构造非法消息），去掉unused变量，正式strict/lint通过。
+
+正式全量单元正在执行：exec session 1119，输出 artifacts/i012c-formal-all-unit-report.json；不要同时重复启动。dist仍旧版本，尚未build/发布。下一步提示词：读取该进程结果，修真实失败后正式build，使用正式src和正式dist运行完整UI安装验收；同步新lease改动到隔离或以正式结果为准，不沿用旧隔离lease证据当新版本通过。
+
+### 2026-10-11 · I-012C 正式dist真实安装验收及服务缺口
+
+正式 node scripts/build.mjs 已通过。新增3个 scripts/test-visual-installed-{package,lifecycle,navigation}.mjs 直接加载未经改写的正式dist/manifest，不增加tabs/host权限、不注入fixture背景全局、不修改bundle。真实Chromium action popup完成3+5+3项通过：默认关闭零模型请求，启用后只产生本地review候选；档案变更、节点替换、瞬时手改、保留手改及导航均关闭实际等待HTTP，无误写、无外部请求。三个脚本eslint通过。报告 artifacts/i012c-formal-installed-{package,lifecycle,navigation}-report.json。正式全量单元session1119仍在运行，未计通过。
+
+发现必须优先修复的真实缺口：正式 src/companion/server.ts 只允许/v1/bindings、/v1/next-step、/v1/health，没有/v1/visual-bindings；目前成功的是本机mock视觉服务，现有用户启动的语义服务会404。不能把上述安装验收称为可用的云视觉版本。版本仍0.6.39，dist属于待验收开发构建；原包回退保存不删除。
+
+下一步执行提示词：先收取session1119全量单元结果，按失败修复；为正式companion接严格视觉envelope、限流/大小/PNG校验、请求取消和OpenAI兼容视觉provider，保持token/origin校验及零档案输出。用真实companion+模拟上游完成安装闭环，确认404缺口消除，更新安装说明后再增版发布；真实云API质量仍需单独验收。
+
+### 2026-10-11 · I-012C 正式companion视觉路由与兼容provider
+
+正式server已接/v1/visual-bindings，沿用Origin/Host/token、并发busy、超时和断连AbortController；视觉独立body上限，严格单字段envelope，禁止附加profile。新增visualRequest校验canonical base64、PNG签名/IHDR/尺寸/CRC/chunk布局/终止/有界inflate及扫描行，禁止元数据和截断/尾随内容。兼容Chat Completions provider复用现有输出与endpoint校验，发送text语义+image_url(low)，modelConfig/start接入视觉provider；Responses路径暂未接视觉。
+
+companion-visual、compatible-api、compatible-config、semantic-companion针对检查通过，报告 artifacts/i012c-companion-visual-unit-report.json。3个新检查覆盖坏PNG、实际上游请求形状与真实HTTP认证路由，旧兼容/服务检查保留。正式全量旧进程session1119仍在跑，其启动快照早于本轮companion改动，不能当本轮新模块验证。dist未重建，不增版本。
+
+下一步执行提示词：读取全量1119结果和本轮strict/lint结果；将正式安装验收切换真实createSemanticServer+兼容provider+模拟上游，验证图片可通过真实服务、模型等待时profile/DOM/导航取消传到上游。补视觉并发/超时/oversize/cancellation检查，避免校验重复inflate；通过后再更新INSTALL/build/版本。真实云视觉模型是否支持图片仍未知，需明确界限。
+
+### 2026-10-11 · I-012C 真实companion安装闭环
+
+新增3个test-visual-real-companion脚本，加载未经修改的正式dist，并启动正式createSemanticServer与createVisualChatCompletionsProvider；仅上游fetch虚构模拟，不使用假loopback服务。3+5+3项真实安装检查通过：PNG可经真实认证/格式校验进入兼容图片请求；档案改变、节点替换、瞬时输入、保留手改、导航均从popup取消，经companion传递到上游AbortSignal，无误写/外网请求。报告 artifacts/i012c-real-companion-{installed,lifecycle,navigation}-report.json。相关脚本与companion lint通过。
+
+追加视觉busy/timeout测试，上游即使永不返回仍中止并允许下轮；大256x256 PNG解析通过，替换递归分组base64正则，避免较大图片栈溢出。最新companion-visual 5项通过（报告 i012c-companion-visual-timeout-report.json），strict通过。新服务已打通但全量单元session1119尚在运行，不发布/不增版本；真实云视觉模型质量和登录招聘网站仍未验收。
+
+下一步执行提示词：读取1119结果；清理视觉schema重复CRC/inflate开销，补用户取消/返回非法proposal/请求尺寸边界；检查INSTALL对截图的旧声明并补独立许可、仅普通单标签、review候选、本机兼容视觉模型等说明；通过正式回归后更新版本/build/可回退包。已通过且代码不变的安装场景不重跑。
+
+### 2026-10-11 · I-012C 全量回归发现与修复
+
+全量session1119结束，3662项中3502通过/160失败，12个失败文件。原因分三类：新增第二个content消息监听使旧单监听mock拿到错误handler；background夹具缺tabs/windows/getURL且启动许可缓存读被计入投影读数；旧连接测试没有明确userConfirmed。修复正式content为同一个消息入口按固定视觉type分派，视觉handler使用ContentResponse类型；补4个background夹具真实API与初始化等待/清读数；旧连接测试显式许可并保持无许可拒绝生产规则。未通过放宽生产安全校验掩盖失败。
+
+针对失败文件两组复验94+81=175项通过（报告 i012c-formal-entry-regression-report.json、i012c-formal-other-entry-regression-report.json）；正式strict、src/tests/视觉脚本lint通过。正式build通过，因content入口实际改变，重新运行真实companion安装三组验收。全量原报告保留失败证据，不把它改写为全绿，也不重复未变化模块的3502项。
+
+下一步执行提示词：收取session34934安装复验最终结果；保存本轮受影响新旧文件manifest/回退，更新INSTALL与兼容API说明（视觉独立许可、兼容多模态模型、普通单标签、最多3项只review、默认关闭）。补服务尺寸/非法响应/取消边界，然后整合验证索引增0.6.40并build、安装核对版本；不得说真实云API与招聘站已验证。优化重复PNG检查放在后续，不因此阻塞已完成安全链路。
+
+### 2026-10-11 · I-012C 发布准备与旧Agent UI验证
+
+session34934真实服务安装三组3/5/3最终均通过。新增服务边界检查：声明超大请求413且不调用provider；错requestId的模型结果503 invalid-output，无候选。companion-visual最新6项通过，报告 i012c-companion-visual-boundary-report.json。兼容API说明新增0.6.40待发布操作步骤与范围（独立许可、多模态、最多3项review、普通单标签）。仍未增版发布。
+
+运行旧Agent实际安装回归时发现其脚本导入AI连接未勾选新许可，因预期的明确许可限制超时。修脚本通过真实UI勾选，不放宽产品。正在复验 scripts/test-agent-extension.mjs，session89063；不要重复启动。其他同类导入脚本补相同步骤，后续核对单行写法，未运行不能算通过。需要根据此进程结果继续处理真实回归，再形成可安装0.6.40与回退包。
+
+下一步执行提示词：收取89063；若通过，核对全部受影响脚本许可动作及lint，更新INSTALL当前能力/旧无截图声明，保存原文件/新包SHA索引，增manifest/package/lock到0.6.40，build并核对实际安装版本。原全量报告3502通过+160失败，失败文件复验175通过，应组合记录且保留原失败证据。真实招聘站与付费API仍待验收。
+
+### 2026-10-11 · I-012C 组合验证索引与发布等待
+
+生成 artifacts/i012c-formal-verification-index.json，按原报告file+fullName逐条对应175复验，确认原160失败断言全部恢复，无漏项。不是单次全量全绿，原报告保留。补全部11组AI连接UI脚本许可步骤，含原一行串写遗漏；scripts全lint通过。INSTALL增加0.6.40待发布说明并明确原回退包、双许可/图片模型/review/普通单标签边界。
+
+旧Agent长浏览器复验session89063仍在运行（node18116启动17:35），没有结束报告，不重复启动、不算通过。manifest/package仍0.6.39，暂不发布。下一步执行提示词：收取89063完成或失败，处理实际缺口；成功后将INSTALL/兼容说明待发布改为正式，增版0.6.40/build并实际action核对版本/基本视觉流程，保存新包与SHA回退索引，更新计划后接下一轮未知控件/复杂标签覆盖。
+
+### 2026-10-11 · v0.6.40 局部截图识别正式可安装版本
+
+旧Agent安装回归session89063完成52项通过（真实UI许可、字段/各集合、取消与待办；虚构模型）。manifest/package/lock增0.6.40，正式build通过，实际action popup确认运行版本0.6.40；真实companion视觉流程3项再验收通过。节点/手改/导航完整11项证据延续上一轮同功能代码，版本号改变未重做全部。服务视觉边界6项通过；首次全量3662项中160失败逐条经175针对复验恢复，索引保留原失败与修复证据。不是单次全量全绿，不宣称真实云API/招聘网站验收。
+
+安装：重载 E:\job\recruitment-autofill\dist，保存草稿并刷新页面，重启本机服务。语义许可需明确勾选再导入配对文件；视觉另默认关闭，需要支持image_url的兼容模型。新入口仅普通单标签未知空字段、最多3项、只生成review候选。复杂控件、自动视觉写入、Responses视觉均未支持。
+
+下一轮计划：I-012D从可复现实际缺口出发，补复杂/多标签控件的拒绝说明和候选结果反馈；先保证“为何未识别”可读，再扩展可证明的标签布局，不盲点按钮。PNG重复验证性能作为独立改进，保持校验/取消边界。下一步执行提示词：核对0.6.40回退/新包SHA与Git快照，保留现有通过证据；找出视觉0候选缺少解释的具体UI案例，增加状态原因聚合和必要验证，完成后更新计划继续下一轮。

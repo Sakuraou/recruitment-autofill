@@ -1,5 +1,17 @@
 # 网申助手验收记录
 
+## I-012C DOM 新鲜度与迟到模型响应（2026-10-10，仅隔离通过）
+
+新增 `semanticDomGuard.ts`，在模型推理前绑定字段对应的真实原生节点、页面 URL 和 select 选项签名；节点被替换、脱离文档、导航、选项改变、控件变为 disabled/readOnly 时，`isCurrent` 立即失效。`semanticDecisionWorkflow` 将该门禁传入每次原子写入，迟到结果转人工，不把旧节点当成新页面继续填。`nativeDomSemanticControls` 只允许普通文本类 input、textarea 和单选 select，拒绝 password/file/radio、多选、disabled/readOnly，并对 select 的禁用/重复选项闭合处理。
+
+先补夹具再改实现：语义工作流单元 5 项、执行层与工作流合计 356 项；实际 Chromium 新增 4 项，覆盖密码控件拒绝、选项替换、URL 导航和初始新鲜度；完整隔离回归为 26 个单元文件 356 项、27 个 Chromium 脚本 214 项，失败 0、外部请求 0、页面错误 0，strict 类型通过。报告和 SHA256 在 `artifacts/i012c-semantic-label-summary.json`，冻结副本在 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。
+
+同轮兼容 API 视觉请求补丁已通过 5 项单元和 3 项 Chromium mock：脱敏 PNG 以 `image_url` 内容块发送，文本部分不再携带 base64；FTP、查询串、哈希和凭据形式的端点在请求前拒绝。仍是隔离 mock，不代表正式扩展已能调用云模型。
+
+随后新增 `product/src/ai/visualSemanticPort.ts`：正式 `semanticProtocol` 请求与本机 PNG 被绑定到同一个 `AgentPageLease`，明确用户确认、固定本机 companion 地址、64 字节服务令牌和 PNG 签名；owner 停止、导航或断连会中止请求，迟到响应不会返回可应用结果。新增 `product/src/background/visualSemanticPort.ts` 和固定回环 provider，校验 content sender、文档生命周期、PNG 签名、脱敏请求、模型输出和本机服务令牌；隔离 background index 已注册该端口且未破坏既有 MV3 capture。专项单元 7 项、Chromium 5 项通过，完整回归为 29 个单元文件 363 项、29 个 Chromium 脚本 219 项，失败 0、外部请求 0、页面错误 0。
+
+这轮仍未修改正式 v0.6.39、content bundle、manifest、权限或模型端点；旧页面发生变化时不会自动回滚到新页面，也不会提交，交由用户复核。下一轮把正式 `semanticProtocol` 的字段语义绑定与本机脱敏图像接到同一隔离 content port，验证模型只能返回固定字段含义，不产生 selector、脚本或个人事实。
+
 ## I-012B正式发布（2026-10-06，v0.6.39）
 
 Agent会逐个观察能核验原身份的陌生空下拉框；某个列表稳定为空时保留该项待办，继续处理其他原控件。每个原节点只观察一次，总预算八次；重扫不会重复尝试。手改、替换、停止或证明失效仍结束本次流程，全部未答不会误报完成。
@@ -741,3 +753,406 @@ npm run test:e2e
 先停止占用 4173 的测试服务器。机器报告为 `artifacts/extension-e2e.json`；截图为 `options.png`、`popup.png`、`filled-form.png`。测试使用虚构样例且没有操作真实申请。
 
 后续 LLM 语义匹配和开放题生成按用户要求暂不进入 MVP 1，待真实网页使用反馈后继续。
+
+## I-012C语义准入与捕获围栏（2026-10-06，仅隔离）
+
+语义标签59项单元/15项Chromium、语义准入9项单元/30项Chromium、扫描准入回归41项通过。捕获围栏新增26项单元/18项Chromium，strict类型/lint通过；浏览器无外部请求或页面错误。一次性私有证明绑定活动上下文快照，捕获及遮挡前后重验证据/拥有者/占用态；克隆、重放、停止迟到、上下文变化、无效视口及原缓冲别名拒绝。证据和SHA256冻结于 artifacts/i012c-draft-workspace/artifacts/i012c-capture-fence-hardened-checkpoint。这里仍未调用MV3 captureVisibleTab、真实页面截图或云视觉API，不计正式v0.6.39发布能力。
+
+## I-012C MV3捕获适配（2026-10-06，仅隔离）
+
+新增MV3 `captureVisibleTab`适配器：8项单元、18项Chromium、strict类型/lint通过；外部请求和页面错误为零。它只允许相同活动tab/window/URL/document/视口快照、PNG data URL和原生解码缓冲，导航/切页/滚动/缩放/取消/非法输入拒绝。夹具使用假的MV3 API与本地页面，无扩展消息边界、真实截图权限或云视觉请求。
+
+证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-capture-checkpoint`，正式v0.6.39未变。下一步接入最小权限消息边界并验证来源、lease/语义证明和响应不可重放，再进行本机裁剪遮挡。
+
+## I-012C MV3消息边界（2026-10-06，仅隔离）
+
+新增私有捕获请求桥：3项单元、12项Chromium、strict类型/lint通过；浏览器无外部请求或页面错误。证明不从页面消息读取，requestId 一次性消费；仅接受扩展 popup 顶层 frame 与指定 tab/window，错 sender、错 frame、错 tab、未知或回放请求拒绝，停止也只清理已登记请求。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-bridge-checkpoint`。
+
+尚未接入真实 background/content 消息监听、扩展权限、截图或视觉API，正式v0.6.39未变。下一步验证真实消息适配和取消清理，再做本机解码裁剪遮挡。
+
+## I-012C运行时消息适配（2026-10-06，仅隔离）
+
+新增运行时消息适配器：2项单元、9项Chromium、strict类型/lint通过；只处理捕获/停止消息，其他消息不截获，可撤销 listener；证明和 sender 校验由私有桥复用。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-runtime-checkpoint`，无外部请求或页面错误。
+
+尚未接入真实 background/content 运行时、扩展权限、截图或视觉API，正式v0.6.39未变。下一步验证消息适配中的生命周期、断连和取消清理。
+
+## I-012C MV3生命周期清理（2026-10-06，仅隔离）
+
+捕获生命周期登记/完成/单条取消/批量断连清理通过3项单元和10项Chromium；重复请求、回放、导航、断连和取消回调异常均安全清理，外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-lifecycle-checkpoint`。
+
+尚未接入真实 background/content port、导航事件、扩展权限、截图或视觉API，正式v0.6.39未变。
+
+## I-012C MV3生命周期事件绑定（2026-10-06，仅隔离）
+
+port 断连/导航事件绑定通过2项单元、5项Chromium、strict类型/lint；批量取消、幂等释放和释放后旧事件失效均验证通过，外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-bindings-checkpoint`。
+
+尚未接入真实 background/content port、AgentPageLease、截图或视觉API，正式v0.6.39未变。
+
+## I-012C MV3捕获流水线组合（2026-10-06，仅隔离）
+
+捕获围栏、消息桥和生命周期组合通过2项单元、8项Chromium、strict类型/lint；证明只在扩展内部流转，响应消费后不可回放，断连/导航可统一取消，外部请求和页面错误为零。证据冻结 `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-pipeline-checkpoint`。
+
+尚未接入真实 background/content runtime、AgentPageLease、扩展权限、截图或视觉API，正式v0.6.39未变。
+
+## I-012C background capture port（2026-10-06, isolated only）
+
+The isolated background-side capture port passed 3 unit and 3 Chromium checks with strict type/lint. It verifies popup sender, top-level frame, current HTTPS tab/window, single in-flight capture, PNG data URL, and navigation invalidation. No external requests or page errors occurred. Evidence: `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-background-port-checkpoint`.
+
+It is not wired into the shipped background worker, real capture permission, screenshot storage, or vision API. Official v0.6.39 remains unchanged.
+
+## I-012C background installer boundary（2026-10-07, isolated only）
+
+The isolated installer boundary passed 1 unit and 3 Chromium checks with strict type/lint. It registers only the background capture connection handler, rejects untrusted ports through the existing port handler, and disposes cleanly. Evidence: `artifacts/i012c-draft-workspace/artifacts/i012c-mv3-installer-checkpoint`.
+
+It is not wired into the shipped worker or real `activeTab` capture. Official v0.6.39 is unchanged.
+
+## I-012C product background wiring（2026-10-08, isolated only）
+
+The isolated copy of the real `product/src/background/index.ts` now installs the MV3 capture port alongside the existing record semantic handler. The port accepts an asynchronous `tabs.get` context source, checks the same tab/window/URL before and after capture, and ignores a stop race while lookup is pending. The background port has 4 unit checks, the pipeline has 3 unit checks, and the product background entry passed 3 local Chromium checks. TypeScript strict compilation and the focused browser/unit checks passed with zero external requests and page errors.
+
+The product test uses a fake local MV3 runtime/tabs object; it does not load a real extension worker, grant a real user's `activeTab`, retain screenshots, or call a vision API. The source and report hashes are recorded in `artifacts/i012c-semantic-label-summary.json`. The shipped v0.6.39 worker and manifest remain unchanged.
+
+## I-012C proof-bound local pixel redaction（2026-10-08, isolated only）
+
+`semanticRedactionPipeline.ts` now consumes a planned semantic crop exactly once and binds it to the original image dimensions. It passes only the calculated label keep rectangle and approved masks to the existing local RGBA redactor; changed dimensions, replayed proofs, invalid plans and malformed buffers fail closed. Three unit and three local Chromium checks passed with strict TypeScript/lint and zero external requests or page errors.
+
+This is a local pixel fixture only. It does not encode or upload an image, call an OpenAI-compatible endpoint, alter the shipped extension, or claim privacy on arbitrary screenshots. The isolated source/test/browser hashes are recorded in `artifacts/i012c-semantic-label-summary.json`; official v0.6.39 remains unchanged.
+
+After the change, the isolated full regression was rerun: 18 unit files / 327 checks and 19 Chromium scripts / 186 checks passed; failures, external requests and page errors were all zero.
+
+The background boundary was then hardened so a popup sender never supplies the tab being captured. Each request carries a target tab/window/HTTPS URL, while the isolated worker queries the currently active tab and compares a revision plus before/after context. Navigation, focus changes, stop, timeout and late callbacks fail closed. The product-background fake MV3 test and the complete isolated regression remained green; the shipped worker and permissions were not changed.
+
+
+## I-012C owner lifecycle 与本机编码边界（2026-10-08，仅隔离）
+
+`mv3CaptureOwnerLifecycle.ts` 将 owner 的停止、导航、断连结束事件绑定到私有捕获生命周期，确保旧 owner 的批量取消不会触及新 owner；绑定 disposer 幂等。`localImageEncoder.ts` 只接收已完成本机语义遮挡的 RGBA 结果，复制缓冲并限制 1,048,576 像素及8 MiB编码输出，拒绝 malformed buffer、字符串 URL、超限数据与 AbortSignal。1项 owner 单元、3项编码器单元、3项Chromium检查通过；完整隔离回归为18个单元文件327项、19个Chromium脚本186项，失败0、外部请求0、网页错误0。
+
+本轮没有修改正式 v0.6.39、manifest、权限或发布包；没有真实 PNG 上传、OpenAI 兼容 API 请求或云视觉调用。证据与SHA256记录在 `artifacts/i012c-semantic-label-summary.json`，冻结副本为 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。下一步先接隔离 content `AgentPageLease`/port，再做本机编码器；任何模型请求必须等待本地脱敏、显式用户开关和有限传输边界验收。
+
+## I-012C AgentPageLease owner 接线（2026-10-08，仅隔离）
+
+`AgentPageLease` 新增一次性 `onEnd` 监听器，显式停止、断连和 URL 导航分别带原因；`mayWrite` 发现导航时先撤销旧 lease，再返回 false，避免旧 Agent 写入新页面。隔离 `product/src/content/index.ts` 创建 `Mv3CaptureLifecycle` 并绑定到该 owner，content bundle 可以成功打包。新增2项 lease 单元；本轮 owner/编码边界单元累计6项，完整隔离回归为19个单元文件329项、19个Chromium脚本186项，失败0、外部请求0、网页错误0。
+
+没有修改正式 v0.6.39、content 发布包、manifest、权限或网络请求。capture lifecycle 仍是隔离取消 seam，尚未注册真实截图，也没有 OpenAI 兼容 API 或云视觉调用。证据与哈希在 `artifacts/i012c-semantic-label-summary.json`，冻结副本为 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。
+
+## I-012C owner-bound capture request gate（2026-10-08，仅隔离）
+
+`mv3CaptureOwnerRequestGate.ts` 将捕获登记限制在当前 `AgentPageLease` token，并将句柄绑定到私有 `Mv3CaptureLifecycle`；owner 停止、导航和断连都会取消活动请求，旧句柄不能完成或取消新 owner 的请求，disposer 幂等消费剩余请求。3项单元和4项本地 Chromium 检查通过；完整隔离回归为20个单元文件332项、20个Chromium脚本190项，失败0、外部请求0、网页错误0。
+
+本轮仍未修改正式 v0.6.39、content bundle、manifest、权限或网络能力；没有真实截图、PNG上传或OpenAI兼容 API 调用。证据和SHA256在 `artifacts/i012c-semantic-label-summary.json`，冻结副本为 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。下一步先做隔离 content capture 迟到回调与重复记录互斥夹具，再评估本机 PNG 编码。
+
+## I-012C本机 PNG 编码边界（2026-10-08，仅隔离）
+
+`localPngEncoder.ts` 将已脱敏 RGBA 缓冲在本机生成 PNG，含尺寸/颜色类型、CRC 和有界 zlib 存储块；限制 1,048,576 像素与8 MiB输出，并逐块检查 AbortSignal。Chromium 的 `CompressionStream` 夹具曾挂起，已移除该依赖并改用确定性本机实现。2项单元和3项 Chromium 检查通过；完整隔离回归为21个单元文件334项、21个Chromium脚本193项，失败0、外部请求0、网页错误0。
+
+没有修改正式 v0.6.39、content bundle、manifest、权限、截图存储或网络能力；PNG 字节没有离开本机。摘要和SHA256在 `artifacts/i012c-semantic-label-summary.json`，冻结副本为 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。下一步先做 capture gate 与重复记录工作流互斥回归，再考虑仅 mock 的 OpenAI 兼容请求适配。
+
+## I-012C OpenAI 兼容语义 mock transport（2026-10-08，仅隔离）
+
+`openAiCompatibleSemanticClient.ts` 将模型输出限制为 `choose-option`、`suggest-text`、`skip`、`ask-user` 四类结构化语义；`choose-option` 必须命中页面提供的候选项，拒绝选择器、脚本、任意 HTML 和未知 fieldId。图片仅接受 `redacted:true` 的本机 PNG，模型调用同时要求 `enabled` 与 `userConfirmed`，请求/响应大小和字段数量有界，API key 不落盘。3项单元和3项 Chromium mock 检查通过；完整隔离回归为22个单元文件337项、22个Chromium脚本196项，失败0、外部请求0、网页错误0。
+
+fetch 由测试注入，未访问真实兼容端点，没有修改正式 v0.6.39、content bundle、manifest、权限或发布包。证据与SHA256在 `artifacts/i012c-semantic-label-summary.json`，冻结副本为 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。下一步先验证与重复记录工作流的互斥、停止和迟到响应，再做用户可见设置与显式启用路径。
+
+## I-012C transport 与互斥边界加固（2026-10-08，仅隔离）
+
+OpenAI 兼容 mock transport 现在按字节流有界读取响应并检查 Content-Length，拒绝重复 field 决策和超限正文；请求体按 UTF-8 字节计量。owner gate 增加活动重复记录工作流占用夹具，确认记录任务不会与 Agent capture 抢占同一 lease。全量隔离回归为22个单元文件339项、22个Chromium脚本196项，失败0、外部请求0、网页错误0。
+
+仍未访问真实 DeepSeek、通义千问或 OpenAI 端点，没有修改正式 v0.6.39、content bundle、manifest、权限或发布包。下一步做迟到响应组合夹具，再设计设置页的用户可见启用与确认开关。
+
+## I-012C owner/记录互斥与模型确认边界（2026-10-08，仅隔离）
+
+修复 mv3CaptureOwnerRequestGate 主动 cancel() 提前置位导致外部取消回调不触发的竞态；销毁后拒绝新请求。组合测试使用隔离 RecordV2Gateway：活动重复记录任务占用页面时 Agent lease 启动被拒，停止后的迟到记录响应返回 stopped 且保存计数为零，新会话只能产生一次保存。新增2项单元、4项 Chromium；AI 连接设置新增本地 userConfirmed:true，选项页只有在用户勾选许可后才启用连接。另有2项 consent 单元。
+
+完整隔离回归：24个单元文件344项、23个Chromium脚本200项，strict 类型通过；失败0、外部请求0、网页错误0。浏览器夹具使用本机虚构页面、假 runtime 和注入式响应，没有真实账号、截图上传或 OpenAI 兼容端点调用。证据与SHA256在 artifacts/i012c-semantic-label-summary.json 和 artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint；正式 v0.6.39 未变。
+
+下一轮执行提示词：在隔离副本增加本地 mock 的“语义字段决策→原子控件填充→回读收据”端到端夹具，保持模型只返回 fieldId/选项/建议文本，不接受 selector、脚本或提交动作，并覆盖确认撤销、响应迟到和重复 field。
+
+## 2026-10-09 · 隔离语义执行层
+
+新增 mockSemanticDecisionExecutor：有限字段决策通过本地控件接口写入并回读；默认保护已有值，文本建议须单独确认，事件中取消及后续失败回滚，控件异常保留待办。专项5项单元、strict类型通过，Chromium3项通过，无外部请求或网页错误。这是隔离执行接口，尚未接真实DOM binder或正式安装包；不计为端到端模型填写能力。
+
+下一步：增加真实原生DOM适配夹具与迟到模型响应取消，避免以mock接口验收替代正式入口验收。
+
+### 2026-10-09 · 隔离执行层回滚核验
+
+补上回滚失败的明确状态 rollback-incomplete：恢复写入返回false、回读不等或异常均不得声称已恢复。专项6项单元、strict类型及Chromium3项通过。仅隔离；正式v0.6.39未变。下一轮继续原生DOM适配与迟到响应联动。
+
+### 2026-10-09 · 隔离原生 DOM 语义控件适配
+
+新增 nativeDomSemanticControls：只接收本地扫描后已经确认的 Element，不接受模型 selector；覆盖原生 select、input、textarea 的写入、input/change 事件和选项文本回读。Chromium 4 项通过，TypeScript strict 通过，无外部请求和页面错误。仍是隔离夹具，未接入正式 content binder，也不会自动提交。
+
+下一步：把原生 DOM 控件适配与现有扫描快照、owner gate 及迟到模型响应组合，完成后再评估进入正式版本。
+
+### 2026-10-09 · 隔离语义决策工作流
+
+新增 semanticDecisionWorkflow：模型只产生一次受限语义结果，先检查 owner 是否仍有效，再交给本地原子控件执行；模型禁用、请求失败、取消或 owner 结束都会转人工，不重试、不提交。完整隔离回归为26个单元文件353项、26个Chromium脚本210项，失败0、外部请求0、网页错误0，strict TypeScript 通过。正式 v0.6.39 仍未变。
+
+下一步：将该工作流与现有扫描快照、局部截图脱敏证明及 content port 做隔离组合，验证真实页面节点替换和导航时不会写入旧控件。
+
+## 2026-10-10 · I-012C popup→content→background视觉语义消息边界（仅隔离）
+
+隔离增加 `product/src/content/visualSemanticClient.ts`、`visualSemanticMessage.ts` 和 `product/src/popup/visualSemanticClient.ts`。content 仅接受扩展 popup 顶层 frame 的当前 `AgentPageLease` token、严格语义请求和本机已脱敏 PNG；通过 `VISUAL_SEMANTIC_PORT` 发往现有 background handler，返回结果重新按正式 `semanticProtocol` 校验。popup 只发送一次 owner-bound 消息，不持有 selector、DOM 节点或个人档案值；owner 停止/导航、断连、超时及迟到结果都转人工且关闭通道。content 入口已注册新 listener，并保持既有扫描 listener 顺序。
+
+新增 9 项单元检查（content client 4、content message 2、popup client 3），3 组 Chromium 检查共 11 项；严格 TypeScript 通过。完整隔离回归为 32 个单元文件、372 项和 32 个 Chromium 脚本、230 项，失败 0、外部请求 0、网页错误 0。浏览器脚本分别验证可信 popup、错误 sender、owner 结束、PNG/redacted 门槛、重复/非法语义提案和 selector 不进入消息。
+
+本轮仍未改动正式 v0.6.39、manifest、content/background/popup 发布包或权限；未从真实页面截图、未调用真实 OpenAI 兼容 API、未上传或提交。报告和哈希见 `artifacts/i012c-draft-workspace/artifacts/i012c-visual-semantic-*-browser-report.json`、`artifacts/i012c-semantic-label-summary.json` 及冻结副本 `artifacts/i012c-draft-workspace/artifacts/i012c-product-background-redaction-checkpoint`。下一轮验证 popup 的本机截图申请必须先经 background capture port 与语义遮挡，再进入本消息通道，并保持默认关闭。
+
+## 2026-10-10 · I-012C popup本机截图申请与遮挡边界（仅隔离）
+
+新增 `product/src/popup/visualSemanticCapture.ts`，通过已有 `MV3_CAPTURE_PORT` 请求活动 tab/window/HTTPS URL 的 PNG；收到后只交给本机 `redact(dataUrl, signal)` 回调，回调必须返回 `redacted:true` 的 PNG，原始 data URL 不会交给视觉语义 client。请求 ID、目标上下文、owner 生命周期、断连、超时和数据 URL 格式均在 popup 边界核验，失败不重试。
+
+专项 4 项单元和 5 项 Chromium 检查通过，覆盖原始图只在本地遮挡、owner 结束立即断连、重复回调和伪造 JPEG 拒绝；完整隔离回归为 34 个单元文件 381 项、34 个 Chromium 脚本 242 项，失败 0、外部请求 0、网页错误 0。background index 组合夹具同时验证固定 loopback provider 的注册、userConfirmed/本地档案门槛和视觉响应边界。报告为 `artifacts/i012c-draft-workspace/artifacts/i012c-visual-semantic-capture-browser-report.json`，摘要和冻结副本已更新。
+
+这仍未修改正式 v0.6.39、manifest、权限或发布包，未调用真实 `captureVisibleTab`、未读取真实账号页面、未连接真实兼容 API。下一轮将把 `redact` 回调与语义裁剪证明和本机 PNG 编码器组合，复验导航/节点替换/遮挡失败不会触发模型请求。
+
+## 2026-10-10 · I-012C 语义裁剪证明接本机 PNG 编码（仅隔离）
+
+新增 `product/src/popup/semanticVisualRedactor.ts`。捕获 PNG 只在 popup 本机校验并交给注入的解码器；随后必须由当前 owner token 取得一次性语义裁剪证明，计划仍对应原扫描和原 DOM 节点，才能调用现有 `SemanticRedactionPipeline`，最后由本机 `encodeRedactedImage` 编码为新的 PNG data URL。原始 data URL 没有进入模型消息，失败路径均返回人工处理。
+
+专项 6 项单元和 6 项 Chromium 检查通过，覆盖证明与编码顺序、popup capture 回调组合、导航/节点替换、owner 结束、计划拒绝、解码失败和伪造 JPEG；完整隔离回归为 34 个单元文件 383 项和 34 个 Chromium 脚本 243 项，失败 0、外部请求 0、网页错误 0。严格 TypeScript 通过，报告为 `artifacts/i012c-draft-workspace/artifacts/i012c-visual-semantic-redactor-browser-report.json`，摘要 `artifacts/i012c-semantic-label-summary.json` 已更新。
+
+本轮仍未修改正式 v0.6.39、manifest、权限或发布包，未接入真实 PNG 解码、真实 `captureVisibleTab`、OpenAI 兼容 API 或真实招聘页面。`createSemanticVisualRedactor` 已作为 popup capture 的 owner-bound 回调组合通过隔离检查；下一步补模型请求计数为零和真实解码器失败夹具后再评估进入正式包；验证码、上传和最终投递继续由用户处理。
+
+## 2026-10-10 · I-012C 本机 PNG 解码器边界（仅隔离）
+
+新增 `src/localPngDecoder.ts`：本机先校验 PNG data URL、签名、IHDR、尺寸、像素与字节上限，再用 `createImageBitmap` 和 `OffscreenCanvas` 生成新鲜 RGBA。没有网络、页面 URL 或模型调用；取消、伪造签名、超限和解码异常均失败关闭。`semanticVisualRedactor` 在未注入解码器时默认使用该边界，同时继续受 owner、一次性语义裁剪证明、遮挡 pipeline 和本机 PNG 编码器约束。
+
+专项 4 项单元和 4 项 Chromium 检查通过，覆盖 IHDR 检查、真实浏览器 RGBA 解码、伪造签名、取消和本地失败路径；完整隔离回归为 35 个单元文件 387 项和 35 个 Chromium 脚本 247 项，失败 0、外部请求 0、网页错误 0。报告为 `artifacts/i012c-draft-workspace/artifacts/i012c-local-png-decoder-browser-report.json`，摘要与冻结副本已更新。
+
+仍未修改正式 v0.6.39、manifest、权限或发布包，未调用真实 `captureVisibleTab`、未读取真实招聘页面、未连接真实兼容 API。下一轮把默认解码器接入 capture 组合夹具，确认解码失败时模型请求计数保持零，再评估正式 content/background/popup 接入；验证码、上传和最终投递继续由用户处理。
+
+## 2026-10-10 · I-012C 实际测试页截图到本地候选（隔离组合）
+
+新增 `src/semanticVisualWorkflow.ts`，组合真实 content 扫描器、AgentPageLease、SemanticCropAdmission、像素遮挡、PNG解码/编码、正式 semanticBinding/semanticCandidates。证明先于截图签发，图片重新编码并核验PNG头部/尺寸；模型只收到公共字段含义和脱敏图，本地档案提供候选。全程DOM变化/输入事件、原扫描、owner和档案核验，总时限对不响应的捕获/模型也有效。此层仅返回待核对候选，无网页写入。
+
+实际 Chromium 对虚构页面截图，并以模拟provider跑通20项组合检查：有效裁剪/遮挡、档案事实不进入请求、候选值从本地读取；捕获期间节点替换/手改/导航/停止，残缺PNG、编码失败及无证明均阻止模型请求；模型阶段导航/替换/临时输入恢复、迟到手改及不响应均不产生可用候选。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-semantic-visual-workflow-browser-report.json`。夹具截图保持原光标和动画，避免Playwright默认临时样式触发保护；没有放宽原DOM保护。
+
+组合修复：RGBA对象带额外属性不能直接作为严格几何尺寸参数；默认解码测试须使用完整PNG；证明须在截图前签发而非拿到图片后。删掉未接provider的虚假零调用断言，真实组合以捕获/模型调用计数验证。受影响 redactor 专项7项单元/7项浏览器通过；strict通过，完整隔离单元35文件388项通过。累计36脚本268项浏览器证据（受影响组合已重跑，未变模块复用），错误/外部请求/页面错误为零。摘要改为读取Vitest JSON、唯一脚本报告并哈希product源码；修复报告重名覆盖。
+
+正式v0.6.39、manifest、权限和发布包未变，未测试实际安装扩展captureVisibleTab或真实API。下一步在隔离安装扩展中把原DOM证明和遮挡留在content，popup协调捕获，background接固定loopback模拟服务；默认关闭，完成真正MV3路由和生命周期验收后才考虑生产集成。
+
+### 2026-10-10 · I-012C 实际安装 MV3 截图入口（隔离通过）
+
+新增 `artifacts/i012c-draft-workspace/test-installed-capture-browser.mjs`。临时 MV3 扩展安装进独立 Chromium，复用实际 `installMv3CaptureBackground`，从真正 action popup 经 runtime port 调用 `chrome.tabs.captureVisibleTab`，得到非零视口尺寸 PNG。5项通过：普通扩展标签页即使打开同一个 popup.html 也不能冒充 action popup；真正 popup 可捕获；目标 URL 不匹配拒绝；PNG 尺寸有效；表单保持空白。页面、权限和资料均为隔离虚构夹具，无真实账户、模型或写入。
+
+测试发现真正 action popup 不出现在 Playwright 的普通 pages 清单；通过 CDP 等待并连接真实 popup target 验证，不能以普通扩展标签页代替。测试路由应放行本机 chrome-extension 资源；早期标签页失败来自夹具误拦 popup.js，已修复。后台准入规则未放宽。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-capture-browser-report.json`；累计37脚本273项证据、0失败，原35文件388单元结果沿用（生产源码未变）。
+
+仍只是实际安装截图入口通过，content 内原 DOM 证明、遮挡和模型语义尚未与安装扩展完整组合；正式 v0.6.39 不变。下一步执行提示词：复用此真实 action popup/CDP 夹具，在 content 保留原扫描证明和本机 PNG 遮挡，以本机消息将捕获协调结果交回 content，再走现有视觉语义端口到固定 loopback 模拟服务。验证默认关闭零请求、导航与停止、手改、迟到结果，不把单独截图入口算完整视觉功能。
+
+### 2026-10-10 · I-012C 已安装 content 本机遮挡组合（隔离通过）
+
+复用真正 action popup/CDP 截图夹具，新增 `test-installed-content-browser.mjs`：安装 content script，原扫描、DOM、owner及档案均留在 content；先签发一次性证明，再由 popup 请求真实 captureVisibleTab，通过本机 tabs 消息回传 PNG；content 用真实解码、遮挡和编码完成模型安全图片，模拟语义 provider 仅给含义，本机档案产生候选。9项通过，包含默认关闭零模型调用、真实安装路由、本机遮挡图片检查、用户输入取消待截图、迟到PNG不能恢复流程或覆盖用户值。所有页面与事实为虚构，无真实模型/账户/表单写入。
+
+早期准入拒绝来自测试 HTML 没指定 UTF-8，导致标签乱码；夹具明确 charset 后通过，不放宽识别规则。模型 provider 仍在 content 中模拟；尚未接实际 background 视觉端口及 loopback 服务，测试消息协调器也不是正式生产协议。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-content-browser-report.json`。累计38浏览器脚本282项通过；原35单元文件388项证据沿用，生产源码未改。正式 v0.6.39 未变。
+
+下一步提示词：在已安装 content 组合夹具中用现有 requestVisualSemanticFromContent/背景视觉端口替换 content 模拟 provider，以固定 loopback 模拟服务观察只有脱敏 PNG 和字段含义出站，检验默认关闭、取消、导航与迟到结果，再抽取严格一次性本机协调协议供正式接入。不要把当前夹具消息协议当正式发布；保持原DOM准入，不重复未变模块检查。
+
+### 2026-10-10 · I-012C 已安装后台视觉端口与loopback组合（隔离通过）
+
+新增 `test-installed-visual-browser.mjs`，用实际 `requestVisualSemanticFromContent`、`createVisualSemanticPortHandler` 和 `createVisualLoopbackProvider` 替换 content 模拟含义函数。真正 action popup -> capture后台 -> 原content证明/PNG解码遮挡 -> content视觉端口 -> background固定loopback HTTP -> 严格含义校验 -> 本地档案候选，已在隔离安装MV3中跑通。loopback服务仅模拟模型，不连接外部API。11项通过，包括默认关闭、目标拒绝、迟到PNG、手改取消；模型请求待响应时手改会断开视觉port并实际取消HTTP，迟到结果不得返回候选。服务检查图片为裁剪PNG且请求不含本机姓名或页面URL，候选取本机档案，表单不写入。
+
+报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-visual-browser-report.json`。累计39浏览器脚本293项、失败/外部请求/页面错误0；35文件388单元结果沿用，源码未改。正式v0.6.39及发布包不变。夹具捕获协调消息仍为测试协议，后台启用条件为夹具显式启用，不能算生产默认开关验收；未连真实兼容视觉API，也未验收正式popup UI。
+
+下一步执行提示词：从已安装端到端夹具抽取 content/popup 的严格本机捕获协调协议，绑定owner/token/scan/requestId且一次消费，拒绝错误sender、重放及迟到PNG；popup断连必须结束content任务，content导航须取消捕获与视觉请求。接真实默认关闭设置后再纳入正式源代码与发布包验收；当前通过的单独模块不重复测试，只检验新协议及受影响组合。保留隔离安装与端到端报告，不将测试消息监听器直接复制进生产。
+
+### 2026-10-10 · I-012C 本机捕获协调协议（隔离实现，待安装接线）
+
+新增隔离 `product/src/content/visualCaptureCoordinator.ts`，替代下一轮的测试消息轮询设计：受信任popup端口提供严格begin(token/scanId/fieldId/requestId)，content验证原owner及当前scan后启动本地流程；每个任务只能发一次随机captureId挑战，只接受匹配owner/request/challenge的PNG。错sender、额外selector、坏PNG、失效scan、导航、断连和迟到回复关闭任务；popup端口断连结束lease并取消等待。原PNG只供本机流程，无模型/DOM执行权。该实现尚未接正式或隔离安装入口，不算发布能力。
+
+strict及新协议专项9项单元通过。未重跑未改模块：原35文件388项保留，新JSON独立记录并在摘要按不同文件合并为36文件397项；39浏览器脚本293项历史证据沿用，不能算新协议浏览器验证。报告 `artifacts/i012c-draft-workspace/artifacts/coordinator-unit-report.json`。生产v0.6.39不变。
+
+下一步提示词：将已安装视觉链路夹具的begin/pending/png测试监听器替换为此content端口，popup通过tabs.connect协调一次captureId挑战和真实captureVisibleTab；证明仍在content且先于截图。验证真正popup关闭取消HTTP、错challenge及重放、导航/scan替换；随后接默认关闭正式配置。不要复用测试轮询为产品实现，不重复未变测试，保留本轮协议源码及单元JSON快照。
+
+### 2026-10-10 · I-012C 严格协调端口已安装组合（隔离通过）
+
+`test-installed-coordinator-browser.mjs`已把测试轮询换成实际 `createVisualCaptureCoordinator`，使用既有 owner port与popup owner client，绑定真实scanner scanId/fieldId，跨真正popup协调一次挑战截图，进入content本机证明/遮挡，再走实际后台视觉端口与固定loopback模拟服务。6项安装检查通过：本地候选、错challenge不请求模型、截图时端口断连取消、推理时端口断连实际取消HTTP、表单不写入，以及普通扩展标签页无法使用后台截图入口。
+
+发现实际scanner fieldId包含冒号，上一轮协议字符集误拒正常ID，已允许受限冒号并用真实安装字段及专项单元回归；不允许selector或HTML。夹具另修复自行调用port.disconnect不会触发该端自己的onDisconnect的行为：本机停止须先完成本机Promise清理，不等待回调。此修复在测试driver中，不算正式popup client已实现。
+
+strict与受影响9项单元通过，旧模块未重复。累计36文件397单元、40浏览器脚本299项证据0失败。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-coordinator-browser-report.json`。正式v0.6.39未改，真实API及正式UI未验收；本轮仅测试端口断连，尚未测试整个真实popup窗口关闭及协调协议的完整重放/导航组合。
+
+下一步提示词：抽取实际popup协调client，加入严格challenge/result schema、owner signal、一次性状态、总时限和本机停止清理；不可直接复制夹具driver。用本轮已安装端口夹具验收整个popup关闭、图片重放、原scan替换和导航取消，随后默认关闭设置及正式集成。保留协议源码、最新专项JSON和安装报告快照。
+
+### 2026-10-10 · I-012C popup协调客户端及真实popup关闭（隔离通过）
+
+新增 `product/src/popup/visualCaptureCoordinatorClient.ts`：严格挑战/result schema、owner/scan/field/requestId绑定、一次消费、候选只接受当前字段的本机review结果；收到结果前必须已交付本机PNG。owner取消、重复挑战、错误字段、迟到图片与总超时都主动完成本机Promise清理和断连，不依赖自己的onDisconnect回调。客户端无DOM写入或模型执行。
+
+7项专项单元及strict通过。已安装 `test-installed-client-browser.mjs` 用真实客户端替换测试driver，7项检查通过，包括错误挑战不产生HTTP、停止取消待截图/推理、关闭真正action popup target使后台待响应HTTP实际取消。PNG依旧先在content原证明下本机遮挡，再经实际后台视觉端口到loopback模拟服务，候选取本地档案，表单不写。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-client-browser-report.json` 与 `coordinator-client-unit-report.json`。
+
+累计37单元文件404项、41浏览器脚本306项证据0失败；旧模块报告沿用，未重复无变化检查。生产v0.6.39、发布包和默认UI仍未修改；未连接真实API。capture callback仍由夹具提供，尚需提炼实际背景PNG捕获client及默认关闭设置接线。
+
+下一步提示词：把已有后台capture port抽取为本机原PNG捕获client，限定实际活动tab/window/url、owner signal/一次请求/总时限；将popup协调client capture callback接此模块。继续验证导航、节点/scan替换、重放与默认关闭，再正式集成content/background/popup；不能把夹具回调当发布接线。保留本轮客户端源码/专项JSON/真实popup关闭报告快照。
+
+### 2026-10-10 · I-012C 原PNG捕获客户端与安装拒绝复现（未验收）
+
+新增隔离 `product/src/popup/localCaptureClient.ts`：只接受严格活动tab/window/url目标和匹配requestId的有效PNG，owner signal或时限主动断连并完成本机Promise；原图无redacted标记，不能直接交视觉provider。5项专项及strict通过。隔离安装夹具 `test-installed-local-capture-browser.mjs` 已将临时原图回调换为此客户端。
+
+安装组合尚未通过稳定验收：去掉诊断监听后，首个正常流程重复返回manual，后台曾返回ok:false（严格客户端正确拒绝）；增加诊断监听/赋值时曾通过，表明有未定位时序缺口。保留最后无诊断源码及失败报告，不把临时诊断状态的成功算通过，不放宽后台上下文检查。累计38单元文件409项；42浏览器脚本当前1份失败，上一轮41份已通过证据仍独立保留。正式v0.6.39未改。
+
+下一步提示词：先复现 `test-installed-local-capture-browser.mjs` 首次捕获manual，记录实际后台error类别及捕获前后tab/window/url/revision、runtime.lastError（不输出PNG和私人事实）。诊断不能靠增加监听延迟把问题藏掉；对比上一轮client夹具与新rawclient的请求和实际消息，定位上下文失效还是截图API拒绝，然后加必要回归并重跑受影响组合。不要上线，不重复未变模块验证。原源码与失败报告已留回退快照。
+
+### 2026-10-10 · I-012C 原PNG安装拒绝根因修复（隔离通过）
+
+后台诊断复现捕获前`chrome.tabs.query({active:true,lastFocusedWindow:true})`返回空列表，尚未调用captureVisibleTab；真正action popup成为最后聚焦窗口，查询没有取到正常浏览器窗口的活动tab。先前添加监听的偶然成功是焦点时序差异，不是PNG/schema问题。
+
+新增 `src/activeCaptureContext.ts`，明确通过`chrome.windows.getLastFocused({windowTypes:['normal']})`解析正常浏览器窗口，再查询该windowId的活动tab；继续检查原上下文revision、单一tab、tab窗口一致、加载完成及无pendingUrl。已接隔离background index和安装夹具；不放宽sender、target或导航检查，未增加权限。删除临时诊断与250ms等待，正常安装完整流程连续两轮7项通过，包含整个真实popup关闭取消HTTP。4项上下文与5项raw client专项、strict通过。
+
+摘要当前39单元文件413项、42浏览器脚本313项，0失败；仅受影响组合与专项重跑，其他证据复用。报告 `artifacts/i012c-draft-workspace/artifacts/capture-context-unit-report.json`及`i012c-installed-local-capture-browser-report.json`；上一轮失败快照保留。正式v0.6.39未修改，真实API/正式UI及配置仍待验收。
+
+下一步提示词：继续将隔离content/popup/background组合接默认关闭视觉设置与真实scan/owner入口；新增导航、node/scan替换及重放安装验收，检查正常浏览器窗口解析对多窗口focus切换仍拒绝失效target。不要再用lastFocusedWindow的tab查询代替normal窗口；原PNG仅本机，含义请求只用脱敏PNG。达到正式验收前不要标记可安装发布版。
+
+### 2026-10-10 · I-012C 安装生命周期及视觉独立开关（隔离）
+
+新增已安装 lifecycle/navigation 组合夹具，每份9项通过：原图事务重放不请求模型、原DOM节点替换取消证明，以及真正网页导航断开原content owner并实际取消后台HTTP；保持原页面/新页面空白。真实popup关闭的前轮验收保留。本輪没有修改这条核心流程，不重复旧模块检查。
+
+另新增 `product/src/ai/visualSettings.ts`：局部脱敏截图使用独立默认关闭的本机consent key，文字AI连接启用本身不授权图片请求；必须同时有合法配对AI consent与合法视觉consent，且本机profile存在，隔离background视觉port才启用。严格设置schema拒绝额外endpoint和不完整设置；关闭删除key。已接隔离background缓存刷新及storage变化，strict和4项专项通过。此配置尚未接真实popup UI，也尚未与已安装生命周期夹具的固定true开关替换验收；不能称为正式设置已可用。
+
+累计40单元文件417项、44浏览器脚本331项证据0失败。新报告 `visual-settings-unit-report.json`、`i012c-installed-lifecycle-browser-report.json`、`i012c-installed-navigation-browser-report.json`，均在隔离artifacts下。正式v0.6.39与发布包未改，真实API待验收。
+
+下一步提示词：将安装夹具背景固定true启用换为实际loadAiConnection/loadVisualConsent存储与onChanged路径，验证无视觉key时HTTP为0、启用后的真实PNG路径、运行中撤销consent拒绝迟到结果；随后设置UI与content入口默认关闭接线。保持原DOM/owner/scan绑定，不把固定true夹具结果算配置验收，保留本轮源码和报告快照。
+
+### 2026-10-10 · I-012C 已安装视觉存储开关与撤销（隔离通过）
+
+新增 `test-installed-settings-browser.mjs`，使用实际loadAiConnection/loadVisualConsent/hasVisualRequestConsent与chrome.storage.local/onChanged，替换背景夹具固定true开关。4项安装检查通过：仅启用文字AI没有视觉key时HTTP为0；独立视觉key启用后实际PNG/遮挡/含义路径产生本机候选；待响应时删除视觉key，迟到合法proposal被拒绝，表单不写。此次验证的是后台请求开关；默认关闭时仍可进入测试捕获协调，正式popup入口的零截图检查还未完成。
+
+隔离background index缓存刷新同时修复竞态：设置变化先同步清空启用状态，再并行加载三份本机状态，epoch仅允许最新刷新写回，防止旧加载恢复已撤销consent。strict通过；配置helper的4项单元无改动沿用。安装夹具复用实际配置函数与端口，但尚未运行完整正式background index/正式设置UI；不扩大验收结论。
+
+累计40单元文件417项、45浏览器脚本335项证据0失败，生产v0.6.39未改。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-settings-browser-report.json`。下一步提示词：接popup视觉选项UI和content启动前的可信设置状态，让默认关闭不仅HTTP为0且capture为0；把epoch刷新抽取成可测状态模块并验收交错load与撤销。随后接真正background index安装入口及正式包，继续保持原DOM、owner和scan proof；未达发布验收不要宣传可使用。
+
+### 2026-10-11 · I-012C 启动前零截图与设置刷新交错（隔离通过）
+
+新增popup `runVisualCaptureWithLocalConsent`：在可信popup本机读取配对AI及独立视觉consent，关闭或读取失败立即释放owner，不开捕获协调/视觉端口。新增 `latestLocalRefresh.ts` 并接隔离background，刷新先同步禁用，旧加载不能写回新状态；3项专项验证交错启用/撤销及最新加载失败。
+
+已安装 `test-installed-preflight-browser.mjs` 用真实popup preflight、实际本机storage函数、latest refresh和背景视觉端口跑通4项：仅文字AI启用时captureVisibleTab调用为0且HTTP为0；显式视觉key启用后正常流程；等待模型时删key拒绝迟到proposal。夹具等待popup函数完成加载才执行，不把target创建误当脚本加载完成。strict通过。累计41单元文件420项、46浏览器脚本339项证据0失败，旧模块沿用。
+
+正式v0.6.39/发布包仍未改；视觉设置UI、完整正式background index安装与正式content入口尚未验收。新报告 `latest-refresh-unit-report.json`、`i012c-installed-preflight-browser-report.json`均在隔离artifacts。下一步提示词：接设置UI里的独立局部截图识别开关与明确请求范围，用真实正式background index安装（不再仅复用函数）验证默认关闭、存储改变及撤销；然后将preflight接正式popup未知字段入口并验收。保持本机资料/PNG，未过完整包验收不发布。保留本轮源码和报告快照。
+
+### 2026-10-11 · I-012C 完整隔离background入口及视觉设置UI（推进）
+
+新增 `test-installed-background-index-browser.mjs`，实际打包并安装隔离 `product/src/background/index.ts`，不再只用自定义background复用函数。新增只给同扩展popup的严格 `RA_VISUAL_STATUS` 布尔状态消息，夹具等待真实缓存启用状态。4项通过：默认关闭零capture/HTTP、视觉存储显式启用后完整PNG含义路径、运行中删除视觉consent拒绝迟到合法结果；完整后台index的刷新/储存监听、脱敏器和捕获normal窗口解析均参与。服务仍为本机模拟模型，无真实账户/写入。
+
+新增 `VisualConsentEditor.tsx`并接隔离AiConnectionEditor，独立局部截图开关默认关闭，明确仅发送遮挡后字段标签局部图像，原图/档案留本机；启用须已有AI连接且勾选独立确认，关闭可单独删除视觉key。原文字AI许可文案不再混入图片许可。strict通过；UI尚未在实际安装options页面验证，不能算UI验收完成。
+
+累计41单元文件420项、47浏览器脚本343项证据0失败，未变模块沿用。正式v0.6.39/发布包不变。报告 `artifacts/i012c-draft-workspace/artifacts/i012c-installed-background-index-browser-report.json`。下一步提示词：安装真实options页面验证独立开关状态/启用禁用/存储，再接正式content扫描入口与popup未知字段动作。当前content仍为组合夹具，不是完整生产content入口；完成实际包和真实兼容API验收后才发布。保留本轮UI源码/后台index/报告快照。
+
+### 2026-10-11 · I-012C 实际 options UI 验收
+
+实际React options入口和完整隔离后台安装Chromium，test-installed-options-browser.mjs 共4项通过：默认关/无AI不能开，独立许可写严格key，重载恢复及撤销删key，AI关闭后禁用启用而仍可撤销。无网络外发、页面错误；未进行云模型或个人资料操作。累计隔离41文件420单元项、48脚本347浏览器项0失败。正式包仍v0.6.39，完整content与popup未知字段入口待接入。报告 artifacts/i012c-draft-workspace/artifacts/i012c-installed-options-browser-report.json。
+
+### 2026-10-11 · I-012C 活跃设置页撤销同步
+
+VisualConsentEditor监听视觉key外部变更并用latest refresh抑制旧读取，变更清独立确认，卸载移除listener。strict通过，实际安装options新增撤销检查通过（该脚本5项），累计420单元项/348浏览器项0失败。完整content接入仍待实现：正式trusted storage禁止content直接loadProfile，组合夹具的虚构全档案不能下发照搬。应先分离content标签证明与popup本地候选解析。正式v0.6.39不变。
+
+### 2026-10-11 · I-012C 受信本地候选解析
+
+localVisualCandidate使用实际scanner、semanticBinding和semanticCandidates验证4项：脱敏请求不含姓名，本地一次解析；profile变更、scan替换、live失效拒绝。strict通过，首次类型错误已修。累计42文件424单元项/48脚本348浏览器项0失败。仅隔离模块，实际入口未接入、正式包未变。报告 artifacts/i012c-draft-workspace/artifacts/local-visual-candidate-unit-report.json。
+
+### 2026-10-11 · I-012C 标签隐私许可
+
+受信端authorizeLabel保持全档案私有，只授权原扫描未被本机脱敏器改变的短标签。未许可/替换/重复/个人事实标签检查通过，localVisualCandidate共7项、strict通过。累计427单元项/348浏览器项0失败。布尔许可不替代content像素证明，正式通讯入口待接。报告沿用 local-visual-candidate-unit-report.json 最新7项。
+
+### 2026-10-11 · I-012C 本机许可握手
+
+visualLabelHandshake 9项及strict通过：作用域各键与challenge替换拒绝、重复/额外字段/负回执/owner失效拒绝，跨scan不调用私有检查。累计43文件436单元项/348浏览器项0失败。协议尚未接实际port及安装级验证。报告 artifacts/i012c-draft-workspace/artifacts/visual-label-handshake-unit-report.json。
+
+### 2026-10-11 · I-012C 协调模块标签阶段
+
+实际协调器和popup client接label阶段，4项新单元通过；strict与完整background安装4项回归通过。单元累计440项；348浏览器项含历史报告，新增标签阶段安装验证待补。正式包未改，无label旧路径仅供隔离旧夹具，生产入口须配置标签阶段。
+
+### 2026-10-11 · I-012C 实际端口标签握手
+
+test-installed-label-gate-browser 5项通过：本机标签拒绝时capture和HTTP为0，允许后实际PNG流程，consent撤销拒绝迟到响应等。累计440单元项/353浏览器项（含历史报告）。夹具content仍有虚构profile，完整资料边界拆分尚未完成；未改正式包。报告 artifacts/i012c-draft-workspace/artifacts/i012c-installed-label-gate-browser-report.json。
+
+### 2026-10-11 · I-012C content仅像素模块
+
+semanticVisualImageWorkflow strict与实际Chromium12项通过；440单元项/365浏览器项0失败。旧privateFacts非空约束仍需由受信标签许可替代，正夹具仅用虚构样本，不能算完整档案边界完成。报告 i012c-semantic-visual-image-browser-report.json 位于隔离artifacts。正式包不变。
+
+### 2026-10-11 · I-012C 空facts受信许可像素路线
+
+strict、旧标签/admission单元回归、新Chromium14项及旧image12项通过。新admission在所有阶段重验本机labelPermission，paint检查分离而旧非空facts限制保留。累计440单元项/379浏览器项0失败；安装级popup档案边界仍待验证，正式包未改。报告 i012c-label-permission-image-browser-report.json、label-permission-regression-unit-report.json。
+
+### 2026-10-11 · I-012C 安装级profile-free content
+
+新的installed-profile-boundary脚本6项通过，真实协调协议仅下发脱敏semanticRequest、content无profile，回模型proposal由popup本地原session校验/候选解析。消息审计无虚构姓名下发；许可与撤销检查通过。strict/协调器20项回归通过，累计440单元项/385浏览器项0失败，仍为隔离bootstrap及模拟模型，正式入口未接。
+
+### 2026-10-11 · I-012C 完整content/index安装
+
+profileFreeVisualCoordinator接实际隔离content/index，整个事务DOM变更取消owner。installed-content-index浏览器6项、strict通过；真实扫描入口、owner、完整background参与。累计440单元项/391浏览器项0失败。popup/App可见动作待接，正式包未改。报告 i012c-installed-content-index-browser-report.json。
+
+### 2026-10-11 · I-012C PopupApp截图动作待验收
+
+visualBridge和实际PopupApp按钮已接，最多3个规则未知空字段、storage改变取消、review候选不写DOM。strict通过（修正不存在unknown状态为UNKNOWN_FIELD_REASON）。尚未安装真实popup UI，未增加验收计数，正式包未改。
+
+### 2026-10-11 · I-012C 完整React popup闭环
+
+installed-popup-ui脚本3项通过：实际UI扫描、默认无视觉许可零截图/HTTP，启用后1个本地review候选不写网页，profile修改使等待HTTP实际断连及UI要求重扫。累计440单元/394浏览器项0失败。仍隔离构建，正式迁移及全生命周期UI检查待做。报告 i012c-installed-popup-ui-browser-report.json。
+
+### 2026-10-11 · I-012C 完整UI生命周期
+
+installed-popup-lifecycle浏览器5项通过，节点替换/瞬时输入恢复/用户手改均关闭模型HTTP且保留表单，完整React UI参与。累计440单元项/399浏览器项0失败。正式迁移需将隔离像素src映射到正式src/visual，禁止整目录覆盖；尚未迁移。
+
+### 2026-10-11 · I-012C 完整UI导航
+
+真实PopupApp导航检查3项通过（HTTP断连，新页面无值），累计440单元项/402浏览器项0失败。迁移清单40文件带SHA256已生成但尚未应用。正式源码/包保持原版。
+
+### 2026-10-11 · I-012C 正式迁移静态验证
+
+40映射文件已迁入正式src（像素src/visual），先stage再正式。stage与正式strict/lint通过；旧3个record semantic fixture缺userConfirmed已补并备份。回退目录 artifacts/i012c-formal-rollback-20261011 包含原dist和原受影响文件。正式build/单元/安装验收待执行，dist仍旧版，未发布。
+
+### 2026-10-11 · I-012C 正式lease回归
+
+首轮正式targeted 163项1失败，原因导航直接释放token；修为revoked通知但保留ownership到释放，针对复验通过。正式strict/lint通过，8个I012C测试迁入。全量单元进程session1119正在跑，报告 i012c-formal-all-unit-report.json 未确认完成前不计通过。正式dist未更新。
+
+### 2026-10-11 · I-012C 正式dist真实安装验收及服务缺口
+
+正式 node scripts/build.mjs 已通过。新增3个 scripts/test-visual-installed-{package,lifecycle,navigation}.mjs 直接加载未经改写的正式dist/manifest，不增加tabs/host权限、不注入fixture背景全局、不修改bundle。真实Chromium action popup完成3+5+3项通过：默认关闭零模型请求，启用后只产生本地review候选；档案变更、节点替换、瞬时手改、保留手改及导航均关闭实际等待HTTP，无误写、无外部请求。三个脚本eslint通过。报告 artifacts/i012c-formal-installed-{package,lifecycle,navigation}-report.json。正式全量单元session1119仍在运行，未计通过。
+
+发现必须优先修复的真实缺口：正式 src/companion/server.ts 只允许/v1/bindings、/v1/next-step、/v1/health，没有/v1/visual-bindings；目前成功的是本机mock视觉服务，现有用户启动的语义服务会404。不能把上述安装验收称为可用的云视觉版本。版本仍0.6.39，dist属于待验收开发构建；原包回退保存不删除。
+
+下一步执行提示词：先收取session1119全量单元结果，按失败修复；为正式companion接严格视觉envelope、限流/大小/PNG校验、请求取消和OpenAI兼容视觉provider，保持token/origin校验及零档案输出。用真实companion+模拟上游完成安装闭环，确认404缺口消除，更新安装说明后再增版发布；真实云API质量仍需单独验收。
+
+### 2026-10-11 · I-012C 正式companion视觉路由与兼容provider
+
+正式server已接/v1/visual-bindings，沿用Origin/Host/token、并发busy、超时和断连AbortController；视觉独立body上限，严格单字段envelope，禁止附加profile。新增visualRequest校验canonical base64、PNG签名/IHDR/尺寸/CRC/chunk布局/终止/有界inflate及扫描行，禁止元数据和截断/尾随内容。兼容Chat Completions provider复用现有输出与endpoint校验，发送text语义+image_url(low)，modelConfig/start接入视觉provider；Responses路径暂未接视觉。
+
+companion-visual、compatible-api、compatible-config、semantic-companion针对检查通过，报告 artifacts/i012c-companion-visual-unit-report.json。3个新检查覆盖坏PNG、实际上游请求形状与真实HTTP认证路由，旧兼容/服务检查保留。正式全量旧进程session1119仍在跑，其启动快照早于本轮companion改动，不能当本轮新模块验证。dist未重建，不增版本。
+
+下一步执行提示词：读取全量1119结果和本轮strict/lint结果；将正式安装验收切换真实createSemanticServer+兼容provider+模拟上游，验证图片可通过真实服务、模型等待时profile/DOM/导航取消传到上游。补视觉并发/超时/oversize/cancellation检查，避免校验重复inflate；通过后再更新INSTALL/build/版本。真实云视觉模型是否支持图片仍未知，需明确界限。
+
+### 2026-10-11 · I-012C 真实companion安装闭环
+
+新增3个test-visual-real-companion脚本，加载未经修改的正式dist，并启动正式createSemanticServer与createVisualChatCompletionsProvider；仅上游fetch虚构模拟，不使用假loopback服务。3+5+3项真实安装检查通过：PNG可经真实认证/格式校验进入兼容图片请求；档案改变、节点替换、瞬时输入、保留手改、导航均从popup取消，经companion传递到上游AbortSignal，无误写/外网请求。报告 artifacts/i012c-real-companion-{installed,lifecycle,navigation}-report.json。相关脚本与companion lint通过。
+
+追加视觉busy/timeout测试，上游即使永不返回仍中止并允许下轮；大256x256 PNG解析通过，替换递归分组base64正则，避免较大图片栈溢出。最新companion-visual 5项通过（报告 i012c-companion-visual-timeout-report.json），strict通过。新服务已打通但全量单元session1119尚在运行，不发布/不增版本；真实云视觉模型质量和登录招聘网站仍未验收。
+
+下一步执行提示词：读取1119结果；清理视觉schema重复CRC/inflate开销，补用户取消/返回非法proposal/请求尺寸边界；检查INSTALL对截图的旧声明并补独立许可、仅普通单标签、review候选、本机兼容视觉模型等说明；通过正式回归后更新版本/build/可回退包。已通过且代码不变的安装场景不重跑。
+
+### 2026-10-11 · I-012C 全量回归发现与修复
+
+全量session1119结束，3662项中3502通过/160失败，12个失败文件。原因分三类：新增第二个content消息监听使旧单监听mock拿到错误handler；background夹具缺tabs/windows/getURL且启动许可缓存读被计入投影读数；旧连接测试没有明确userConfirmed。修复正式content为同一个消息入口按固定视觉type分派，视觉handler使用ContentResponse类型；补4个background夹具真实API与初始化等待/清读数；旧连接测试显式许可并保持无许可拒绝生产规则。未通过放宽生产安全校验掩盖失败。
+
+针对失败文件两组复验94+81=175项通过（报告 i012c-formal-entry-regression-report.json、i012c-formal-other-entry-regression-report.json）；正式strict、src/tests/视觉脚本lint通过。正式build通过，因content入口实际改变，重新运行真实companion安装三组验收。全量原报告保留失败证据，不把它改写为全绿，也不重复未变化模块的3502项。
+
+下一步执行提示词：收取session34934安装复验最终结果；保存本轮受影响新旧文件manifest/回退，更新INSTALL与兼容API说明（视觉独立许可、兼容多模态模型、普通单标签、最多3项只review、默认关闭）。补服务尺寸/非法响应/取消边界，然后整合验证索引增0.6.40并build、安装核对版本；不得说真实云API与招聘站已验证。优化重复PNG检查放在后续，不因此阻塞已完成安全链路。
+
+### 2026-10-11 · I-012C 发布准备与旧Agent UI验证
+
+session34934真实服务安装三组3/5/3最终均通过。新增服务边界检查：声明超大请求413且不调用provider；错requestId的模型结果503 invalid-output，无候选。companion-visual最新6项通过，报告 i012c-companion-visual-boundary-report.json。兼容API说明新增0.6.40待发布操作步骤与范围（独立许可、多模态、最多3项review、普通单标签）。仍未增版发布。
+
+运行旧Agent实际安装回归时发现其脚本导入AI连接未勾选新许可，因预期的明确许可限制超时。修脚本通过真实UI勾选，不放宽产品。正在复验 scripts/test-agent-extension.mjs，session89063；不要重复启动。其他同类导入脚本补相同步骤，后续核对单行写法，未运行不能算通过。需要根据此进程结果继续处理真实回归，再形成可安装0.6.40与回退包。
+
+下一步执行提示词：收取89063；若通过，核对全部受影响脚本许可动作及lint，更新INSTALL当前能力/旧无截图声明，保存原文件/新包SHA索引，增manifest/package/lock到0.6.40，build并核对实际安装版本。原全量报告3502通过+160失败，失败文件复验175通过，应组合记录且保留原失败证据。真实招聘站与付费API仍待验收。
+
+### 2026-10-11 · I-012C 组合验证索引与发布等待
+
+生成 artifacts/i012c-formal-verification-index.json，按原报告file+fullName逐条对应175复验，确认原160失败断言全部恢复，无漏项。不是单次全量全绿，原报告保留。补全部11组AI连接UI脚本许可步骤，含原一行串写遗漏；scripts全lint通过。INSTALL增加0.6.40待发布说明并明确原回退包、双许可/图片模型/review/普通单标签边界。
+
+旧Agent长浏览器复验session89063仍在运行（node18116启动17:35），没有结束报告，不重复启动、不算通过。manifest/package仍0.6.39，暂不发布。下一步执行提示词：收取89063完成或失败，处理实际缺口；成功后将INSTALL/兼容说明待发布改为正式，增版0.6.40/build并实际action核对版本/基本视觉流程，保存新包与SHA回退索引，更新计划后接下一轮未知控件/复杂标签覆盖。
+
+### 2026-10-11 · v0.6.40 局部截图识别正式可安装版本
+
+旧Agent安装回归session89063完成52项通过（真实UI许可、字段/各集合、取消与待办；虚构模型）。manifest/package/lock增0.6.40，正式build通过，实际action popup确认运行版本0.6.40；真实companion视觉流程3项再验收通过。节点/手改/导航完整11项证据延续上一轮同功能代码，版本号改变未重做全部。服务视觉边界6项通过；首次全量3662项中160失败逐条经175针对复验恢复，索引保留原失败与修复证据。不是单次全量全绿，不宣称真实云API/招聘网站验收。
+
+安装：重载 E:\job\recruitment-autofill\dist，保存草稿并刷新页面，重启本机服务。语义许可需明确勾选再导入配对文件；视觉另默认关闭，需要支持image_url的兼容模型。新入口仅普通单标签未知空字段、最多3项、只生成review候选。复杂控件、自动视觉写入、Responses视觉均未支持。
+
+下一轮计划：I-012D从可复现实际缺口出发，补复杂/多标签控件的拒绝说明和候选结果反馈；先保证“为何未识别”可读，再扩展可证明的标签布局，不盲点按钮。PNG重复验证性能作为独立改进，保持校验/取消边界。下一步执行提示词：核对0.6.40回退/新包SHA与Git快照，保留现有通过证据；找出视觉0候选缺少解释的具体UI案例，增加状态原因聚合和必要验证，完成后更新计划继续下一轮。

@@ -1,0 +1,10 @@
+import {describe,it,expect,vi}from'vitest';
+import{createVisualLabelHandshake,respondVisualLabelChallenge}from'../src/shared/visualLabelHandshake';
+const scope=()=>({token:crypto.randomUUID(),requestId:'visual-'+crypto.randomUUID(),scanId:crypto.randomUUID(),fieldId:'field:1'});
+describe('scoped local visual label handshake',()=>{
+ it('returns only scoped boolean and consumes once',()=>{const s=scope(),h=createVisualLabelHandshake(s,'陌生问题甲',()=>true)!;const r=respondVisualLabelChallenge(h.challenge,s,()=>true,()=>true)!;expect(Object.keys(r).sort()).toEqual(['allowed','challengeId','fieldId','requestId','scanId','token','type']);expect(h.accept(r)).toBe(true);expect(h.accept(r)).toBe(false)});
+ it.each(['token','requestId','scanId','fieldId','challengeId'] as const)('rejects swapped %s receipt',key=>{const s=scope(),h=createVisualLabelHandshake(s,'标签',()=>true)!;const r=respondVisualLabelChallenge(h.challenge,s,()=>true,()=>true)!;expect(h.accept({...r,[key]:key==='fieldId'?'field:2':crypto.randomUUID()})).toBe(false);expect(h.accept(r)).toBe(false)});
+ it('rejects stale owner, negative and extra data receipts',()=>{const s=scope();for(const mode of ['stale','negative','extra']){let live=true;const h=createVisualLabelHandshake(s,'标签',()=>live)!;const r=respondVisualLabelChallenge(h.challenge,s,()=>true,()=>mode!=='negative')!;if(mode==='stale')live=false;expect(h.accept(mode==='extra'?{...r,profile:{name:'private'}}:r)).toBe(false)}});
+ it('does not invoke private checker for another scan',()=>{const s=scope(),h=createVisualLabelHandshake(s,'标签',()=>true)!,check=vi.fn(()=>true);expect(respondVisualLabelChallenge(h.challenge,{...s,scanId:crypto.randomUUID()},()=>true,check)).toBeUndefined();expect(check).not.toHaveBeenCalled()});
+ it('refuses oversized label and owner ending during local check',()=>{const s=scope();expect(createVisualLabelHandshake(s,'x'.repeat(121),()=>true)).toBeUndefined();let live=true;const h=createVisualLabelHandshake(s,'标签',()=>true)!;const r=respondVisualLabelChallenge(h.challenge,s,()=>live,()=>{live=false;return true})!;expect(r.allowed).toBe(false)});
+});

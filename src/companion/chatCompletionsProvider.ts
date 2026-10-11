@@ -4,6 +4,7 @@ import {
   parseSemanticProposal, semanticRequestSchema, type SemanticRequest,
 } from '../ai/semanticProtocol';
 import type { CompanionProvider, CompanionResult } from './responsesProvider';
+import { visualRequestSchema, type VisualProvider } from './visualRequest';
 
 export interface ChatCompletionsConfig {
   apiKey: string; model: string; baseUrl: string;
@@ -64,6 +65,21 @@ function parseOutput(value: unknown, request: SemanticRequest): CompanionResult 
 
 /** Compatible JSON output is revalidated locally; JSON mode alone is not a schema guarantee. */
 export function createChatCompletionsProvider(config: ChatCompletionsConfig): CompanionProvider | undefined {
+  return createProvider(config);
+}
+
+/** Only field meanings and locally redacted pixels are sent; answers stay in the popup. */
+export function createVisualChatCompletionsProvider(config: ChatCompletionsConfig): VisualProvider | undefined {
+  if (!createProvider(config)) return undefined;
+  return async (input, signal) => {
+    if (signal.aborted) return { state: 'cancelled', proposal: null };
+    const parsed = visualRequestSchema.safeParse(input);
+    if (!parsed.success) return { state: 'invalid-output', proposal: null };
+    return createProvider(config, parsed.data.image.data)!(parsed.data.request, signal);
+  };
+}
+
+function createProvider(config: ChatCompletionsConfig, image?: string): CompanionProvider | undefined {
   const endpoint = chatCompletionsEndpoint(config.baseUrl);
   if (!endpoint || !config.apiKey.trim() || config.apiKey.length > 4096 || /[\r\n]/u.test(config.apiKey)
     || !/^[a-z\d_.:/-]{1,200}$/iu.test(config.model)
@@ -82,7 +98,10 @@ export function createChatCompletionsProvider(config: ChatCompletionsConfig): Co
         headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: config.model, stream: false, max_tokens: 8000,
           messages: [{ role: 'system', content: instructions + '\nReturn JSON conforming to this schema: ' + JSON.stringify(format.schema) },
-            { role: 'user', content: JSON.stringify(request) }],
+            { role: 'user', content: image ? [
+              { type: 'text', text: JSON.stringify(request) },
+              { type: 'image_url', image_url: { url: image, detail: 'low' } },
+            ] : JSON.stringify(request) }],
           response_format: config.outputFormat === 'json_schema'
             ? { type: 'json_schema', json_schema: { name: format.name, strict: true, schema: format.schema } }
             : { type: 'json_object' },

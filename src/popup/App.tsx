@@ -1,3 +1,4 @@
+import { identifyVisualUnknowns } from './visualBridge';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { recordCandidates, relatedRecordChoices } from '../matching/recordCandidates';
 import { matchFields } from '../matching/ruleMatcher';
@@ -84,6 +85,13 @@ export function PopupApp() {
     } catch (error) { setMessage(errorMessage(error)); setPlan(undefined); }
     finally { setBusy(false); }
   }
+  async function identifyVisual() {
+    if(!plan||aiPending.current)return;
+    const controller=new AbortController();aiPending.current=controller;setBusy(true);setMessage('正在识别未知字段的局部标签…');
+    try{const result=await identifyVisualUnknowns(plan,controller.signal);if(!controller.signal.aborted){setPlan(result.plan);setShowResults(true);setMessage(`局部截图识别得到 ${result.identified} 项候选，请在匹配结果中核对。未识别的字段保留。`)}}
+    catch(error){setMessage(errorMessage(error))}
+    finally{if(aiPending.current===controller){aiPending.current=undefined;setBusy(false)}}
+  }
   async function fillAi() {
     const controller = new AbortController(); aiPending.current = controller;
     setBusy(true); setSelected(new Set()); setOutcomes([]); setMessage('正在填写已知字段，并识别本页的未知字段…');
@@ -160,6 +168,7 @@ export function PopupApp() {
     <div className="popup-stats">{[[matches.length, '检测字段'], [autoCount, '可直接填写'], [reviewCount, '需要确认'], [missingCount, '缺少信息']].map(([count, label]) => <div key={label}><strong>{String(count).padStart(2, '0')}</strong><span>{label}</span></div>)}</div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void scan()}>{busy ? '处理中…' : '扫描页面'}</button>
       <button type="button" className="primary" disabled={busy || !autoCount} onClick={() => void fill('auto')}>一键填写高置信度字段</button></div>
+    <div className="popup-actions"><button type="button" className="secondary" disabled={busy||!plan} onClick={() => void identifyVisual()}>局部截图识别未知字段</button></div>
     <div className="popup-actions"><button type="button" className="secondary" disabled={busy} onClick={() => void fillAi()}>AI 识别并填写本页</button>
       {aiPending.current && !agentActive && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 AI 填写</button>}</div>
 

@@ -16,7 +16,7 @@ const model = await loadCompanionModel(process.env, configPath, !!args[1] || pro
   .catch(error => { console.error(error instanceof Error ? error.message : '模型配置读取失败。'); process.exit(1); });
 const token = randomBytes(32).toString('hex');
 const provider = model.provider;
-const server = createSemanticServer({ token, provider, agentProvider: model.agentProvider });
+const server = createSemanticServer({ token, provider, agentProvider: model.agentProvider, visualProvider: model.visualProvider });
 server.once('error', () => { console.error('语义服务启动失败，请检查固定本地端口是否被占用。'); process.exitCode = 1; });
 server.listen(SEMANTIC_SERVICE_PORT, SEMANTIC_SERVICE_HOST, () => {
   void (async () => {

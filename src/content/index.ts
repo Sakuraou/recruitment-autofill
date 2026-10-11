@@ -1,3 +1,4 @@
+import { createProfileFreeVisualCoordinator } from './profileFreeVisualCoordinator';
 import { z } from 'zod';
 import { AgentPageLease } from '../agent/pageLease';
 import { verifyRecordPresence } from '../agent/recordCompletion';
@@ -29,6 +30,9 @@ import { createEducationRecordSession } from './educationRecordSession';
 import { createEducationSemanticClient } from './educationSemanticClient';
 import { createPageOperationPortHandler } from './pageOperationPort';
 import { fillRequestSchema } from '../shared/pageOperationProtocol';
+import { Mv3CaptureLifecycle } from '../visual/mv3CaptureLifecycle';
+import { bindCaptureLifecycleToOwner } from '../visual/mv3CaptureOwnerLifecycle';
+import { createVisualSemanticMessageHandler, VISUAL_SEMANTIC_MESSAGE } from './visualSemanticMessage';
 
 declare global {
   interface Window { __recruitmentAutofillInstalled?: boolean }
@@ -114,8 +118,13 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     || internshipWorkflow.holdsPage() || awardWorkflow.holdsPage() || publicationWorkflow.holdsPage() || studentWorkWorkflow.holdsPage()
     || ['running', 'paused', 'blocked', 'review'].includes(workflow.status().phase) || ['ready', 'running', 'paused'].includes(recordV2.status().state);
   const agentLease: AgentPageLease = new AgentPageLease(() => document.URL, () => occupiedByOtherTask() || optionObservation.holdsPage());
+  // Keep capture cancellation tied to the same page owner as record operations.
+  // The isolated capture port registers its request callbacks in this lifecycle.
+  const ownerCaptureLifecycle = new Mv3CaptureLifecycle();
+  bindCaptureLifecycleToOwner(agentLease, ownerCaptureLifecycle);
   const optionObservation: OptionObservationSession = new OptionObservationSession({ extensionId: chrome.runtime.id, popupUrl: chrome.runtime.getURL('popup.html'), lease: agentLease,
     getScan: () => currentScan, occupied: occupiedByOtherTask });
+  chrome.runtime.onConnect.addListener(createProfileFreeVisualCoordinator({extensionId:chrome.runtime.id,popupUrl:chrome.runtime.getURL('popup.html'),lease:agentLease,getScan:()=>currentScan,occupied:()=>occupiedByOtherTask()||optionObservation.holdsPage()}));
   const ownedAgentWorkflows = new Set<{ holdsPage(): boolean; stop(): unknown }>();
   chrome.runtime.onConnect.addListener(createAgentOwnerPortHandler({ extensionId: chrome.runtime.id,
     extensionUrl: path => chrome.runtime.getURL(path), version: EXTENSION_VERSION, lease: agentLease,
@@ -145,7 +154,11 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       currentScan = scanDocument(); return currentScan.result;
     },
   }));
+  const visualMessageHandler = createVisualSemanticMessageHandler({
+    extensionId: chrome.runtime.id, popupUrl: chrome.runtime.getURL('popup.html'), lease: agentLease,
+  });
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: ContentResponse<unknown>) => void) => {
+    if (message && typeof message === 'object' && 'type' in message && message.type === VISUAL_SEMANTIC_MESSAGE) return visualMessageHandler(message, sender, sendResponse);
     const senderUrl = sender.url?.split(/[?#]/u)[0];
     if (sender.id !== chrome.runtime.id || !senderUrl || ![
       chrome.runtime.getURL('popup.html'), chrome.runtime.getURL('options.html'),
@@ -335,4 +348,6 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       .finally(() => { filling = false; });
     return true;
   });
+
 }
+

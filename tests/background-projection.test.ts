@@ -32,7 +32,9 @@ beforeEach(async () => {
     onMessage: { addListener },
     onConnect: { addListener: vi.fn() },
   }, storage: { local: { setAccessLevel, get }, onChanged: { addListener: vi.fn() } } });
-  await import('../src/background/index');
+  Object.assign(chrome, { tabs: { onActivated: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() }, onRemoved: { addListener: vi.fn() } }, windows: { onFocusChanged: { addListener: vi.fn() } } });
+  Object.assign(chrome.runtime, { getURL: (path: string) => 'chrome-extension://' + chrome.runtime.id + '/' + path });
+  await import('../src/background/index'); await new Promise(resolve => setTimeout(resolve, 0)); get.mockClear();
 });
 
 describe('后台档案投影消息', () => {
@@ -118,3 +120,4 @@ describe('后台档案投影消息', () => {
     expect(JSON.stringify(response.mock.calls[0]?.[0])).not.toContain('secret storage detail');
   });
 });
+

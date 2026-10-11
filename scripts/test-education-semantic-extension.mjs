@@ -82,6 +82,7 @@ try {
   await popup.getByText('教育填写需要检查', { exact: false }).waitFor(); await zeroWrites(page); assert.equal(requests.length, 0);
   report.checks.push('Disabled model preserves an unfamiliar education draft with no writes or Save'); await popup.close(); await page.close();
   await options.getByRole('button', { name: /13 AI 识别连接/ }).click();
+  await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();
   await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-education-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
   await options.getByText('AI 连接已启用。回到招聘网页', { exact: false }).waitFor();
   mode = 'hold'; let before = requests.length; page = await pageFor('happy'); popup = await popupFor(page); await start(popup); await waitRequest(before);
@@ -147,3 +148,5 @@ try {
 } catch (error) { report.failure = error.stack ?? String(error); throw error; }
 finally { report.finishedAt = new Date().toISOString(); await writeFile(resolve(artifacts, 'education-semantic-extension-report.json'), JSON.stringify(report, null, 2));
   await context?.close(); service.closeAllConnections(); await new Promise(res => service.close(res)); }
+
+

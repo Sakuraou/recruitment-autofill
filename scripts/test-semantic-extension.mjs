@@ -130,6 +130,7 @@ try {
   report.checks.push('Default-disabled AI makes zero model calls; ordinary rules still fill known fields');
 
   await options.getByRole('button', { name: /13 AI 识别连接/ }).click();
+  await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();
   await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
   await options.getByText('AI 连接已启用。回到招聘网页', { exact: false }).waitFor();
   const saved = await options.evaluate(async () => await chrome.storage.local.get());
@@ -170,6 +171,7 @@ try {
   report.checks.push('Closed/reopened production popup reuses signed session meanings with zero additional provider calls; raw answers, clues, URL and option values absent and content-script access denied');
 
   const oldConnectionRevision = saved['recruitment.semantic.connection.v1'].cacheRevision; assert.match(oldConnectionRevision, /^[a-f\d-]{36}$/);
+  await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();
   await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-reconnect.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
   await options.waitForFunction(async prior => (await chrome.storage.local.get('recruitment.semantic.connection.v1'))['recruitment.semantic.connection.v1'].cacheRevision !== prior, oldConnectionRevision);
   await options.waitForFunction(async () => !(await chrome.storage.session.get())['recruitment.semantic.recipes.session.v1']);
@@ -198,6 +200,7 @@ try {
   await popup.getByText('AI 识别已处理', { exact: false }).waitFor();
   assert.equal(requests.length, cachedCount + 1); assert.equal(await form.locator('#u').inputValue(), profile.basic.name); await protectedFields(); await popup.close();
   report.checks.push('Legacy enabled settings without a cache revision still fill through the ordinary AI provider, ignoring any restored session recipes');
+  await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();
   await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-modern-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
   await options.waitForFunction(async () => Boolean((await chrome.storage.local.get('recruitment.semantic.connection.v1'))['recruitment.semantic.connection.v1'].cacheRevision));
 
@@ -326,3 +329,5 @@ finally {
   await context?.close(); service.closeAllConnections(); fixture.closeAllConnections();
   await Promise.all([new Promise(res => service.close(res)), new Promise(res => fixture.close(res))]);
 }
+
+

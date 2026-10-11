@@ -55,7 +55,7 @@ try{
  const options=await context.newPage();await options.goto('chrome-extension://'+id+'/options.html');
  await options.getByRole('button',{name:/11 导入与备份/}).click();await options.getByLabel('或粘贴 JSON').fill(JSON.stringify(await form.evaluate(()=>window.optionFixture.profile)));
  await options.getByRole('button',{name:'校验并载入预览'}).click();await options.getByRole('button',{name:'保存档案'}).click();await options.getByText('档案已保存在此浏览器。',{exact:false}).waitFor();
- await options.getByRole('button',{name:/13 AI 识别连接/}).click();await options.getByLabel('导入 AI 连接文件',{exact:true}).setInputFiles({name:'fictional-connection.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({protocol:1,token}))});await options.getByText('AI 连接已启用。回到招聘网页',{exact:false}).waitFor();
+ await options.getByRole('button',{name:/13 AI 识别连接/}).click();await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();await options.getByLabel('导入 AI 连接文件',{exact:true}).setInputFiles({name:'fictional-connection.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({protocol:1,token}))});await options.getByText('AI 连接已启用。回到招聘网页',{exact:false}).waitFor();
  report.checks.push('Actual options validates and saves fictional profile and compatible pairing, without a storage bypass');
  async function openPopup(){await form.bringToFront();const pageUrl=form.url(),{targetInfos}=await cdp.send('Target.getTargets',{filter:[{type:'tab'}]});const target=targetInfos.find(info=>info.url===pageUrl&&info.type==='tab');assert.ok(target);await cdp.send('Extensions.triggerAction',{id,targetId:target.targetId});const popup=await context.newPage();
   await worker.evaluate(async pageUrl=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===pageUrl);await chrome.tabs.update(tab.id,{active:true});},pageUrl);await popup.goto('chrome-extension://'+id+'/popup.html');await worker.evaluate(async pageUrl=>{const tab=(await chrome.tabs.query({})).find(tab=>tab.url===pageUrl);await chrome.tabs.update(tab.id,{active:true});},pageUrl);return popup;}
@@ -79,6 +79,7 @@ try{
  }
  // Prior successful runs have a verified semantic recipe. Use the actual UI
  // to revise the connection and clear that recipe scope before testing HTTP.
+ await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();
  await options.getByLabel('导入 AI 连接文件',{exact:true}).setInputFiles({name:'fictional-new-connection.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({protocol:1,token}))});
  await options.getByText('AI 连接已启用。回到招聘网页',{exact:false}).waitFor();
  await form.goto(url);holdMeaning=true;pending=undefined;popup=await openPopup();await start(popup);for(let i=0;i<400&&!pending;i++)await new Promise(done=>setTimeout(done,25));assert.ok(pending);await popup.getByRole('button',{name:'停止 Agent',exact:true}).click();holdMeaning=false;pending();await new Promise(done=>setTimeout(done,400));assert.deepEqual(await form.evaluate(()=>window.optionFixture.state()),{opens:1,selections:0,submits:0,text:'请选择'});await popup.close();
@@ -88,3 +89,5 @@ try{
  assert.deepEqual(report.errors,[]);assert.deepEqual(report.externalRequests,[]);report.passed=true;
 }catch(error){report.passed=false;report.failure=error.message;throw error;}
 finally{holdMeaning=false;pending?.();await context?.close();await close(fixture);await close(service);await close(upstream);report.finishedAt=new Date().toISOString();await writeFile(resolve(artifacts,'i012a-observation-mv3-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({passed:report.passed,checks:report.checks.length,failure:report.failure}));}
+
+

@@ -70,6 +70,7 @@ try {
   await options.getByText('已载入导入预览。', { exact: false }).waitFor(); await options.getByRole('button', { name: '保存档案' }).click();
   await options.getByText('档案已保存在此浏览器。', { exact: false }).waitFor();
   await options.getByRole('button', { name: /13 AI 识别连接/ }).click();
+  await options.getByLabel('我确认允许将脱敏字段语义发送给已配置的模型服务').check();
   await options.getByLabel('导入 AI 连接文件', { exact: true }).setInputFiles({ name: 'fictional-agent-connection.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ protocol: 1, token })) });
   await options.getByText('AI 连接已启用。回到招聘网页', { exact: false }).waitFor(); if(!resume)report.checks.push('Actual options import and compatible HTTP pairing succeed');
   async function openPopup() {
@@ -284,3 +285,5 @@ try {
   service?.closeAllConnections(); fixture.closeAllConnections(); upstream.closeAllConnections();
   await Promise.all([new Promise(done => service ? service.close(done) : done()), new Promise(done => fixture.close(done)), new Promise(done => upstream.close(done))]);
 }
+
+

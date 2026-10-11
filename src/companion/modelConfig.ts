@@ -1,7 +1,8 @@
 import { readFile, stat } from 'node:fs/promises';
 import { z } from 'zod';
 import { createAgentProvider, type AgentProvider } from './agentProvider';
-import { chatCompletionsEndpoint, createChatCompletionsProvider } from './chatCompletionsProvider';
+import { chatCompletionsEndpoint, createChatCompletionsProvider, createVisualChatCompletionsProvider } from './chatCompletionsProvider';
+import type { VisualProvider } from './visualRequest';
 import { createResponsesProvider, type CompanionProvider } from './responsesProvider';
 
 const compatibleConfigSchema = z.object({
@@ -15,7 +16,7 @@ const compatibleConfigSchema = z.object({
 }).strict().refine(value => !!value.apiKey !== !!value.apiKeyEnv);
 export type CompatibleModelConfig = z.infer<typeof compatibleConfigSchema>;
 type Environment = Readonly<Record<string, string | undefined>>;
-export interface CompanionModel { provider?: CompanionProvider; agentProvider?: AgentProvider; kind: 'openai-compatible' | 'openai-responses' | 'none' }
+export interface CompanionModel { provider?: CompanionProvider; agentProvider?: AgentProvider; visualProvider?: VisualProvider; kind: 'openai-compatible' | 'openai-responses' | 'none' }
 
 /** The file is local configuration, not a profile or extension message. Never include its contents in errors. */
 export function resolveCompanionModel(env: Environment, fileConfig?: unknown, fetcher?: typeof fetch): CompanionModel {
@@ -27,7 +28,8 @@ export function resolveCompanionModel(env: Environment, fileConfig?: unknown, fe
     const provider = createChatCompletionsProvider({ ...config, apiKey, fetcher });
     if (!provider || /^(?:YOUR_|PASTE_|REPLACE_|<)/iu.test(apiKey) || /^(?:YOUR_|REPLACE_|<)/iu.test(config.model))
       throw new Error('模型密钥或模型名尚未正确配置。');
-    return { provider, agentProvider: createAgentProvider({ ...config, apiKey, fetcher }), kind: 'openai-compatible' };
+    return { provider, agentProvider: createAgentProvider({ ...config, apiKey, fetcher }),
+      visualProvider: createVisualChatCompletionsProvider({ ...config, apiKey, fetcher }), kind: 'openai-compatible' };
   }
   if (env.RA_MODEL_PROVIDER === 'openai-compatible' || env.RA_MODEL_BASE_URL !== undefined) {
     const thinking = env.RA_MODEL_ENABLE_THINKING;

@@ -10,7 +10,9 @@ const sender:chrome.runtime.MessageSender={id:'studentWork-test',url:'https://fi
 beforeEach(async()=>{vi.resetModules();get.mockReset();get.mockResolvedValue({'recruitment.profile.v1':profile});vi.stubGlobal('chrome',{
  runtime:{id:'studentWork-test',onMessage:{addListener:(callback:Listener)=>{listener=callback;}},onConnect:{addListener:vi.fn()},onInstalled:{addListener:vi.fn()},onStartup:{addListener:vi.fn()}},
  storage:{local:{get,setAccessLevel:vi.fn()},onChanged:{addListener:vi.fn()}},
- });await import('../src/background/index');});
+ });Object.assign(chrome, { tabs: { onActivated: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() }, onRemoved: { addListener: vi.fn() } }, windows: { onFocusChanged: { addListener: vi.fn() } } });
+  Object.assign(chrome.runtime, { getURL: (path: string) => 'chrome-extension://' + chrome.runtime.id + '/' + path });
+  await import('../src/background/index'); await new Promise(resolve => setTimeout(resolve, 0)); get.mockClear();});
 afterEach(()=>vi.unstubAllGlobals());
 it('returns only campus-position facts and collection confirmation to the same-extension top frame',async()=>{
  const respond=vi.fn();expect(listener({type:'RA_PROFILE_STUDENT_WORK'},sender,respond)).toBe(true);await vi.waitFor(()=>expect(respond).toHaveBeenCalledOnce());
@@ -50,3 +52,4 @@ it('ongoing nested fact is cloned and frozen without inventing a date',async()=>
  expect(result.studentWork[0]!.endDate).toBeUndefined();expect(Object.isFrozen(result.studentWork[0]!.endDateFact)).toBe(true);
  expect(result.studentWork[0]!.endDateFact).not.toBe(fact);expect(result.studentWork[0]!.endDateFact).toEqual(fact);
 });
+
