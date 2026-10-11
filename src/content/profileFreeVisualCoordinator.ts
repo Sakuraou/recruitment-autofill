@@ -24,9 +24,11 @@ export function createProfileFreeVisualCoordinator(deps:Dependencies){
      labelPermission:(token,id,label)=>live()&&token===intent.token&&id===intent.fieldId&&label===scan.result.fields.find(f=>f.id===id)?.label,
      viewport:()=>({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,scrollX,scrollY,visualScale:visualViewport?.scale??1,offsetLeft:visualViewport?.offsetLeft??0,offsetTop:visualViewport?.offsetTop??0})});
     const pixels=await runSemanticVisualImage({lease:deps.lease,token:intent.token,fieldId:intent.fieldId,getScan:deps.getScan,admission,pipeline:new SemanticRedactionPipeline(admission),encoder:createLocalPngEncoder(),enabled:true,userConfirmed:true,capture,signal});
-    if(pixels.state!=='ready'||!live())return {state:'manual',reason:'stale-page'};
+    if(pixels.state!=='ready')return {state:'manual',reason:pixels.reason};
+    if(!live())return {state:'manual',reason:'stale-page'};
     const result=await requestVisualSemanticFromContent({lease:deps.lease,token:intent.token,request:intent.semanticRequest,image:pixels.image,userConfirmed:true});
     return result.state==='ready'&&live()?{state:'proposal',proposal:result.proposal}:{state:'manual',reason:'unavailable'};
    }finally{observer.disconnect();scan.document.removeEventListener('input',cancel,true);scan.document.removeEventListener('change',cancel,true);signal.removeEventListener('abort',cancel)}
   }});
 }
+

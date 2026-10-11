@@ -13,7 +13,7 @@ const match=z.object({fieldId:id,fieldName:z.string().max(500),matchedProfileKey
 const result=z.object({type:z.literal('result'),requestId:id,result:z.discriminatedUnion('state',[z.object({state:z.literal('ready'),matches:z.array(match).length(1)}).strict(),z.object({state:z.literal('proposal'),proposal:semanticProposalSchema}).strict(),z.object({state:z.literal('manual'),reason:z.enum(['disabled','stale-page','unavailable','invalid-proposal'])}).strict()])}).strict();
 export interface CoordinatorClientPort {onMessage:{addListener(fn:(v:unknown)=>void):void;removeListener?(fn:(v:unknown)=>void):void};onDisconnect:{addListener(fn:()=>void):void;removeListener?(fn:()=>void):void};postMessage(v:unknown):void;disconnect():void}
 interface Options {owner:AgentPageOwner;tabId:number;scanId:string;fieldId:string;capture(signal:AbortSignal):Promise<string|undefined>;authorizeLabel?(text:unknown):boolean;semanticRequest?:SemanticRequest;acceptProposal?(proposal:unknown):CoordinatedVisualResult;connect?:(tabId:number,name:string)=>CoordinatorClientPort;deadlineMs?:number}
-export type CoordinatedVisualResult={state:'ready';matches:MatchResult[]}|{state:'manual'};
+export type CoordinatedVisualResult={state:'ready';matches:MatchResult[]}|{state:'manual';reason?:'disabled'|'stale-page'|'unavailable'|'invalid-proposal'};
 /** One popup intent. Raw PNG stays local; this client never executes model or DOM actions. */
 export function runVisualCaptureCoordinator(options:Options):Promise<CoordinatedVisualResult>{
  if(options.owner.signal.aborted||!Number.isSafeInteger(options.tabId)||options.tabId<=0||!id.safeParse(options.scanId).success||!id.safeParse(options.fieldId).success||!z.uuid().safeParse(options.owner.token).success)return Promise.resolve({state:'manual'});
@@ -39,7 +39,7 @@ export function runVisualCaptureCoordinator(options:Options):Promise<Coordinated
     if(!delivered||!labelAuthorized||!options.semanticRequest||!options.acceptProposal||parsed.data.result.proposal.requestId!==options.semanticRequest.requestId){abort();return;}
     const local=options.acceptProposal(parsed.data.result.proposal);if(local.state==='ready'&&local.matches.length===1&&local.matches[0]?.fieldId===options.fieldId)finish(local);else abort();return;
   }
-  if(parsed.data.result.state==='ready'){if(options.semanticRequest){abort();return;}if(!delivered||parsed.data.result.matches[0]!.fieldId!==options.fieldId){abort();return;}finish(parsed.data.result)}else abort();
+  if(parsed.data.result.state==='ready'){if(options.semanticRequest){abort();return;}if(!delivered||parsed.data.result.matches[0]!.fieldId!==options.fieldId){abort();return;}finish(parsed.data.result)}else finish({state:'manual',reason:parsed.data.result.reason});
  };
  const timer=setTimeout(abort,options.deadlineMs??15_000);options.owner.signal.addEventListener('abort',abort,{once:true});port.onMessage.addListener(message);port.onDisconnect.addListener(abort);
  if(options.owner.signal.aborted){abort();return;}try{port.postMessage({type:'begin',token:options.owner.token,requestId,scanId:options.scanId,fieldId:options.fieldId,...(options.semanticRequest?{semanticRequest:options.semanticRequest}:{})})}catch{abort()}
@@ -51,7 +51,8 @@ export async function runVisualCaptureWithLocalConsent(options: Options): Promis
   try {
     const [connection, visual] = await Promise.all([loadAiConnection(), loadVisualConsent()]);
     if (options.owner.signal.aborted || !hasVisualRequestConsent(connection, visual)) {
-      options.owner.close(); return { state: 'manual' };
+      const reason = options.owner.signal.aborted ? 'stale-page' : 'disabled';
+      options.owner.close(); return { state: 'manual', reason };
     }
     return runVisualCaptureCoordinator(options);
   } catch { options.owner.close(); return { state: 'manual' }; }

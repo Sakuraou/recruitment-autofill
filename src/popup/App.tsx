@@ -1,3 +1,4 @@
+import { describeVisualOutcome } from './visualOutcome';
 import { identifyVisualUnknowns } from './visualBridge';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { recordCandidates, relatedRecordChoices } from '../matching/recordCandidates';
@@ -88,7 +89,7 @@ export function PopupApp() {
   async function identifyVisual() {
     if(!plan||aiPending.current)return;
     const controller=new AbortController();aiPending.current=controller;setBusy(true);setMessage('正在识别未知字段的局部标签…');
-    try{const result=await identifyVisualUnknowns(plan,controller.signal);if(!controller.signal.aborted){setPlan(result.plan);setShowResults(true);setMessage(`局部截图识别得到 ${result.identified} 项候选，请在匹配结果中核对。未识别的字段保留。`)}}
+    try{const result=await identifyVisualUnknowns(plan,controller.signal);if(!controller.signal.aborted){setPlan(result.plan);setShowResults(true);setMessage(describeVisualOutcome(result.outcome))}}
     catch(error){setMessage(errorMessage(error))}
     finally{if(aiPending.current===controller){aiPending.current=undefined;setBusy(false)}}
   }
@@ -188,3 +189,4 @@ export function PopupApp() {
     <p className="popup-footer"><span className="status-dot" />v{EXTENSION_VERSION} · 档案保存在本地 · 验证码与最终提交由你完成</p>
   </main>;
 }
+

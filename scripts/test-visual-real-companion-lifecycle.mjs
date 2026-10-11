@@ -4,7 +4,7 @@ import {writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
 import {chromium} from 'playwright';
-const dir=resolve('dist');
+const dir=resolve(process.env.RA_VISUAL_TEST_DIST??'dist');
 const report={scope:'installed label handshake with trusted popup local candidate; actual full content/index has no profile; popup local semantic session; actual background index and popup local capture/coordinator clients and content-local scanner/owner/PNG redaction through actual background visual port and actual authenticated companion with compatible provider and fictional upstream fetch; no external model or writes',checks:[],errors:[],externalRequests:[]};
 const requests=[];let hold=false,pendingResponse,aborted=0;
 await build({entryPoints:['src/companion/server.ts','src/companion/chatCompletionsProvider.ts'],outdir:'artifacts/i012c-real-companion',bundle:true,platform:'node',format:'esm',target:'node22'});
@@ -47,5 +47,6 @@ try{
  assert.deepEqual(report.externalRequests,[]);assert.deepEqual(report.errors,[]);report.passed=true;report.finishedAt=new Date().toISOString();
 }catch(e){report.errors.push(String(e));throw e}finally{await context?.close();await new Promise(resolve=>server.close(resolve));await writeFile('artifacts/i012c-real-companion-lifecycle-report.json',JSON.stringify(report,null,2));}
 console.log(JSON.stringify(report));
+
 
 
