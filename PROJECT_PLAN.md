@@ -2112,3 +2112,33 @@ Agent及独立奖励入口已在未经修改的完整隔离MV3和真实companion
 正式build/strict/改动lint通过，真实加载未经修改dist确认0.6.46，两个入口及真实companion16项全通过；838项针对组合全部通过，保留首次helper薪资遗漏、4项夹具修复及浏览器目录错误证据。每条原组织/角色/任期/shortDuties取值、同组织不同角色或任期去重、动态职责和停止/手改/资料/许可/迟到保护已验证。全部虚构事实和上游，无外部请求、网页错误或真实API调用。
 
 新包artifacts/i013c-release-v0.6.46/dist附SHA，原0.6.45在artifacts/i013b-release-v0.6.45/dist可回退。当前奖励、专业论著、校内职务三类模型含义均在各自原记录事务中接通。下一轮I-014源码审查：semanticLabelRegion会拒绝页面任一可见SVG/img/canvas、shadow/custom元素，即使远离目标标签；此外严格单标签。先在真实Chromium固定纯标签基线与远端已裁剪装饰图例复现，不将普通截图演示当所有网页支持。依据实际复现优先补可证明的远端paint裁剪，再考虑多标签；所有扩展仍需原owner/节点/viewport/遮挡/导航/手改和迟到模型验证。
+
+
+### 2026-10-12 · I-014A 截图装饰图布局限制已复现及修补，待完整安装验收
+
+0.6.46正式Git快照55d7274与包SHA已保存，继续截图下一轮。实际Chromium4组只读复现：纯标签合格，远端contain:paint裁剪的SVG/图片以及双标签均被拒；问题不是模型识别质量，而是本机像素准入过窄。新增极小例外：仅远离当前标签、标准块级paint containment祖先、零overflow-clip-margin的普通img/自包含SVG图形；不放开外部引用、foreignObject、canvas、shadow/custom、浮层、重叠或多标签。保持原owner/scan/节点/viewport/私有事实receipt及PNG遮挡链路。
+
+真实Chromium17项布局检查通过，含containment失效、非原子inline、扩大clip-margin、引用、浮层等拒绝；既有视觉握手/协调器/Agent针对49单元通过，strict/lint通过。依据W3C CSS Containment 1 §3.3 (https://www.w3.org/TR/css-contain-1/#paint-containment)核对作用条件和clip-margin例外，未把矩形检查看作独立发送许可。
+
+完整隔离MV3已有新增SVG/图片两例真实PNG→兼容视觉provider→本地值填写成功；原迟到响应夹具在Abort到达之前就返回成功，不能验证忽略Abort，调整为先等实际上游取消再返回，原失败报告保留。13场景完整复验在跑，正式dist仍0.6.46；未算截图布局已发布。下一步执行提示词：收取13项、修真实缺口，全部通过后增0.6.47/正式build/实际核对及SHA/Git回退；多标签和更广媒体没有默认放开，作为后续独立原节点/遮挡证明工作。
+
+
+### 2026-10-12 · I-014A 截图裁剪装饰布局13项安装通过，0.6.47正式待核对
+
+最新完整隔离MV3/真实companion13项通过，SVG及img两例从原页面截取、遮挡PNG、固定视觉provider、本机事实填写和完成回查全部接通；原11场景的许可关闭、已有值、3图/第四项待办、停止/忽略Abort迟到成功/节点/瞬时与持续手改/档案/许可取消均通过。17项数值布局与49项针对视觉回归通过，strict/lint通过。无外部请求和网页错误，未使用真实API。首轮晚响应夹具时序修复保留原失败；原2.5fps截图限速不变。
+
+允许的是严格远端paint包含且零clip-margin的原生图片/无引用纯SVG，不是一般媒体或复杂标签。W3C CSS Containment 1 §3.3作用条件及Level2 overflow-clip-margin例外已核验（https://www.w3.org/TR/css-contain-1/#paint-containment）。manifest/package/用户说明增0.6.47，待正式build及同13项核对，再保存新包SHA/Git与0.6.46回退。下一轮I-014B：目前很多普通img/默认裁剪SVG没有祖先contain:paint，仍保留待办；先证明自身绘制边界，不能只凭几何不相交放开。多标签的每个原label身份及遮挡范围仍另立检查。
+
+
+### 2026-10-12 · I-014B 接续优先次序
+
+I-014A的17项真实布局检查中no-clip例仍被拒，即使SVG自身通常有裁剪；根源是新例外严格依赖祖先paint containment，普通招聘页装饰常无此声明。下一步优先核对原生img与SVG viewport自身的绘制/overflow/outline边界：以CSS Images及SVG规范为依据，补默认图像、overflow visible、扩大的clip-margin、引用/foreignObject和覆盖目标区域的失败夹具；只凭DOM矩形不相交不足以放行。必须接原capture当前性和遮挡PNG，再实际MV3验收。
+
+多标签单独保持未支持：需要逐个原label节点/同一原control关系及各自可遮挡范围核验，并约束SVG/图片/header变化、导航、手改和迟到响应。真实云模型及招聘站仍是独立待验收，不自动发付费探测。奖励/论文/职务模型绑定已完成且不因这一轮截图布局工作反复重跑。
+
+
+### 2026-10-12 · v0.6.47 裁剪装饰图截图布局正式发布
+
+正式build/strict/lint通过，实际加载未经修改dist确认0.6.47，13项真实MV3/companion全通过，17项真实布局与49项针对视觉回归通过；无外部请求或网页错误。新增两例均完成原标签像素遮挡、模型含义、本机答案填写与完成回查，原取消/手改/档案/许可/迟到边界通过。回退0.6.46与新包SHA/Git保存。
+
+新包artifacts/i014a-release-v0.6.47/dist，旧包artifacts/i013c-release-v0.6.46/dist。本轮仅扩展有明确祖先paint边界且远离标签的普通img/无引用SVG；默认关闭图像、普通单标签和最多3项预算保持不变。I-014B继续自身图像/viewport边界及多标签独立证明，不宣称完整媒体或陌生按钮能力，真实云模型/招聘站仍待本人提供实际验收。下一步先从已保留no-clip拒绝例的实际边界和标准要求出发做安全增量，不反复跑不变的记录栏目。

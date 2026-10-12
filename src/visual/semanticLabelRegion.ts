@@ -50,6 +50,39 @@ function validBounds(rect: CssRect): boolean {
   return Object.values(rect).every(n => Number.isFinite(n) && Math.abs(n) <= 10_000_000) && rect.width >= 0 && rect.height >= 0;
 }
 
+const svgPaintTags = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+  'defs', 'linearGradient', 'radialGradient', 'stop', 'title', 'desc', 'clipPath', 'mask']);
+/** Only ordinary images and self-contained vector shapes can use this exception.
+ * A disjoint ancestor with paint containment clips their entire paint, including
+ * overflow. Foreign HTML, references, media and custom/shadow trees stay rejected.
+ */
+function clippedDecoration(element: Element, region: CssRect, label: HTMLLabelElement): boolean {
+  if (element.localName === 'img') {
+    if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml') return false;
+  } else if (element.localName === 'svg') {
+    const descendants = [element, ...element.querySelectorAll('*')];
+    if (descendants.length > 100 || descendants.some(node => node.namespaceURI !== 'http://www.w3.org/2000/svg'
+      || !svgPaintTags.has(node.localName) || [...node.attributes].some(attribute => /(?:^|:)href$/iu.test(attribute.name)
+        || /url\s*\(/iu.test(attribute.value))
+      || ['fill', 'stroke', 'marker-start', 'marker-mid', 'marker-end'].some(property => /url\s*\(/iu.test(getComputedStyle(node).getPropertyValue(property))))) return false;
+  } else return false;
+  for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
+    const css = getComputedStyle(ancestor);
+    const contain = css.getPropertyValue('contain').trim().split(/\s+/u);
+    if (!contain.some(value => ['paint', 'strict', 'content'].includes(value))) continue;
+    // CSS Containment 1 §3.3 excludes non-atomic inline/internal boxes.
+    // Level 2 also lets overflow-clip-margin expand paint beyond the box.
+    // https://www.w3.org/TR/css-contain-1/#paint-containment
+    if (!['block', 'inline-block', 'flow-root', 'flex', 'inline-flex', 'grid', 'inline-grid'].includes(css.display)
+      || !['', '0px'].includes(css.getPropertyValue('overflow-clip-margin').trim())) continue;
+    const bounds = ancestor.getBoundingClientRect();
+    const clip = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
+    if (validBounds(clip) && clip.width > 0 && clip.height > 0 && ordinaryPaint(ancestor)
+      && !ancestor.contains(label) && !intersects(clip, region)) return true;
+  }
+  return false;
+}
+
 /** Local DOM eligibility only: short, clipped, opaque label pixels, never control pixels.
  * privateFacts comes from the local profile; absence of a match does not prove all text public.
  * This numerical result is not a private capture proof or image-send authority.
@@ -79,9 +112,13 @@ function inspectLabelRegion(
     const bounds = label.getBoundingClientRect(), region = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
     if (!validBounds(region) || region.width < 8 || region.width > 512 || region.height < 8 || region.height > 96) return rejected;
     const all = [...document.querySelectorAll('*')]; if (all.length > 1500) return rejected;
+    // Top-layer paint can escape ancestor containment. This conservative test
+    // also rejects visible nonmodal dialogs instead of making a modal inference.
+    if (document.fullscreenElement || [...document.querySelectorAll('dialog[open], [popover]')].some(visible)) return rejected;
     for (const element of all) {
       if (!visible(element)) continue;
-      if (element.matches('svg,canvas,video,img,iframe,object,embed') || element.shadowRoot || element.localName.includes('-')) return rejected;
+      if (element.shadowRoot || element.localName.includes('-')) return rejected;
+      if (element.matches('svg,canvas,video,img,iframe,object,embed') && !clippedDecoration(element, region, label)) return rejected;
       // Overflowing generated paint or shadows cannot be bounded by element rectangles.
       if (!ordinaryPaint(element)) return rejected;
       const r = element.getBoundingClientRect(); if (!validBounds({ left: r.left, top: r.top, width: r.width, height: r.height })) return rejected;
