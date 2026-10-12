@@ -1,4 +1,4 @@
-import { describeVisualOutcome } from './visualOutcome';
+import { describeVisualOutcome, describeVisualSkips } from './visualOutcome';
 import { identifyVisualUnknowns } from './visualBridge';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { recordCandidates, relatedRecordChoices } from '../matching/recordCandidates';
@@ -129,7 +129,7 @@ export function PopupApp() {
         : '本轮未能继续，请检查当前页面和剩余字段';
       const pending = value.result.pending;
       setMessage(`Agent 已执行 ${value.result.steps} 步，普通字段写入 ${value.outcomes.filter(item => item.status === 'filled').length} 项。${explanation}。${pending
-        ? `待办：${pending.fields} 个字段、${pending.records} 条待核验经历、${pending.blockers} 处需处理。` : ''}`);
+        ? `待办：${pending.fields} 个字段、${pending.records} 条待核验经历、${pending.blockers} 处需处理。` : ''}${value.visualOutcome?describeVisualSkips(value.visualOutcome):''}`);
     } catch (error) { setMessage(controller.signal.aborted ? 'Agent 已停止，网页草稿保留。' : errorMessage(error)); }
     finally { if (aiPending.current === controller) { aiPending.current = undefined; setBusy(false); setAgentActive(false); } }
   }

@@ -83,10 +83,11 @@ it('rejects a late visual result after stop or changed profile/connection scope'
     expect(s.ports.fill).not.toHaveBeenCalled();
   }
 });
-it.each(['stale-page', 'unavailable', 'invalid-proposal', 'disabled', 'local-scope'] as VisualSkipReason[])('keeps earlier image candidates for review on %s instead of automatically writing them', async reason => {
+it.each(['stale-page', 'unavailable', 'invalid-proposal', 'disabled', 'local-scope','browser-capability','unsupported-component','unsupported-layout'] as VisualSkipReason[])('keeps earlier image candidates for review on %s instead of automatically writing them', async reason => {
   const s = setup(); vi.mocked(s.ports.visual).mockResolvedValueOnce({ plan: s.visualPlan, outcome: { identified: 1, eligible: 2, skipped: { [reason]: 1 } } });
   const result = await runAgentWithVisualFallback(s.ports, new AbortController().signal);
   expect(result.plan).toBe(s.visualPlan); expect(result.result.state).toBe('needs-user'); expect(s.ports.fill).not.toHaveBeenCalled();
+  expect(result.visualOutcome?.skipped).toEqual({[reason]:1});
 });
 it('rejects replaced scans, duplicate candidates and field references outside its verified scope', async () => {
   for (const invalid of ['scan', 'duplicate', 'outside']) {

@@ -4,14 +4,15 @@ import{createVisualCaptureCoordinator,VISUAL_CAPTURE_COORDINATOR_PORT}from'../sr
 import{AgentPageLease}from'../src/agent/pageLease';
 const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
-function fixture(gated=false){const messages=new Set<(v:unknown)=>void>(),disconnects=new Set<()=>void>();const sent:any[]=[];let url='https://fixture.local/';const lease=new AgentPageLease(()=>url,()=>false),token=lease.begin();let fresh=true;
+function fixture(gated=false,label='陌生问题甲'){const messages=new Set<(v:unknown)=>void>(),disconnects=new Set<()=>void>();const sent:any[]=[];let url='https://fixture.local/';const lease=new AgentPageLease(()=>url,()=>false),token=lease.begin();let fresh=true;
  const port={name:VISUAL_CAPTURE_COORDINATOR_PORT,sender:{id:'extension',url:'chrome-extension://extension/popup.html',frameId:0},onMessage:{addListener:(f:any)=>messages.add(f),removeListener:(f:any)=>messages.delete(f)},onDisconnect:{addListener:(f:any)=>disconnects.add(f),removeListener:(f:any)=>disconnects.delete(f)},postMessage:(v:any)=>sent.push(v),disconnect:vi.fn(()=>{for(const f of [...disconnects])f()})};
  const run=vi.fn(async(_intent:any,capture:any,signal:AbortSignal)=>{const image=await capture(signal);return image?{safe:true}:{safe:false}});
- const handler=createVisualCaptureCoordinator({extensionId:'extension',popupUrl:'chrome-extension://extension/popup.html',lease,current:()=>fresh,...(gated?{label:()=>"陌生问题甲"}:{}),run});handler(port);
+ const handler=createVisualCaptureCoordinator({extensionId:'extension',popupUrl:'chrome-extension://extension/popup.html',lease,current:()=>fresh,...(gated?{label:()=>label}:{}),run});handler(port);
  const intent={type:'begin',token,scanId:crypto.randomUUID(),fieldId:'scan-1:0',requestId:'intent-1'};
  const emit=(v:any)=>{for(const f of [...messages])f(v)};
  return{port,lease,token,intent,emit,sent,run,stale:()=>{fresh=false},navigate:()=>{url+='next'},image:()=>({type:'image',token,requestId:intent.requestId,captureId:sent[0]?.captureId,png})};}
 describe('content local capture coordinator',()=>{
+ it.each(['','x'.repeat(121)])('returns a fixed scope reason for an inadmissible label without capture or label text',async label=>{const f=fixture(true,label);f.emit(f.intent);await tick();expect(f.sent).toEqual([{type:'result',requestId:f.intent.requestId,result:{state:'manual',reason:'local-scope'}}]);expect(f.run).not.toHaveBeenCalled();expect(f.lease.holdsPage()).toBe(false)});
  it('requires scoped label receipt before starting workflow or PNG',async()=>{const f=fixture(true);f.emit(f.intent);await tick();expect(f.run).not.toHaveBeenCalled();expect(f.sent[0].type).toBe('label-check');const scope={...f.sent[0]};delete scope.label;f.emit({...scope,type:'label-receipt',allowed:true});await tick();expect(f.sent[1].type).toBe('capture');f.port.disconnect()});
  it('negative label receipt never starts capture',async()=>{const f=fixture(true);f.emit(f.intent);await tick();const scope={...f.sent[0]};delete scope.label;f.emit({...scope,type:'label-receipt',allowed:false});await tick();expect(f.run).not.toHaveBeenCalled();expect(f.lease.holdsPage()).toBe(false)});
 

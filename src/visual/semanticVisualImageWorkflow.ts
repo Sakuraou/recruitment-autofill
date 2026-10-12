@@ -6,6 +6,7 @@ import type { ScanState } from '../content/scanner';
 import type { SemanticCropAdmission } from './semanticCropAdmission';
 import type { SemanticRedactionPipeline } from './semanticRedactionPipeline';
 import type { LocalImageEncoder } from './localImageEncoder';
+import type { VisualManualReason } from '../shared/visualReason';
 
 export interface SemanticVisualImageOptions {
   lease: AgentPageLease; token: string; fieldId: string;
@@ -20,7 +21,7 @@ export interface SemanticVisualImageOptions {
   timeoutMs?: number;
 }
 export type SemanticVisualImageResult = { state: 'ready'; image: LocalRedactedPngData }
-  | { state: 'manual'; reason: 'disabled' | 'stale-page' | 'unavailable' | 'invalid-proposal' };
+  | { state: 'manual'; reason: VisualManualReason };
 
 function abortable<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -55,6 +56,9 @@ export async function runSemanticVisualImage(options: SemanticVisualImageOptions
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
   let succeeded = false;
   try {
+    if(!current())return manual('stale-page');
+    const admission=options.admission.inspect(options.token,options.fieldId);
+    if(admission!=='eligible')return manual(admission);
     const redact = prepareSemanticVisualRedactor({ owner: { token: options.token, signal: controller.signal,
       close: () => options.lease.end(options.token) }, fieldId: options.fieldId,
       admission: options.admission, pipeline: options.pipeline, encoder: options.encoder });

@@ -29,7 +29,9 @@ export function createProfileFreeVisualCoordinator(deps:Dependencies){
     if(pixels.state!=='ready')return {state:'manual',reason:pixels.reason};
     if(!live())return {state:'manual',reason:'stale-page'};
     const result=await requestVisualSemanticFromContent({lease:deps.lease,token:intent.token,request:intent.semanticRequest,image:pixels.image,userConfirmed:true});
-    return result.state==='ready'&&live()?{state:'proposal',proposal:result.proposal}:{state:'manual',reason:'unavailable'};
+    if(!live())return {state:'manual',reason:'stale-page'};
+    if(result.state==='ready')return {state:'proposal',proposal:result.proposal};
+    return {state:'manual',reason:result.reason==='invalid-output'?'invalid-proposal':result.reason==='disabled'?'disabled':result.reason==='owner-ended'||result.reason==='cancelled'?'stale-page':'unavailable'};
    }finally{clearInterval(shadowWatch);observer.disconnect();scan.document.removeEventListener('input',cancel,true);scan.document.removeEventListener('change',cancel,true);signal.removeEventListener('abort',cancel)}
   }});
 }

@@ -4,14 +4,17 @@ const nativeHosts = new Set(['article','aside','blockquote','body','div','footer
 /** Read the browser's extension API, never infer absence from shadowRoot===null.
  * https://developer.chrome.com/docs/extensions/reference/api/dom
  */
-export function absentShadowPaint(element: Element): boolean {
-  if (element.shadowRoot) return false;
-  if (!(element instanceof HTMLElement) || !nativeHosts.has(element.localName)) return !element.localName.includes('-');
+export type ShadowPaintStatus = 'clear' | 'component' | 'unavailable' | 'complex-page';
+export function inspectShadowPaint(element: Element): Exclude<ShadowPaintStatus,'complex-page'> {
+  if (element.shadowRoot || element.localName.includes('-')) return 'component';
+  if (!(element instanceof HTMLElement) || !nativeHosts.has(element.localName)) return 'clear';
   try {
-    return typeof chrome !== 'undefined' && typeof chrome.dom?.openOrClosedShadowRoot === 'function'
-      && chrome.dom.openOrClosedShadowRoot(element) === null;
-  } catch { return false; }
+    if (typeof chrome === 'undefined' || typeof chrome.dom?.openOrClosedShadowRoot !== 'function') return 'unavailable';
+    const root = chrome.dom.openOrClosedShadowRoot(element);
+    return root === null ? 'clear' : root instanceof ShadowRoot ? 'component' : 'unavailable';
+  } catch { return 'unavailable'; }
 }
+export function absentShadowPaint(element: Element): boolean { return inspectShadowPaint(element)==='clear'; }
 export function isPainted(element: Element): boolean {
   for (let current: Element | null = element; current; current = current.parentElement) {
     const css = getComputedStyle(current);
@@ -20,7 +23,10 @@ export function isPainted(element: Element): boolean {
   return true;
 }
 /** Recheck after async boundaries: attaching a root need not mutate light DOM. */
-export function currentShadowPaintAbsent(): boolean {
+export function currentShadowPaintStatus(): ShadowPaintStatus {
   const elements = [...document.querySelectorAll('*')];
-  return elements.length <= 1500 && elements.every(element => !isPainted(element) || absentShadowPaint(element));
+  if (elements.length > 1500) return 'complex-page';
+  for(const element of elements){if(!isPainted(element))continue;const status=inspectShadowPaint(element);if(status!=='clear')return status;}
+  return 'clear';
 }
+export function currentShadowPaintAbsent(): boolean { return currentShadowPaintStatus()==='clear'; }

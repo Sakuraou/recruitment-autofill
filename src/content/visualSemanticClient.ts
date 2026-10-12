@@ -51,6 +51,7 @@ function parseResult(value: unknown, request: SemanticRequest): VisualContentRes
   if (result.state !== 'ready') {
     if (result.state === 'disabled') return manual('disabled');
     if (result.state === 'cancelled') return manual('cancelled');
+    if (result.state === 'rejected') return manual('invalid-output');
     return manual('unavailable');
   }
   const proposal = parseSemanticProposal(result.proposal, request);

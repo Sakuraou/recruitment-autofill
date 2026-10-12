@@ -46,7 +46,7 @@ function decodeImage(value: Message['image']): Uint8Array | undefined {
 function normalize(value: unknown, request: SemanticRequest): Result {
   if (!value || typeof value !== 'object') return result('rejected');
   const response = value as { state?: unknown; proposal?: unknown };
-  if (response.state !== 'ready') return result(response.state === 'cancelled' ? 'cancelled' : 'unavailable');
+  if (response.state !== 'ready') return result(response.state === 'cancelled' ? 'cancelled' : response.state==='disabled'?'disabled':response.state==='invalid-output'||response.state==='refused'?'rejected':'unavailable');
   const proposal = parseSemanticProposal(response.proposal, request);
   return proposal ? Object.freeze({ state: 'ready' as const, proposal }) : result('rejected');
 }

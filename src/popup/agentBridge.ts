@@ -42,7 +42,7 @@ const commands = {
   'student-work': { start: 'RA_STUDENT_WORK_RECORD_START', status: 'RA_STUDENT_WORK_RECORD_STATUS' },
   publication: { start: 'RA_PUBLICATION_RECORD_START', status: 'RA_PUBLICATION_RECORD_STATUS' },
 } as const;
-export interface AgentPageResult { readonly result: AgentRunResult; readonly plan?: PagePlan; readonly outcomes: readonly FillOutcome[] }
+export interface AgentPageResult { readonly result: AgentRunResult; readonly plan?: PagePlan; readonly outcomes: readonly FillOutcome[]; readonly visualOutcome?: import('./visualOutcome').VisualOutcome }
 export interface AgentBridgePorts {
   scan(signal: AbortSignal, token?: string): Promise<PagePlan>;
   context(): Promise<string>;

@@ -32,7 +32,7 @@ export function createVisualCaptureCoordinator(deps:Dependencies):(port:Port)=>v
    if(closed)return;
    if(!intent){const parsed=startSchema.safeParse(value);if(!parsed.success||!deps.lease.mayWrite(parsed.data.token)||owners.has(parsed.data.token)||!deps.current(parsed.data)){finish();return;}
     intent=parsed.data;owners.add(intent.token);
-    if(deps.label){const label=deps.label(intent);labelGate=label===undefined?undefined:createVisualLabelHandshake({token:intent.token,requestId:intent.requestId,scanId:intent.scanId,fieldId:intent.fieldId},label,live);if(!labelGate){finish();return;}try{port.postMessage(labelGate.challenge)}catch{finish()}}else execute();return;
+    if(deps.label){const label=deps.label(intent);labelGate=label===undefined?undefined:createVisualLabelHandshake({token:intent.token,requestId:intent.requestId,scanId:intent.scanId,fieldId:intent.fieldId},label,live);if(!labelGate){try{if(live())port.postMessage({type:'result',requestId:intent.requestId,result:{state:'manual',reason:'local-scope'}})}catch{/* Closed port; cleanup still releases the owner. */}finally{finish()}return;}try{port.postMessage(labelGate.challenge)}catch{finish()}}else execute();return;
    }
    if(labelGate){const gate=labelGate;labelGate=undefined;if(!gate.accept(value)){finish();return;}execute();return;}
    const parsed=imageSchema.safeParse(value);

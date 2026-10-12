@@ -7,13 +7,14 @@ import { VISUAL_CAPTURE_COORDINATOR_PORT } from '../content/visualCaptureCoordin
 import type { AgentPageOwner } from './agentOwnerClient';
 import type { MatchResult } from '../shared/types';
 import { inspectLocalPng } from '../visual/localPngDecoder';
+import { visualManualReasons, type VisualManualReason } from '../shared/visualReason';
 const id=z.string().regex(/^[A-Za-z\d_:-]{1,100}$/u);
 const challenge=z.object({type:z.literal('capture'),token:z.string().uuid(),requestId:id,captureId:z.string().uuid()}).strict();
 const match=z.object({fieldId:id,fieldName:z.string().max(500),matchedProfileKey:z.string().max(200).optional(),value:z.string().max(20000).optional(),confidence:z.number().min(0).max(1),source:z.literal('llm'),status:z.literal('review'),reason:z.string().max(2000),sensitive:z.boolean()}).strict();
-const result=z.object({type:z.literal('result'),requestId:id,result:z.discriminatedUnion('state',[z.object({state:z.literal('ready'),matches:z.array(match).length(1)}).strict(),z.object({state:z.literal('proposal'),proposal:semanticProposalSchema}).strict(),z.object({state:z.literal('manual'),reason:z.enum(['disabled','stale-page','unavailable','invalid-proposal'])}).strict()])}).strict();
+const result=z.object({type:z.literal('result'),requestId:id,result:z.discriminatedUnion('state',[z.object({state:z.literal('ready'),matches:z.array(match).length(1)}).strict(),z.object({state:z.literal('proposal'),proposal:semanticProposalSchema}).strict(),z.object({state:z.literal('manual'),reason:z.enum(visualManualReasons)}).strict()])}).strict();
 export interface CoordinatorClientPort {onMessage:{addListener(fn:(v:unknown)=>void):void;removeListener?(fn:(v:unknown)=>void):void};onDisconnect:{addListener(fn:()=>void):void;removeListener?(fn:()=>void):void};postMessage(v:unknown):void;disconnect():void}
 interface Options {owner:AgentPageOwner;tabId:number;scanId:string;fieldId:string;capture(signal:AbortSignal):Promise<string|undefined>;authorizeLabel?(text:unknown):boolean;semanticRequest?:SemanticRequest;acceptProposal?(proposal:unknown):CoordinatedVisualResult;connect?:(tabId:number,name:string)=>CoordinatorClientPort;deadlineMs?:number}
-export type CoordinatedVisualResult={state:'ready';matches:MatchResult[]}|{state:'manual';reason?:'disabled'|'stale-page'|'unavailable'|'invalid-proposal'};
+export type CoordinatedVisualResult={state:'ready';matches:MatchResult[]}|{state:'manual';reason?:VisualManualReason};
 /** One popup intent. Raw PNG stays local; this client never executes model or DOM actions. */
 export function runVisualCaptureCoordinator(options:Options):Promise<CoordinatedVisualResult>{
  if(options.owner.signal.aborted||!Number.isSafeInteger(options.tabId)||options.tabId<=0||!id.safeParse(options.scanId).success||!id.safeParse(options.fieldId).success||!z.uuid().safeParse(options.owner.token).success)return Promise.resolve({state:'manual'});
@@ -28,7 +29,7 @@ export function runVisualCaptureCoordinator(options:Options):Promise<Coordinated
   const label=labelChallengeSchema.safeParse(value);
   if(label.success){if(used||labelAuthorized||!options.authorizeLabel){abort();return;}
    const receipt=respondVisualLabelChallenge(value,{token:options.owner.token,requestId,scanId:options.scanId,fieldId:options.fieldId},()=>!done&&!options.owner.signal.aborted,options.authorizeLabel);
-   if(!receipt||!receipt.allowed){abort();return;}labelAuthorized=true;try{port.postMessage(receipt)}catch{abort()}return;
+   if(!receipt||!receipt.allowed){finish({state:'manual',reason:'local-scope'});return;}labelAuthorized=true;try{port.postMessage(receipt)}catch{abort()}return;
   }
   const capture=challenge.safeParse(value);
   if(capture.success){if((options.authorizeLabel&&!labelAuthorized)||used||capture.data.token!==options.owner.token||capture.data.requestId!==requestId){abort();return;}used=true;

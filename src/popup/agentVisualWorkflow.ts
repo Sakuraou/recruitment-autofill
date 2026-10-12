@@ -22,8 +22,9 @@ export async function runAgentWithVisualFallback(ports: AgentVisualPorts, signal
   progress?: (status: AgentRunStatus) => void): Promise<AgentPageResult> {
   const budget = 12; let latest: AgentPageResult | undefined; let steps = 0;
   const outcomes: FillOutcome[] = [];
+  let visualOutcome:VisualOutcome|undefined;
   const fail = (state: 'stopped' | 'context-changed' | 'unavailable'): AgentPageResult => ({
-    result: { state, steps, ...(latest?.result.pending ? { pending: latest.result.pending } : {}) }, outcomes,
+    result: { state, steps, ...(latest?.result.pending ? { pending: latest.result.pending } : {}) }, outcomes, ...(visualOutcome?{visualOutcome}:{}),
   });
   try {
     signal.throwIfAborted(); const original = await ports.context(); signal.throwIfAborted();
@@ -42,10 +43,11 @@ export async function runAgentWithVisualFallback(ports: AgentVisualPorts, signal
     if (!await current() || !await ports.verify(plan)) return fail('context-changed');
     steps++; progress?.({ phase: 'acting', steps, pending: latest.result.pending });
     const visual = await ports.visual(plan, signal, ids); signal.throwIfAborted();
+    visualOutcome=visual.outcome;
     if (!await current() || !await ports.verify(plan)) return fail('context-changed');
     if (visual.plan.scan !== plan.scan || JSON.stringify(visual.plan.profile) !== JSON.stringify(plan.profile) || visual.plan.tabId !== plan.tabId)
       return fail('context-changed');
-    const next = { ...latest, plan: visual.plan, result: { ...latest.result, steps } };
+    const next = { ...latest, plan: visual.plan, result: { ...latest.result, steps }, visualOutcome };
     // A lifecycle failure or uncertain termination must never turn earlier review
     // candidates into automatic writes. Budget leftovers alone are harmless.
     if (!visual.outcome.identified || Object.entries(visual.outcome.skipped).some(([reason, count]) => reason !== 'budget' && !!count)) return next;
@@ -68,6 +70,6 @@ export async function runAgentWithVisualFallback(ports: AgentVisualPorts, signal
     signal.throwIfAborted();
     if (!await current()) return fail('context-changed');
     steps += latest.result.steps; outcomes.push(...latest.outcomes);
-    return { ...latest, result: { ...latest.result, steps }, outcomes };
+    return { ...latest, result: { ...latest.result, steps }, outcomes, visualOutcome };
   } catch { return fail(signal.aborted ? 'stopped' : 'unavailable'); }
 }

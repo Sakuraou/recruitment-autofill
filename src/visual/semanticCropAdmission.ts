@@ -9,6 +9,8 @@ import { agentOptionFieldIds } from '../agent/optionFieldScope';
 import { detectField } from '../matching/fieldMatcher';
 import { captureControlLabels, sameControlLabels } from './controlLabels';
 import { controlLabels } from '../content/domUtils';
+import { currentShadowPaintStatus } from './shadowPaint';
+import type { VisualManualReason } from '../shared/visualReason';
 
 export interface SemanticCropDependencies {
   lease: AgentPageLease; getScan(): ScanState | undefined; occupied(): boolean;
@@ -40,6 +42,20 @@ export class SemanticCropAdmission {
       : !this.#deps.privateFacts().some(fact=>controlLabels(node).normalize('NFKC').replace(/\s/gu,'').toLocaleLowerCase('en-US')
         .includes(fact.normalize('NFKC').replace(/\s/gu,'').toLocaleLowerCase('en-US')))
         && labels.every(label=>inspectSemanticLabelRegion(node,label,this.#deps.privateFacts()).state==='eligible');
+  }
+  /** Read-only explanation. This does not issue a proof or grant capture/writes. */
+  inspect(token:string,fieldId:string): 'eligible' | VisualManualReason {
+    try {
+      const scan=this.#deps.getScan();
+      if(!this.#deps.lease.holdsPage()||!this.#deps.lease.mayWrite(token)||this.#deps.occupied()||!scan||!verifyScanObservation(scan))return 'stale-page';
+      const field=this.#field(scan,fieldId);if(!field)return 'local-scope';
+      const shadow=currentShadowPaintStatus();
+      if(shadow==='unavailable')return 'browser-capability';
+      if(shadow==='component')return 'unsupported-component';
+      if(shadow==='complex-page')return 'unsupported-layout';
+      if(this.#deps.labelPermission&&!this.#deps.labelPermission(token,fieldId,controlLabels(field.node)))return 'local-scope';
+      return this.#eligible(token,fieldId,field.node,field.labels)?'eligible':'unsupported-layout';
+    } catch { return 'unsupported-layout'; }
   }
   issue(token: string, fieldId: string): SemanticCropProof | undefined {
     try {
