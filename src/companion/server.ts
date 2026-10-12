@@ -67,11 +67,11 @@ export function createSemanticServer(config: ServerConfig) {
         reply(response, 403, empty('unavailable')); return;
       }
       const path = request.url;
-      if (path !== '/v1/bindings' && path !== '/v1/next-step' && path !== '/v1/health' && path !== '/v1/visual-bindings') { reply(response, 404, empty('unavailable')); return; }
+      if (path !== '/v1/bindings' && path !== '/v1/next-step' && path !== '/v1/health' && path !== '/v1/visual-bindings' && path !== '/v1/capabilities') { reply(response, 404, empty('unavailable')); return; }
       if (request.method === 'OPTIONS') {
         const method = request.headers['access-control-request-method'];
         const requestedHeaders = String(request.headers['access-control-request-headers'] ?? '').toLowerCase().split(',').map(header => header.trim()).filter(Boolean);
-        if (method !== (path === '/v1/health' ? 'GET' : 'POST')
+        if (method !== (path === '/v1/health' || path === '/v1/capabilities' ? 'GET' : 'POST')
           || requestedHeaders.some(header => !['content-type', 'x-resume-semantic-token'].includes(header))) {
           reply(response, 403, empty('unavailable')); return;
         }
@@ -83,7 +83,8 @@ export function createSemanticServer(config: ServerConfig) {
       const providedToken = request.headers['x-resume-semantic-token'];
       if (typeof providedToken !== 'string' || !/^[a-f\d]{64}$/u.test(providedToken)
         || !timingSafeEqual(expectedToken, Buffer.from(providedToken, 'hex'))) { reply(response, 401, empty('unavailable')); return; }
-      if (request.method !== (path === '/v1/health' ? 'GET' : 'POST')) { reply(response, 405, empty('unavailable')); return; }
+      if (request.method !== (path === '/v1/health' || path === '/v1/capabilities' ? 'GET' : 'POST')) { reply(response, 405, empty('unavailable')); return; }
+      if (path === '/v1/capabilities') { reply(response, 200, { protocol: 1, visualBindings: !!config.visualProvider }); return; }
       if (path === '/v1/health') { reply(response, 200, { protocol: 1, ready: !!config.provider }); return; }
       if (!/^application\/json(?:\s*;.*)?$/iu.test(request.headers['content-type'] ?? '')) { reply(response, 415, empty('unavailable')); return; }
       const isVisual = path === '/v1/visual-bindings';
@@ -122,4 +123,5 @@ export function createSemanticServer(config: ServerConfig) {
   server.maxConnections = 10;
   return server;
 }
+
 

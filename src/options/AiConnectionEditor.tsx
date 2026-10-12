@@ -1,13 +1,23 @@
 import { VisualConsentEditor } from './VisualConsentEditor';
 import { useEffect, useRef, useState } from 'react';
 import { checkAiConnection } from '../ai/loopbackProvider';
-import { connectionFileSchema, disableAiConnection, enableAiConnection, loadAiConnection } from '../ai/connection';
+import { AI_CONNECTION_KEY, connectionFileSchema, disableAiConnection, enableAiConnection, loadAiConnection } from '../ai/connection';
+import { createLatestLocalRefresh } from '../ai/latestLocalRefresh';
 
 export function AiConnectionEditor() {
   const [enabled, setEnabled] = useState(false); const [consent, setConsent] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
   const pending = useRef<AbortController | undefined>(undefined);
-  useEffect(() => { void loadAiConnection().then(value => { setEnabled(!!value); setConsent(value?.userConfirmed === true); }).catch(() => setMessage('无法读取 AI 连接设置。'));
-    return () => pending.current?.abort(); }, []);
+  useEffect(() => {
+    let mounted = true;
+    const refresh = createLatestLocalRefresh(loadAiConnection, value => {
+      if (mounted) { setEnabled(!!value); setConsent(value?.userConfirmed === true); }
+    });
+    const changed = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === 'local' && AI_CONNECTION_KEY in changes) { pending.current?.abort(); setMessage(''); void refresh(); }
+    };
+    chrome.storage.onChanged.addListener(changed); void refresh();
+    return () => { mounted = false; pending.current?.abort(); chrome.storage.onChanged.removeListener(changed); };
+  }, []);
   async function connect(file: File) {
     pending.current?.abort(); const controller = new AbortController(); pending.current = controller;
     setBusy(true); setMessage('正在连接本机 AI 服务…');
