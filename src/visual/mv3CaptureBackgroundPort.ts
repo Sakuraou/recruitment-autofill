@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createCaptureRateLimiter } from './captureRateLimiter';
 
 export const MV3_CAPTURE_PORT = 'recruitment.capture.v1';
 const requestIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{8,80}$/u);
@@ -34,15 +35,16 @@ function sameTab(actual: ActiveCaptureTab | undefined, target: z.infer<typeof ta
 /** Popup senders have no tab. Resolve the requested target against the actual active tab before and after capture. */
 export function createMv3CaptureBackgroundPortHandler(deps: CaptureBackgroundDependencies): CaptureBackgroundHandler {
   const connected = new Map<CapturePort, () => void>(); let disposed = false;
+  const waitCapture = createCaptureRateLimiter();
   const handler = (port: CapturePort) => {
     // This listener shares runtime.onConnect with record semantics; unrelated names belong to other handlers.
     if (port.name !== MV3_CAPTURE_PORT) return;
     if (disposed || !trusted(port, deps) || connected.size >= 2) { try { port.disconnect(); } catch { /* disconnected */ } return; }
-    let closed = false; let active: { requestId: string; cancelled: boolean; timer: ReturnType<typeof setTimeout> } | undefined;
+    let closed = false; let active: { requestId: string; cancelled: boolean; timer: ReturnType<typeof setTimeout>; controller: AbortController } | undefined;
     const used = new Set<string>();
     const cleanup = () => {
       if (closed) return; closed = true;
-      if (active) { active.cancelled = true; clearTimeout(active.timer); } active = undefined;
+      if (active) { active.cancelled = true; active.controller.abort(); clearTimeout(active.timer); } active = undefined;
       connected.delete(port); port.onMessage.removeListener?.(onMessage); port.onDisconnect.removeListener?.(cleanup);
     };
     const close = () => { cleanup(); try { port.disconnect(); } catch { /* disconnected */ } };
@@ -53,14 +55,14 @@ export function createMv3CaptureBackgroundPortHandler(deps: CaptureBackgroundDep
       if (!parsed.success) { reply({ ok: false, error: 'capture-request-invalid' }); close(); return; }
       const request = parsed.data;
       if (request.type === 'stop') {
-        if (active?.requestId === request.requestId) { active.cancelled = true; clearTimeout(active.timer); active = undefined; }
+        if (active?.requestId === request.requestId) { active.cancelled = true; active.controller.abort(); clearTimeout(active.timer); active = undefined; }
         reply({ ok: true, data: { state: 'stopped', requestId: request.requestId } }); return;
       }
       if (active) { reply({ ok: false, requestId: request.requestId, error: 'capture-request-busy' }); return; }
       if (used.has(request.requestId) || used.size >= 4) { reply({ ok: false, requestId: request.requestId, error: 'capture-request-invalid' }); return; }
       used.add(request.requestId);
-      const pending = { requestId: request.requestId, cancelled: false, timer: setTimeout(() => {
-        if (active !== pending || closed) return; pending.cancelled = true; active = undefined;
+      const pending = { requestId: request.requestId, cancelled: false, controller: new AbortController(), timer: setTimeout(() => {
+        if (active !== pending || closed) return; pending.cancelled = true; pending.controller.abort(); active = undefined;
         reply({ ok: false, requestId: request.requestId, error: 'capture-request-timeout' });
       }, deps.deadlineMs ?? 10_000) };
       active = pending;
@@ -68,6 +70,7 @@ export function createMv3CaptureBackgroundPortHandler(deps: CaptureBackgroundDep
       const finish = (data: unknown) => { if (!live()) return; clearTimeout(pending.timer); active = undefined; reply(data); };
       void (async () => {
         try {
+          await waitCapture(pending.controller.signal); if (!live()) return;
           const before = await deps.getActiveTabContext(); if (!live()) return;
           if (!sameTab(before, request.target)) { finish({ ok: false, requestId: request.requestId, error: 'capture-context-invalid' }); return; }
           const revision = before.revision;

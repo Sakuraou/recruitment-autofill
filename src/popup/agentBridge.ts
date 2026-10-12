@@ -13,6 +13,12 @@ import type { ContentRequest, FillOutcome, ScanResult } from '../shared/types';
 import { currentTab, send, scanPage, fillPlan, type PagePlan } from './bridge';
 import { openAgentPageOwner, type AgentPageOwner } from './agentOwnerClient';
 import { runAiFillWorkflow } from './aiWorkflow';
+import { identifyVisualUnknowns } from './visualBridge';
+import { runAgentWithVisualFallback } from './agentVisualWorkflow';
+import { loadVisualConsent, hasVisualRequestConsent, VISUAL_SETTINGS_KEY } from '../ai/visualSettings';
+import { agentOptionFieldIds } from '../agent/optionFieldScope';
+import { AI_CONNECTION_KEY } from '../ai/connection';
+import { PROFILE_STORAGE_KEY } from '../profile/storage';
 
 const stateSchema = z.object({ phase: z.enum(['idle','preparing','running','pausing','paused','review','complete','stopped']),
   total: z.number().int().min(0).max(10_000), canStart: z.boolean(), reason: z.string().max(200).optional() }).strict();
@@ -60,7 +66,7 @@ export function agentPollDelay(signal: AbortSignal, ms = 500): Promise<void> {
 
 /** Explicit popup intent. Only the offered guarded executors may write; no arbitrary model clicks. */
 export async function runAgentPage(ports: AgentBridgePorts, external: AbortSignal,
-  progress?: (value: AgentRunStatus) => void): Promise<AgentPageResult> {
+  progress?: (value: AgentRunStatus) => void, maxSteps = 12): Promise<AgentPageResult> {
   let owner: AgentPageOwner | undefined; let plan: PagePlan | undefined; const outcomes: FillOutcome[] = [];
   const combined = new AbortController(); const abort = () => combined.abort();
   const observed = new WeakMap<AgentObservation, PagePlan>(); const attempted = new Set<string>(); let steps = 0;
@@ -141,7 +147,7 @@ export async function runAgentPage(ports: AgentBridgePorts, external: AbortSigna
         }
         return { state: 'needs-user' };
       },
-    }, signal);
+    }, signal, maxSteps);
     progress?.({ phase: result.state, steps: result.steps, ...(result.pending ? { pending: { ...result.pending } } : {}) });
     return { result, plan, outcomes };
   } catch {
@@ -190,8 +196,9 @@ export async function fillWithAgent(signal: AbortSignal, progress?: (value: Agen
   signal.throwIfAborted(); const connection = await loadAiConnection();
   if (!connection) throw new Error('请先在“我的档案 → AI 识别连接”配置本地服务，并使用 OpenAI 兼容接口启动。');
   const provider = createAgentLoopbackProvider({ protocol: 1, token: connection.token });
-  return runAgentPage({ scan: (active, token) => scanPage(true, active, token), owner: openAgentPageOwner,
+  const ports: AgentBridgePorts = { scan: (active, token) => scanPage(true, active, token), owner: openAgentPageOwner,
     context: async () => { const [tab, profile, currentConnection] = await Promise.all([currentTab(), loadProfile(), loadAiConnection()]);
+      if (JSON.stringify(currentConnection) !== JSON.stringify(connection)) throw new Error('Agent connection changed');
       return JSON.stringify({ tabId: tab.id, url: tab.url, profile, connection: currentConnection }); },
     check: (tabId, kind, token) => send(tabId, { type: 'RA_AGENT_RECORD_CHECK', payload: { kind, token } }),
     optionCheck:(tabId,scanId,token)=>send(tabId,{type:'RA_AGENT_OPTION_CHECK',agentRunToken:token,payload:{scanId}}),
@@ -199,5 +206,24 @@ export async function fillWithAgent(signal: AbortSignal, progress?: (value: Agen
     decide: (request, active) => provider.propose(request, active),
     fields: (value, active, token) => fillAgentFields(value, active, token, connection),
     command: send, wait: agentPollDelay,
-  }, signal, progress);
+  };
+  // The old text owner must finish before the standalone screenshot transaction
+  // starts. Each phase uses its existing executor; no concurrent borrowed lease.
+  const controller = new AbortController(); const abort = () => controller.abort();
+  signal.addEventListener('abort', abort, { once: true }); if (signal.aborted) controller.abort();
+  const changed = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+    if (area === 'local' && [PROFILE_STORAGE_KEY, AI_CONNECTION_KEY, VISUAL_SETTINGS_KEY].some(key => key in changes)) controller.abort();
+  };
+  chrome.storage.onChanged.addListener(changed);
+  const context = async () => JSON.stringify([await ports.context(), await loadVisualConsent()]);
+  try {
+    return await runAgentWithVisualFallback({
+      context, text: (active, remaining, report) => runAgentPage(ports, active, report, remaining),
+      consent: async () => hasVisualRequestConsent(await loadAiConnection(), await loadVisualConsent()),
+      verify: ports.verify,
+      visual: (plan, active, ids) => identifyVisualUnknowns(plan, active, ids),
+      fill: (plan, ids, active) => fillPlan(plan, ids, 'review', active),
+      scope: plan => agentOptionFieldIds(plan.scan),
+    }, controller.signal, progress);
+  } finally { signal.removeEventListener('abort', abort); chrome.storage.onChanged.removeListener(changed); controller.abort(); }
 }

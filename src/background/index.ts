@@ -27,7 +27,9 @@ chrome.windows.onFocusChanged.addListener(() => { captureContextRevision++; });
 installMv3CaptureBackground(
   chrome.runtime,
   {
-    captureVisibleTab: (windowId, options, callback) => { chrome.tabs.captureVisibleTab(windowId, options, callback); },
+    captureVisibleTab: (windowId, options, callback) => {
+      chrome.tabs.captureVisibleTab(windowId, options, dataUrl => { callback(chrome.runtime.lastError ? '' : dataUrl); });
+    },
     getActiveTabContext: () => resolveActiveCaptureContext({
       revision: () => captureContextRevision,
       getBrowserWindow: () => chrome.windows.getLastFocused({ windowTypes: ['normal'] }),

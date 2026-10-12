@@ -159,6 +159,7 @@ export function PopupApp() {
     <section className="workflow-panel" aria-label="Agent 连续填写">
       <h2>Agent 连续填写本页（试用）</h2>
       <p>自动推进普通字段、教育、项目、实习、奖励、专业论著和校内职务，逐条添加并核验。需要已配置的兼容 API 本地服务。</p>
+      <p className="muted">启用局部图像许可后，文字未识别的普通空字段会尝试截图识别，每次最多3项，并从档案读取核验后的答案填写。未识别的内容继续保留待办。</p>
       <button type="button" className="primary" disabled={busy} onClick={() => void fillAgent()}>启动 Agent 连续填写</button>
       {agentActive && <button type="button" className="secondary" onClick={() => aiPending.current?.abort()}>停止 Agent</button>}
       {agentActive && agentStatus && <p role="status">{({ observing: '正在检查网页', thinking: '正在安排下一步', acting: '正在填写并核验' } as Record<string,string>)[agentStatus.phase] ?? '正在处理'} · 已执行 {agentStatus.steps} 步</p>}

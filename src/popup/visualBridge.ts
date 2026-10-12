@@ -8,13 +8,13 @@ import { captureLocalPng } from './localCaptureClient';
 import { runVisualCaptureWithLocalConsent } from './visualCaptureCoordinatorClient';
 import { prepareLocalVisualCandidate } from './localVisualCandidate';
 /** Bounded screenshot fallback. Produces review candidates; does not apply or submit. */
-export async function identifyVisualUnknowns(plan:PagePlan,signal:AbortSignal):Promise<{plan:PagePlan;identified:number;outcome:VisualOutcome}>{
+export async function identifyVisualUnknowns(plan:PagePlan,signal:AbortSignal,allowedFieldIds?:ReadonlySet<string>):Promise<{plan:PagePlan;identified:number;outcome:VisualOutcome}>{
  const tab=await currentTab();if(tab.id!==plan.tabId||tab.url!==plan.scan.url||tab.windowId===undefined)throw Error('网页已变化，请重新扫描');
  const profile=await loadProfile();if(JSON.stringify(profile)!==JSON.stringify(plan.profile))throw Error('档案已变化，请重新扫描');
  let dirty=false;const controller=new AbortController();const abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});
  const changed=(changes:Record<string,chrome.storage.StorageChange>,area:string)=>{if(area==='local'&&[PROFILE_STORAGE_KEY,AI_CONNECTION_KEY,'recruitment.visual.consent.v1'].some(key=>key in changes)){dirty=true;controller.abort()}};
  chrome.storage.onChanged.addListener(changed);const matches=[...plan.matches];let identified=0;const skipped:VisualOutcome['skipped']={};const skip=(reason:VisualSkipReason)=>{skipped[reason]=(skipped[reason]??0)+1};
- const eligible=plan.scan.fields.filter(f=>!f.hasValue&&!f.disabled&&!f.readOnly&&!f.blockedReason).filter(f=>plan.matches.find(m=>m.fieldId===f.id)?.reason===UNKNOWN_FIELD_REASON);
+ const eligible=plan.scan.fields.filter(f=>(!allowedFieldIds||allowedFieldIds.has(f.id))&&!f.hasValue&&!f.disabled&&!f.readOnly&&!f.blockedReason).filter(f=>plan.matches.find(m=>m.fieldId===f.id)?.reason===UNKNOWN_FIELD_REASON);
  if(eligible.length>3)skipped.budget=eligible.length-3;
  try{
   for(const field of eligible.slice(0,3)){
