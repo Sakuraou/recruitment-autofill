@@ -20,6 +20,28 @@ function opaque(color: string): boolean {
   return /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/u.test(color)
     || /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*1(?:\.0*)?\s*\)$/u.test(color);
 }
+function transparent(color: string): boolean {
+  return color === 'transparent' || /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0(?:\.0*)?\s*\)$/u.test(color);
+}
+/** CSS Backgrounds 3 §2.7: a plain border-box background covers this rectangle.
+ * Only a known opaque ancestor may back a transparent label; the browser's
+ * default canvas color is not evidence. Keep the label's own clip requirement.
+ * https://www.w3.org/TR/css-backgrounds-3/#background-clip
+ */
+function knownOpaqueBackdrop(label: HTMLLabelElement, region: CssRect): boolean {
+  for (let ancestor = label.parentElement, depth = 0; ancestor && depth < 32; ancestor = ancestor.parentElement, depth++) {
+    if (ancestor.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !absentShadowPaint(ancestor) || !ordinaryPaint(ancestor)) return false;
+    const css = getComputedStyle(ancestor);
+    if (!opaque(css.backgroundColor) || !['', 'border-box'].includes(css.backgroundClip)
+      || css.display === 'contents' || ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius']
+        .some(name => css.getPropertyValue(name).trim() !== '0px')) continue;
+    const bounds = ancestor.getBoundingClientRect();
+    if (validBounds({left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height})
+      && region.left >= bounds.left + 1 && region.top >= bounds.top + 1
+      && region.left + region.width <= bounds.right - 1 && region.top + region.height <= bounds.bottom - 1) return true;
+  }
+  return false;
+}
 function ordinaryPaint(element: Element): boolean {
   const css = getComputedStyle(element), value = (name: string) => css.getPropertyValue(name).trim();
   if (Object.entries(boundedStyles).some(([name, allowed]) => value(name) !== '' && !allowed.includes(value(name)))) return false;
@@ -115,7 +137,7 @@ function clippedDecoration(element: Element, region: CssRect, label: HTMLLabelEl
   return false;
 }
 
-/** Local DOM eligibility only: short, clipped, opaque label pixels, never control pixels.
+/** Local DOM eligibility only: short clipped labels over a known opaque backdrop, never control pixels.
  * privateFacts comes from the local profile; absence of a match does not prove all text public.
  * This numerical result is not a private capture proof or image-send authority.
  */
@@ -139,11 +161,13 @@ function inspectLabelRegion(
     if (text.length < 2 || text.length > 32 || !/^[\p{L}\p{M}\s·（）()、，：:?？*]+$/u.test(text)
       || privateFacts.some(fact => normalized.includes(normalize(fact)))) return rejected;
     const css = getComputedStyle(label);
-    if (!opaque(css.getPropertyValue('background-color')) || !opaque(css.getPropertyValue('color'))
+    if (!opaque(css.getPropertyValue('color'))
       || !['hidden', 'clip'].includes(css.getPropertyValue('overflow-x')) || !['hidden', 'clip'].includes(css.getPropertyValue('overflow-y'))
       || !['', 'border-box'].includes(css.getPropertyValue('background-clip')) || css.getPropertyValue('display') === 'contents') return rejected;
     const bounds = label.getBoundingClientRect(), region = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
     if (!validBounds(region) || region.width < 8 || region.width > 512 || region.height < 8 || region.height > 96 || !pureTextLabel(label,region)) return rejected;
+    const background = css.getPropertyValue('background-color');
+    if (!opaque(background) && !(transparent(background) && knownOpaqueBackdrop(label,region))) return rejected;
     const all = [...document.querySelectorAll('*')]; if (all.length > 1500) return rejected;
     // Top-layer paint can escape ancestor containment. This conservative test
     // also rejects visible nonmodal dialogs instead of making a modal inference.

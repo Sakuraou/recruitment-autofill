@@ -8,6 +8,7 @@ import { inflateSync } from 'node:zlib';
 const dir = resolve(process.env.RA_VISUAL_TEST_DIST ?? 'artifacts/i014e-visual-reason-dist');
 const reportPath = process.env.RA_VISUAL_TEST_REPORT ?? 'artifacts/i014e-visual-reason-installed-report.json';
 const focused = process.env.RA_VISUAL_TEST_FOCUS === 'reasons';
+const transparentSuite = process.env.RA_VISUAL_TEST_FOCUS === 'transparent';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -29,7 +30,7 @@ function verifyLabelOnlyPng(data) {
   const rows = inflateSync(Buffer.concat(chunks));
   assert.equal(rows.length, (width * 4 + 1) * height);
   assert.ok(width >= 160 && height > 24);
-  const labelCount=activeMode==='inline-multi'?2:1, labelHeight=activeMode==='inline-lines'?48:24;
+  const labelCount=['inline-multi','transparent-multi'].includes(activeMode)?2:1, labelHeight=activeMode==='inline-lines'?48:24;
   const retained = Array(labelCount).fill(0);
   for (let y = 0; y < height; y++) {
     assert.equal(rows[y * (width * 4 + 1)], 0);
@@ -99,6 +100,7 @@ try {
         if(mode==='inline-star')text='陌生问题甲<span aria-hidden="true" style="color:red">*</span>';
         if(mode==='inline-bold')text='<b>陌生问题甲</b><i>附加说明</i>';
         if(mode==='inline-lines')text='<span>陌生问题甲<br>附加说明</span>';
+        if(mode==='transparent-nested')text='<span><strong>陌生问题甲</strong></span>';
         if(mode==='blocked-link')text='<a href="#help">陌生问题甲</a>';
         if(mode==='blocked-button')text='<button>陌生问题甲</button>';
         if(mode==='blocked-closed-shadow')text='<span>陌生问题甲</span>';
@@ -107,8 +109,10 @@ try {
         if(mode==='blocked-background')text='<b style="background-image:linear-gradient(red,blue)">陌生问题甲</b>';
         if(mode==='blocked-pseudo')text='<b class="generated">陌生问题甲</b>';
         const height=mode==='inline-lines'?48:24;
-        const second=mode==='inline-multi'?`<label for="unknown${i}" style="display:block;margin-top:8px;width:160px;height:24px;overflow:hidden;background:white;color:black"><span>附加问题甲</span></label>`:'';
-        return `<div style="position:absolute;left:100px;top:${100+i*100}px;width:200px;height:${mode==='inline-multi'||mode==='inline-lines'?160:90}px"><label style="display:block;width:160px;height:${height}px;overflow:hidden;background:${mode==='mixed-layout'&&i===1?'transparent':'white'};color:black" for="unknown${i}">${text}</label>${second}<input style="display:block;margin-top:12px;width:160px;height:24px" id="unknown${i}" ${mode==='existing'?'value="用户已填"':''} required></div>`;
+        const translucent=mode.startsWith('transparent-');
+        const second=['inline-multi','transparent-multi'].includes(mode)?`<label for="unknown${i}" style="display:block;margin-top:8px;${translucent?'margin-left:20px;':''}width:160px;height:24px;overflow:hidden;background:${translucent?'transparent':'white'};color:black"><span>附加问题甲</span></label>`:'';
+        const block=translucent?'left:80px;top:80px;width:220px;height:160px;background:white':'left:100px;top:'+String(100+i*100)+'px;width:200px;height:'+String(mode==='inline-multi'||mode==='inline-lines'?160:90)+'px';
+        return `<div class="surface" style="position:absolute;${block}"><label style="display:block;${translucent?'margin-left:20px;margin-top:20px;':''}width:160px;height:${height}px;overflow:hidden;background:${translucent||mode==='mixed-layout'&&i===1?'transparent':'white'};color:black" for="unknown${i}">${text}</label>${second}<input style="display:block;margin-top:12px;${translucent?'margin-left:20px;':''}width:160px;height:24px" id="unknown${i}" ${mode==='existing'?'value="用户已填"':''} required></div>`;
       }).join('');
       const isImage = mode === 'own-image' || mode === 'decoration-image';
       const decorated = mode.startsWith('own-') || mode.startsWith('decoration-') || mode.startsWith('blocked-');
@@ -119,7 +123,21 @@ try {
       const overlay=mode==='blocked-aria-overlay'||mode==='blocked-inert-overlay'?`<input ${mode==='blocked-aria-overlay'?'aria-hidden="true"':'inert'} style="position:absolute;left:100px;top:100px;width:150px;height:24px" value="已有私密信息">`:'';
       const pseudo=mode==='blocked-pseudo'?'<style>.generated::before{content:"其他文字"}</style>':'';
       const shadow=mode==='blocked-closed-shadow'?'<script>document.querySelector("label span").attachShadow({mode:"closed"}).innerHTML="<b>本机虚构姓名</b>"</script>':mode==='blocked-ancestor-shadow'?'<script>document.querySelector("section").attachShadow({mode:"closed"}).innerHTML="<slot></slot><b style=position:absolute;left:100px;top:100px>本机虚构姓名</b>"</script>':'';
-      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow });
+      const backdrop=mode.startsWith('transparent-')?`<script>(()=>{const mode=${JSON.stringify(mode)},panel=document.querySelector('.surface'),label=document.querySelector('label');
+        if(mode==='transparent-tint')panel.style.backgroundColor='#ddeeff';
+        if(mode==='transparent-body'){panel.style.backgroundColor='transparent';document.body.style.backgroundColor='white';document.body.style.minHeight='100vh';}
+        if(mode==='transparent-grandparent'){const outer=document.createElement('div');outer.style.cssText='position:absolute;left:70px;top:70px;width:300px;height:220px;background:white';panel.before(outer);outer.append(panel);panel.style.left='10px';panel.style.top='10px';panel.style.backgroundColor='transparent';}
+        if(mode==='transparent-no-backdrop')panel.style.backgroundColor='transparent';
+        if(mode==='transparent-half-parent')panel.style.backgroundColor='rgba(255,255,255,.5)';
+        if(mode==='transparent-half-label')label.style.backgroundColor='rgba(255,255,255,.5)';
+        if(mode==='transparent-short')panel.style.width='120px';
+        if(mode==='transparent-rounded')panel.style.borderRadius='24px';
+        if(mode==='transparent-content-clip')panel.style.backgroundClip='content-box';
+        if(mode==='transparent-unclipped')label.style.overflow='visible';
+        if(mode==='transparent-overlay'){const input=document.createElement('input');input.value='已有私密信息';input.style.cssText='position:absolute;left:100px;top:100px;width:150px;height:24px';input.setAttribute('aria-hidden','true');document.body.append(input);}
+        if(mode==='transparent-closed')panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';
+      })()</script>`:'';
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
     }
     report.externalRequests.push(url); return route.abort();
   });
@@ -203,6 +221,33 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
+  if(transparentSuite){
+    for(const mode of ['transparent-panel','transparent-tint','transparent-body','transparent-grandparent','transparent-nested','transparent-multi']){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['本机虚构姓名']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);
+      assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));report.checks.push(mode+' retains only original label PNG islands and fills the verified local fact');
+    }
+    for(const mode of ['transparent-no-backdrop','transparent-half-parent','transparent-half-label','transparent-short','transparent-rounded','transparent-content-clip','transparent-unclipped','transparent-overlay','transparent-closed']){
+      const result=await scenario(mode,true);assert.equal(result.values[0],'');assert.equal(result.requests.filter(kind=>kind==='visual').length,0);
+      if(mode==='transparent-overlay')assert.deepEqual(result.values.slice(1),['已有私密信息']);else assert.deepEqual(result.values,['']);
+      assert.ok(result.text.includes(mode==='transparent-closed'?'页面含暂不支持截图识别的组件':'标签布局暂不支持截图识别'));
+      report.checks.push(mode+' is pending with no image or write and preserves existing pixels/values');
+    }
+    const standalone=await scenario('transparent-panel',true,undefined,'standalone');assert.deepEqual(standalone.values,['']);assert.equal(standalone.requests.filter(kind=>kind==='visual').length,1);
+    assert.ok(standalone.text.includes('局部截图识别得到 1 项候选'));report.checks.push('Standalone transparent-label recognition remains review-only');
+    for(const mode of ['transparent-change','transparent-transient','transparent-replace','transparent-shadow','transparent-stop','transparent-manual']){
+      const result=await scenario(mode,true,async(form,click)=>{
+        if(mode==='transparent-stop'){await click('停止 Agent');return;}
+        if(mode==='transparent-manual'){await form.locator('input').fill('用户手改');return;}
+        await form.locator('.surface').evaluate((panel,mode)=>{
+          if(mode==='transparent-replace'){panel.replaceWith(panel.cloneNode(true));return;}
+          if(mode==='transparent-shadow'){panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';return;}
+          const color=panel.style.backgroundColor;panel.style.backgroundColor='transparent';if(mode==='transparent-transient')panel.style.backgroundColor=color;
+        },mode);
+      });
+      assert.deepEqual(result.values,[mode==='transparent-manual'?'用户手改':'']);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' while inference waits cancels upstream without a late write');
+    }
+  }else{
   if (!focused) {
   const disabled = await scenario('disabled', false);
   assert.deepEqual(disabled.values, ['']); assert.equal(disabled.requests.filter(kind => kind === 'visual').length, 0);
@@ -267,6 +312,7 @@ try {
     assert.deepEqual(result.values, [mode === 'manual' ? '用户手改' : '']);
     assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
     report.checks.push(`Actual ${mode} during image wait cancels upstream and cannot apply a late local fact or claim completion`);
+  }
   }
   assert.deepEqual(report.externalRequests, []); assert.deepEqual(report.errors, []);
   report.requests = requests; report.passed = true; report.finishedAt = new Date().toISOString();
