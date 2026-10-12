@@ -1,6 +1,7 @@
+import { studentWorkSemanticFieldIds, studentWorkSemanticUnknownField, type StudentWorkSemanticContext } from './studentWorkSemanticContext';
 import { publicationSemanticFieldIds, publicationSemanticUnknownField, type PublicationSemanticContext } from './publicationSemanticContext';
 import { qualifyScalarWeakMeaning } from '../matching/scalarWeakMeaning';
-import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, INTERNSHIP_SEMANTIC_BINDING_PATHS, AWARD_SEMANTIC_BINDING_PATHS, PUBLICATION_SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
+import { SEMANTIC_BINDING_PATHS, EDUCATION_SEMANTIC_BINDING_PATHS, INTERNSHIP_SEMANTIC_BINDING_PATHS, AWARD_SEMANTIC_BINDING_PATHS, PUBLICATION_SEMANTIC_BINDING_PATHS, STUDENT_WORK_SEMANTIC_BINDING_PATHS, semanticProposalSchema, semanticRequestSchema, semanticPathAllowed, type SemanticBindingPath } from './semanticProtocol';
 export { SEMANTIC_BINDING_PATHS, SEMANTIC_BINDING_FORMAT, SEMANTIC_BINDING_INSTRUCTIONS, type SemanticBindingPath } from './semanticProtocol';
 import { matchField, UNKNOWN_FIELD_REASON } from '../matching/ruleMatcher';
 import type { UserProfile } from '../profile/schema';
@@ -23,7 +24,7 @@ interface PublicField {
   readonly options: readonly Readonly<{ ref: string; label: string }>[];
 }
 export interface SemanticBindingSession {
-  readonly request: Readonly<{ protocol: 1 | 2 | 3 | 4 | 5; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
+  readonly request: Readonly<{ protocol: 1 | 2 | 3 | 4 | 5 | 6; requestId: string; allowedPaths: readonly SemanticBindingPath[]; fields: readonly PublicField[] }>;
 }
 interface LocalField { fieldId: string; fingerprint: string; role: SemanticSectionRole; record: 'none' | 'creating'; expectedPath?: string }
 interface LocalSession { snapshot: string; issuedAt: number; fields: ReadonlyMap<string, LocalField> }
@@ -82,7 +83,7 @@ export function semanticSessionObservations(session: SemanticBindingSession, sca
   const redact = semanticRedactor(profile); const descriptors = new Map(scan.fields.map(field => [field.id, field]));
   return new Map([...sessions.get(session)!.fields].map(([ref, field]) => [ref, recipeObservation(descriptors.get(field.fieldId)!, redact)]));
 }
-function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, recordType: 'project' | 'education' | 'internship' | 'award' | 'publication' = 'project'): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
+function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, recordType: 'project' | 'education' | 'internship' | 'award' | 'publication' | 'student-work' = 'project'): { role: SemanticSectionRole; record: 'none' | 'creating'; allowed: boolean } {
   let role: SemanticSectionRole = 'other'; let record: 'none' | 'creating' = 'none'; let allowed = true;
   let current: SemanticNode | undefined = node;
   while (current) {
@@ -91,8 +92,8 @@ function owner(node: SemanticNode, nodes: ReadonlyMap<string, SemanticNode>, rec
     if (current.kind === 'section') role = current.role;
     current = current.parentId ? nodes.get(current.parentId) : undefined;
   }
-  if (!(recordType === 'publication' ? ['publication'] : recordType === 'award' ? ['award'] : recordType === 'internship' ? ['internship'] : recordType === 'education' ? ['education'] : ['basic', 'job-intent', 'project', 'skill', 'other']).includes(role)) allowed = false;
-  if (['project', 'education', 'internship', 'award', 'publication'].includes(role) && record !== 'creating') allowed = false;
+  if (!(recordType === 'student-work' ? ['student-work'] : recordType === 'publication' ? ['publication'] : recordType === 'award' ? ['award'] : recordType === 'internship' ? ['internship'] : recordType === 'education' ? ['education'] : ['basic', 'job-intent', 'project', 'skill', 'other']).includes(role)) allowed = false;
+  if (['project', 'education', 'internship', 'award', 'publication', 'student-work'].includes(role) && record !== 'creating') allowed = false;
   return { role, record, allowed };
 }
 function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
@@ -101,9 +102,11 @@ function pathAllowed(path: SemanticBindingPath, field: LocalField): boolean {
 
 /** Read-only proposal preparation. No model invocation or execution capability is granted. */
 export function createSemanticBindingSession(scan: ScanResult, profile: UserProfile, excludedFieldIds?: ReadonlySet<string>,
-  educationContext?: EducationSemanticContext, internshipContext?: InternshipSemanticContext, projectContext?: ProjectSemanticContext, awardContext?: AwardSemanticContext, publicationContext?: PublicationSemanticContext): CreateResult {
+  educationContext?: EducationSemanticContext, internshipContext?: InternshipSemanticContext, projectContext?: ProjectSemanticContext, awardContext?: AwardSemanticContext, publicationContext?: PublicationSemanticContext, studentWorkContext?: StudentWorkSemanticContext): CreateResult {
   try {
-    if (!validGraph(scan) || [educationContext,internshipContext,projectContext,awardContext,publicationContext].filter(Boolean).length>1) return { ok: false, reason: 'invalid-graph' };
+    if (!validGraph(scan) || [educationContext,internshipContext,projectContext,awardContext,publicationContext,studentWorkContext].filter(Boolean).length>1) return { ok: false, reason: 'invalid-graph' };
+    const studentWorkFields=studentWorkContext?studentWorkSemanticFieldIds(studentWorkContext,scan,profile):undefined;
+    if(studentWorkContext&&!studentWorkFields)return {ok:false,reason:'invalid-graph'};
     const publicationFields=publicationContext?publicationSemanticFieldIds(publicationContext,scan,profile):undefined;
     if(publicationContext&&!publicationFields)return {ok:false,reason:'invalid-graph'};
     const awardFields = awardContext ? awardSemanticFieldIds(awardContext,scan,profile) : undefined;
@@ -114,7 +117,7 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
     if (educationContext && !educationFields) return { ok: false, reason: 'invalid-graph' };
     const projectFields=projectContext?projectSemanticFieldIds(projectContext,scan,profile):undefined;
     if(projectContext && !projectFields)return {ok:false,reason:'invalid-graph'};
-    const ownedFields = publicationFields ?? awardFields ?? internshipFields ?? educationFields ?? projectFields;
+    const ownedFields = studentWorkFields ?? publicationFields ?? awardFields ?? internshipFields ?? educationFields ?? projectFields;
     const owned = ownedFields ? new Set(ownedFields) : undefined;
     const graph = scan.semanticGraph!;
     const nodes = new Map(graph.nodes.map(node => [node.id, node]));
@@ -123,7 +126,7 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
     const fields: PublicField[] = []; const local = new Map<string, LocalField>();
     for (const node of graph.nodes) {
       if (node.kind !== 'field' || fields.length >= 30) continue;
-      const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes, publicationContext ? 'publication' : awardContext ? 'award' : internshipContext ? 'internship' : educationContext ? 'education' : 'project');
+      const field = descriptors.get(node.fieldId)!; const ownership = owner(node, nodes, studentWorkContext ? 'student-work' : publicationContext ? 'publication' : awardContext ? 'award' : internshipContext ? 'internship' : educationContext ? 'education' : 'project');
       if (excludedFieldIds?.has(field.id)) continue;
       if (owned && !owned.has(field.id)) continue;
       if (!ownership.allowed || field.blockedReason || field.disabled || field.readOnly || field.hasValue || field.kind === 'checkbox') continue;
@@ -134,15 +137,16 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       if(projectContext && !weakProject && !projectSemanticUnknownField(projectContext,scan,profile,field.id))continue;
       const weakInternship = internshipContext && internshipSemanticWeakPath(internshipContext,scan,profile,field.id);
       if (internshipContext && !weakInternship && !internshipSemanticUnknownField(internshipContext, scan, profile, field.id)) continue;
+      if(studentWorkContext&&!studentWorkSemanticUnknownField(studentWorkContext,scan,profile,field.id))continue;
       if(publicationContext&&!publicationSemanticUnknownField(publicationContext,scan,profile,field.id))continue;
       if (awardContext && !awardSemanticUnknownField(awardContext,scan,profile,field.id)) continue;
-      const scalarQualification = !educationContext && !internshipContext && !projectContext && !awardContext && !publicationContext && ownership.record === 'none'
+      const scalarQualification = !educationContext && !internshipContext && !projectContext && !awardContext && !publicationContext && !studentWorkContext && ownership.record === 'none'
         && ['basic','other'].includes(ownership.role) ? qualifyScalarWeakMeaning(field,profile) : undefined;
       const weakScalar = scalarQualification?.status === 'confirm' ? scalarQualification.path : undefined;
       const expectedPath=weakInternship || weakEducation || weakProject || weakScalar;
       const match = matchField(field, profile);
       // A known label with a missing answer, ambiguous owner or a protective explanation is not a semantic gap.
-      if (!publicationContext && !expectedPath && (match.status !== 'missing' || match.matchedProfileKey || match.reason !== UNKNOWN_FIELD_REASON)) continue;
+      if (!studentWorkContext && !publicationContext && !expectedPath && (match.status !== 'missing' || match.matchedProfileKey || match.reason !== UNKNOWN_FIELD_REASON)) continue;
       const clues = { label: redact(field.label), ariaLabel: redact(field.ariaLabel), tableHeader: redact(field.tableHeader),
         title: redact(field.title), placeholder: redact(field.placeholder) };
       if (!Object.values(clues).some(value => /[\p{L}]/u.test(value.replace(/\[redacted\]/gu, '')))
@@ -156,8 +160,8 @@ export function createSemanticBindingSession(scan: ScanResult, profile: UserProf
       local.set(ref, { fieldId: field.id, fingerprint: node.structuralFingerprint, role: ownership.role, record: ownership.record, ...(expectedPath ? { expectedPath } : {}) });
     }
     if (!fields.length) return { ok: false, reason: 'no-candidates' };
-    const request = Object.freeze({ protocol: publicationContext ? 5 as const : awardContext ? 4 as const : internshipContext ? 3 as const : educationContext ? 2 as const : 1 as const, requestId: crypto.randomUUID(),
-      allowedPaths: Object.freeze(publicationContext ? [...PUBLICATION_SEMANTIC_BINDING_PATHS] : awardContext ? [...AWARD_SEMANTIC_BINDING_PATHS] : internshipContext ? [...INTERNSHIP_SEMANTIC_BINDING_PATHS] : educationContext ? [...EDUCATION_SEMANTIC_BINDING_PATHS] : [...SEMANTIC_BINDING_PATHS]), fields: Object.freeze(fields) });
+    const request = Object.freeze({ protocol: studentWorkContext ? 6 as const : publicationContext ? 5 as const : awardContext ? 4 as const : internshipContext ? 3 as const : educationContext ? 2 as const : 1 as const, requestId: crypto.randomUUID(),
+      allowedPaths: Object.freeze(studentWorkContext ? [...STUDENT_WORK_SEMANTIC_BINDING_PATHS] : publicationContext ? [...PUBLICATION_SEMANTIC_BINDING_PATHS] : awardContext ? [...AWARD_SEMANTIC_BINDING_PATHS] : internshipContext ? [...INTERNSHIP_SEMANTIC_BINDING_PATHS] : educationContext ? [...EDUCATION_SEMANTIC_BINDING_PATHS] : [...SEMANTIC_BINDING_PATHS]), fields: Object.freeze(fields) });
     if (JSON.stringify(request).length > 40_000) return { ok: false, reason: 'request-too-large' };
     if (!semanticRequestSchema.safeParse(request).success) return { ok: false, reason: 'invalid-graph' };
     const session = Object.freeze({ request });

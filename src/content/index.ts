@@ -16,6 +16,8 @@ import { REPEATABLE_RECORD_V2_ENABLED } from '../shared/features';
 import { RecordV2Gateway } from './recordV2Gateway';
 import { createRecordV2FixtureSession } from './recordV2FixtureSession';
 import { requestEducationProjection, requestProjectProjection, requestInternshipProjection, requestAwardProjection, requestPublicationProjection, requestStudentWorkProjection } from './profileProjectionClient';
+import { createStudentWorkRecordSession } from './studentWorkRecordSession';
+import { createStudentWorkSemanticClient } from './studentWorkSemanticClient';
 import { StudentWorkRecordWorkflow } from './studentWorkRecordWorkflow';
 import { createPublicationRecordSession } from './publicationRecordSession';
 import { createPublicationSemanticClient } from './publicationSemanticClient';
@@ -100,7 +102,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   let currentScan: ScanState | undefined;
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
-  const studentWorkWorkflow = new StudentWorkRecordWorkflow(document, requestStudentWorkProjection);
+  const studentWorkWorkflow = new StudentWorkRecordWorkflow(document, requestStudentWorkProjection,
+    (doc, projection, refresh) => createStudentWorkRecordSession(doc, projection, refresh, undefined, createStudentWorkSemanticClient()));
   const publicationWorkflow = new PublicationRecordWorkflow(document, requestPublicationProjection,
     (doc, projection, refresh) => createPublicationRecordSession(doc, projection, refresh, undefined, createPublicationSemanticClient()));
   const awardWorkflow = new AwardRecordWorkflow(document, requestAwardProjection,

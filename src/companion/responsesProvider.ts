@@ -1,4 +1,4 @@
-import { SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, INTERNSHIP_SEMANTIC_BINDING_FORMAT, AWARD_SEMANTIC_BINDING_FORMAT, PUBLICATION_SEMANTIC_BINDING_FORMAT, PUBLICATION_SEMANTIC_BINDING_INSTRUCTIONS, AWARD_SEMANTIC_BINDING_INSTRUCTIONS, INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS, SEMANTIC_BINDING_INSTRUCTIONS, parseSemanticProposal,
+import { SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, INTERNSHIP_SEMANTIC_BINDING_FORMAT, AWARD_SEMANTIC_BINDING_FORMAT, PUBLICATION_SEMANTIC_BINDING_FORMAT, STUDENT_WORK_SEMANTIC_BINDING_FORMAT, STUDENT_WORK_SEMANTIC_BINDING_INSTRUCTIONS, PUBLICATION_SEMANTIC_BINDING_INSTRUCTIONS, AWARD_SEMANTIC_BINDING_INSTRUCTIONS, INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS, SEMANTIC_BINDING_INSTRUCTIONS, parseSemanticProposal,
   semanticRequestSchema, type SemanticProposal, type SemanticRequest } from '../ai/semanticProtocol';
 
 export type CompanionResult = { state: 'ready'; proposal: SemanticProposal }
@@ -53,8 +53,8 @@ export function createResponsesProvider(config: ProviderConfig): CompanionProvid
         method: 'POST', redirect: 'error', signal,
         headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: config.model, store: false, max_output_tokens: 8000,
-          instructions: request.protocol === 5 ? PUBLICATION_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 4 ? AWARD_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS : SEMANTIC_BINDING_INSTRUCTIONS, input: [{ role: 'user', content: JSON.stringify(request) }],
-          text: { format: request.protocol === 5 ? PUBLICATION_SEMANTIC_BINDING_FORMAT : request.protocol === 4 ? AWARD_SEMANTIC_BINDING_FORMAT : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_FORMAT : request.protocol === 2 ? EDUCATION_SEMANTIC_BINDING_FORMAT : SEMANTIC_BINDING_FORMAT } }),
+          instructions: request.protocol === 6 ? STUDENT_WORK_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 5 ? PUBLICATION_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 4 ? AWARD_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS : SEMANTIC_BINDING_INSTRUCTIONS, input: [{ role: 'user', content: JSON.stringify(request) }],
+          text: { format: request.protocol === 6 ? STUDENT_WORK_SEMANTIC_BINDING_FORMAT : request.protocol === 5 ? PUBLICATION_SEMANTIC_BINDING_FORMAT : request.protocol === 4 ? AWARD_SEMANTIC_BINDING_FORMAT : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_FORMAT : request.protocol === 2 ? EDUCATION_SEMANTIC_BINDING_FORMAT : SEMANTIC_BINDING_FORMAT } }),
       });
       if (!response.ok || response.redirected) return { state: 'unavailable', proposal: null };
       const output = await readBoundedJson(response);
