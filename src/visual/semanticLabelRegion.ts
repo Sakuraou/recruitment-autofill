@@ -52,9 +52,13 @@ function validBounds(rect: CssRect): boolean {
 
 const svgPaintTags = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
   'defs', 'linearGradient', 'radialGradient', 'stop', 'title', 'desc', 'clipPath', 'mask']);
+/** No outward clip expansion; the zero origin may be any edge inside the border box. */
+function zeroClipMargin(css: CSSStyleDeclaration): boolean {
+  return /^(?:|0px|(?:content|padding|border)-box(?:\s+0px)?)$/u.test(css.getPropertyValue('overflow-clip-margin').trim());
+}
 /** Only ordinary images and self-contained vector shapes can use this exception.
- * A disjoint ancestor with paint containment clips their entire paint, including
- * overflow. Foreign HTML, references, media and custom/shadow trees stay rejected.
+ * Their own clipping viewport, or a disjoint paint-containing ancestor, bounds
+ * the paint. Foreign HTML, references, other media and shadow trees stay rejected.
  */
 function clippedDecoration(element: Element, region: CssRect, label: HTMLLabelElement): boolean {
   if (element.localName === 'img') {
@@ -66,6 +70,18 @@ function clippedDecoration(element: Element, region: CssRect, label: HTMLLabelEl
         || /url\s*\(/iu.test(attribute.value))
       || ['fill', 'stroke', 'marker-start', 'marker-mid', 'marker-end'].some(property => /url\s*\(/iu.test(getComputedStyle(node).getPropertyValue(property))))) return false;
   } else return false;
+  const css = getComputedStyle(element), bounds = element.getBoundingClientRect();
+  const own = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
+  // SVG2 §3.11: a hidden viewport clips; CSS Overflow 3 also defines clip edges.
+  // Check computed overflow even for img: do not assume all replaced content clips
+  // when an author explicitly requests visible overflow or expands its clip margin.
+  // https://www.w3.org/TR/SVG2/render.html#OverflowProperty
+  // https://www.w3.org/TR/css-overflow-3/#overflow-properties
+  if (validBounds(own) && own.width > 0 && own.height > 0 && !intersects(own, region)
+    && !element.contains(label) && ordinaryPaint(element)
+    && ['hidden', 'clip'].includes(css.overflowX) && ['hidden', 'clip'].includes(css.overflowY)
+    && zeroClipMargin(css) && ['none', ''].includes(css.outlineStyle)
+    && (element instanceof SVGSVGElement || (element instanceof HTMLImageElement && element.complete && element.naturalWidth > 0))) return true;
   for (let ancestor = element.parentElement; ancestor && ancestor !== document.documentElement; ancestor = ancestor.parentElement) {
     const css = getComputedStyle(ancestor);
     const contain = css.getPropertyValue('contain').trim().split(/\s+/u);

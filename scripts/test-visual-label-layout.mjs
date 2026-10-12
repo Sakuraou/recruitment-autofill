@@ -22,6 +22,8 @@ try{
    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="15" fill="blue"/></svg>';
    clip.innerHTML=mode==='image'?'<img width="40" height="40" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">':svg;
    if(mode==='no-clip')clip.style.contain='none';if(mode==='layout-only')clip.style.contain='layout';
+   // These cases exercise the ancestor proof, without a separate own viewport proof.
+   if(['no-clip','layout-only','clip-margin','inline'].includes(mode))clip.querySelector('svg').style.overflow='visible';
    if(mode==='clip-margin'){clip.style.overflow='clip';clip.style.overflowClipMargin='600px';}
    if(mode==='inline'){clip.style.position='static';clip.style.display='inline';clip.style.marginLeft='500px';}
    if(mode==='overlap'){clip.style.left='80px';clip.style.top='80px';}
@@ -37,10 +39,10 @@ try{
   assert.equal(result.state,['plain','svg','image'].includes(mode)?'eligible':'rejected',mode);report.checks.push({mode,result:result.state});
  }
  await page.goto('http://127.0.0.1:8123/label-layout-check?mode=change');await page.addScriptTag({content:bundle.outputFiles[0].text});
- await page.evaluate(()=>{const clip=document.createElement('div');clip.className='decoration';clip.innerHTML='<img width="40" height="40" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">';document.body.append(clip);});
+ await page.evaluate(()=>{const clip=document.createElement('div');clip.className='decoration';clip.innerHTML='<img style="overflow:visible" width="40" height="40" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">';document.body.append(clip);});
  assert.equal((await page.evaluate(()=>window.labelLayoutProbe())).state,'eligible');
  await page.evaluate(()=>document.querySelector('.decoration').style.contain='none');assert.equal((await page.evaluate(()=>window.labelLayoutProbe())).state,'rejected');report.checks.push({mode:'containment-change',result:'rejected'});
  assert.deepEqual(report.externalRequests,[]);report.passed=true;
 }catch(error){report.errors.push(String(error));throw error;}
-finally{await browser.close();await writeFile('artifacts/i014a-visual-label-layout-checks.json',JSON.stringify(report,null,2));}
+finally{await browser.close();await writeFile(process.env.RA_VISUAL_LAYOUT_REPORT??'artifacts/i014b-ancestor-layout-regression.json',JSON.stringify(report,null,2));}
 console.log(JSON.stringify({passed:report.passed,checks:report.checks.length,errors:report.errors}));
