@@ -4,6 +4,7 @@ import type { FieldDescriptor, MatchResult } from '../shared/types';
 import { AUTO_CONFIDENCE, normalize } from './confidence';
 import { effectiveMaxLength } from './profileResolver';
 import { matchOption } from './optionMatcher';
+import { detectField } from './fieldMatcher';
 import type { RecordFieldReason } from './recordFieldReason';
 
 export type PublicationFieldResolution = Readonly<{ status: 'known'; key: string; value: string; confidence: number }>
@@ -20,6 +21,7 @@ const labels = new Map<string, keyof PublicationProjectionEntry>([
 ].map(([label, key]) => [normalize(label!), key as keyof PublicationProjectionEntry]));
 const captions = new Set(['专业论著', '论文', '论文论著', 'publications'].map(normalize));
 const reject = (reason: RecordFieldReason): PublicationFieldResolution => Object.freeze({ status: 'request-human', reason });
+const bindingKeys = new Set(['title', 'abstract', 'status', 'date', 'authorOrder', 'publicationSituation', 'coauthors', 'authors', 'venue', 'doi']);
 
 /** Current paper facts only. The caller must separately prove editor ownership and write authority. */
 export function resolvePublicationField(field: FieldDescriptor, paper: PublicationProjectionEntry): PublicationFieldResolution {
@@ -33,9 +35,26 @@ export function resolvePublicationField(field: FieldDescriptor, paper: Publicati
   const evidence = primary.length ? primary : direct.filter(text => text.trim() && !captions.has(normalize(text)));
   const mapped = evidence.map(text => labels.get(normalize(text)));
   const keys = new Set(mapped.filter((key): key is keyof PublicationProjectionEntry => key !== undefined));
-  if (!keys.size) return reject('field-semantic-unknown');
+  if (!keys.size) {
+    const other = detectField({ ...field, sectionText: '专业论著', parentText: '', previousText: '', name: '', htmlId: '', title: '', placeholder: '' });
+    if (other && (other.ambiguous || other.alias.scope !== 'research' || other.alias.key !== 'papers')) return reject('field-semantic-ambiguous');
+    return reject('field-semantic-unknown');
+  }
   if (keys.size !== 1 || mapped.some(key => key === undefined)) return reject('field-semantic-ambiguous');
   const key = [...keys][0]!;
+  return resolvePublicationValue(field, paper, key);
+}
+
+/** Meaning only. The caller must prove the exact current paper transaction separately. */
+export function resolveBoundPublicationField(field: FieldDescriptor, paper: PublicationProjectionEntry, path: string): PublicationFieldResolution {
+  const direct = resolvePublicationField(field, paper);
+  if (direct.status === 'known') return direct.key === path ? direct : reject('field-semantic-ambiguous');
+  if (direct.reason !== 'field-semantic-unknown') return direct;
+  if (!path.startsWith('papers.') || !bindingKeys.has(path.slice(7))) return reject('field-semantic-unknown');
+  return resolvePublicationValue(field, paper, path.slice(7) as keyof PublicationProjectionEntry, true);
+}
+
+function resolvePublicationValue(field: FieldDescriptor, paper: PublicationProjectionEntry, key: keyof PublicationProjectionEntry, model = false): PublicationFieldResolution {
   if (field.kind === 'input' && ['date', 'month'].includes(field.type) && key !== 'date') return reject('field-unsupported');
   let value = paper[key];
   if (typeof value !== 'string' || !value.trim()) return reject('profile-value-missing');
@@ -50,7 +69,7 @@ export function resolvePublicationField(field: FieldDescriptor, paper: Publicati
     const result: MatchResult = { fieldId: field.id, fieldName: '', matchedProfileKey: 'papers.' + key, value,
       confidence: AUTO_CONFIDENCE, source: 'rule', status: 'auto', sensitive: false, reason: '' };
     const option = matchOption(field, result);
-    if (option.status !== 'auto' || option.value === undefined) return reject('field-options-unresolved');
+    if (option.status !== 'auto' || option.value === undefined || model && (option.source === 'fuzzy' || option.confidence < AUTO_CONFIDENCE)) return reject('field-options-unresolved');
     value = option.value;
   }
   return Object.freeze({ status: 'known', key: 'papers.' + key, value, confidence: AUTO_CONFIDENCE });

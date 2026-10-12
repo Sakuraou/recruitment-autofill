@@ -1,5 +1,5 @@
 import {
-  SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, INTERNSHIP_SEMANTIC_BINDING_FORMAT, AWARD_SEMANTIC_BINDING_FORMAT,
+  SEMANTIC_BINDING_FORMAT, EDUCATION_SEMANTIC_BINDING_FORMAT, INTERNSHIP_SEMANTIC_BINDING_FORMAT, AWARD_SEMANTIC_BINDING_FORMAT, PUBLICATION_SEMANTIC_BINDING_FORMAT, PUBLICATION_SEMANTIC_BINDING_INSTRUCTIONS,
   SEMANTIC_BINDING_INSTRUCTIONS, INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS, AWARD_SEMANTIC_BINDING_INSTRUCTIONS,
   parseSemanticProposal, semanticRequestSchema, type SemanticRequest,
 } from '../ai/semanticProtocol';
@@ -89,9 +89,9 @@ function createProvider(config: ChatCompletionsConfig, image?: string): Companio
   return async (request, signal) => {
     if (signal.aborted) return { state: 'cancelled', proposal: null };
     if (!semanticRequestSchema.safeParse(request).success) return { state: 'invalid-output', proposal: null };
-    const format = request.protocol === 4 ? AWARD_SEMANTIC_BINDING_FORMAT : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_FORMAT
+    const format = request.protocol === 5 ? PUBLICATION_SEMANTIC_BINDING_FORMAT : request.protocol === 4 ? AWARD_SEMANTIC_BINDING_FORMAT : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_FORMAT
       : request.protocol === 2 ? EDUCATION_SEMANTIC_BINDING_FORMAT : SEMANTIC_BINDING_FORMAT;
-    const instructions = request.protocol === 4 ? AWARD_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS : SEMANTIC_BINDING_INSTRUCTIONS;
+    const instructions = request.protocol === 5 ? PUBLICATION_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 4 ? AWARD_SEMANTIC_BINDING_INSTRUCTIONS : request.protocol === 3 ? INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS : SEMANTIC_BINDING_INSTRUCTIONS;
     try {
       const response = await fetcher(endpoint, {
         method: 'POST', redirect: 'error', credentials: 'omit', signal,

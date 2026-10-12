@@ -1,5 +1,9 @@
-import { bindRecordEditor, type RecordEditorBindResult } from '../planner/recordEditorBinder';
-import { resolvePublicationField } from '../matching/publicationFieldResolver';
+import { bindRecordEditor, recordEditorExistingValueConflicts, type RecordEditorBindResult, type RecordEditorBindReason } from '../planner/recordEditorBinder';
+import { resolvePublicationField, resolveBoundPublicationField } from '../matching/publicationFieldResolver';
+import { inferSemanticCandidates, type SemanticProvider } from '../ai/semanticCandidates';
+import { publicationSemanticProfile, createPublicationSemanticContext, publicationSemanticContextCurrent } from '../ai/publicationSemanticContext';
+import type { UserProfile } from '../profile/schema';
+import type { FieldDescriptor } from '../shared/types';
 import type { ActiveRecordTransaction, ReadyRecordPlan, RepeatableRecordPlannerInput } from '../planner/recordPlanner';
 import { RecordRunContext, type RecordRunCapture, type RecordRunCaptureFailure,
   type RecordRunCaptureSource } from '../planner/recordRunContext';
@@ -15,6 +19,12 @@ import { recordEditorCoverageComplete, recordObservationMatches } from './record
 interface PublicationObservation {
   readonly scan: ScanState;
   readonly source: RecordRunCaptureSource;
+}
+
+/** Meaning reuse stays on the original node and unchanged visible evidence. Values/selection are not cached. */
+function publicationMeaningEvidence(field:FieldDescriptor):string {
+  return JSON.stringify([field.kind,field.type,field.label,field.ariaLabel,field.tableHeader,field.title,field.placeholder,
+    field.maxLength,field.required,field.disabled,field.readOnly,field.options.map(option=>[option.label,option.value,option.disabled])]);
 }
 
 function observe(doc: Document): PublicationObservation | undefined {
@@ -63,15 +73,19 @@ class PublicationDriver implements RecordOrchestratorDriver {
   readonly #records: readonly PublicationProjectionResponse['publications'][number][];
 
   readonly #verifyProfile: () => Promise<boolean>;
+  readonly #profile: UserProfile;
+  readonly #provider?: SemanticProvider;
+  readonly #semanticPaths = new WeakMap<Element,{path:string;evidence:string}>();
   readonly #observations = new WeakMap<RecordRunCapture, PublicationObservation>();
   readonly #identities = new WeakMap<RecordRunCapture, string>();
   #verifiedFields?: { readonly observation: PublicationObservation; readonly capture: RecordRunCapture };
 
   constructor(context: RecordRunContext, projection: PublicationProjectionResponse,
-    observer: () => PublicationObservation | undefined, verifyProfile: () => Promise<boolean>) {
+    observer: () => PublicationObservation | undefined, verifyProfile: () => Promise<boolean>, provider?:SemanticProvider) {
     this.#observe = observer;
     this.#context = context;
     this.#records = projection.publications;
+    this.#profile=publicationSemanticProfile(projection);this.#provider=provider;
 
     this.#verifyProfile = verifyProfile;
   }
@@ -184,13 +198,52 @@ class PublicationDriver implements RecordOrchestratorDriver {
     if (!record) return { status: 'request-human', reason: 'profile-value-missing', writtenFieldCount: 0, rollbackComplete: true };
     if(!await this.#verifyProfile())return {status:'request-human',reason:'step-aborted',writtenFieldCount:0,rollbackComplete:true};
     const values = new Map<string, string>();
+    const unknown = new Set<string>(), meanings = new Map<Element,{path:string;evidence:string}>();
     for (const nodeId of plan.nextStep.fieldNodeIds) {
       const node=observation.scan.result.semanticGraph?.nodes.find(candidate=>candidate.id===nodeId);
       const field=node?.kind==='field'?observation.scan.result.fields.find(candidate=>candidate.id===node.fieldId):undefined;
       if(!field)return {status:'request-human',reason:'field-map-mismatch',writtenFieldCount:0,rollbackComplete:true};
-      const resolved=resolvePublicationField(field,record);
-      if(resolved.status!=='known')return {status:'request-human',reason:resolved.reason,writtenFieldCount:0,rollbackComplete:true};
+      const control=observation.scan.controls.get(field.id), meaning=control&&this.#semanticPaths.get(control.node);
+      if(meaning&&meaning.evidence!==publicationMeaningEvidence(field))return {status:'request-human',reason:'snapshot-stale',writtenFieldCount:0,rollbackComplete:true};
+      const resolved=meaning?resolveBoundPublicationField(field,record,meaning.path):resolvePublicationField(field,record);
+      if(resolved.status!=='known'){
+        if(resolved.reason==='field-semantic-unknown'){unknown.add(field.id);continue;}
+        return {status:'request-human',reason:resolved.reason,writtenFieldCount:0,rollbackComplete:true};
+      }
       values.set(field.id,resolved.value);
+    }
+    if(unknown.size){
+      const reject=(reason:RecordEditorBindReason='field-semantic-unknown'):RecordEditorBindResult=>({status:'request-human',reason,writtenFieldCount:0,rollbackComplete:true});
+      // A known local conflict cannot be repaired by interpreting another field.
+      // Inspect it before spending a model call; the atomic binder rechecks later.
+      for (const [fieldId, value] of values) {
+        const control = observation.scan.controls.get(fieldId);
+        if (!control) return reject('field-map-mismatch');
+        if (recordEditorExistingValueConflicts(control, value)) return reject('existing-value-conflict');
+      }
+      if(!this.#provider)return reject();
+      const publicationContext=createPublicationSemanticContext({plan,capture,activeTransaction:active,runContext:this.#context,scanState:observation.scan,profile:this.#profile});
+      if(!publicationContext)return reject('snapshot-stale');
+      const signal=this.#context.beginStep();let changed=false;
+      const invalidate=()=>{changed=true;this.#context.stop()};
+      const observer=new MutationObserver(invalidate);observer.observe(observation.scan.document.documentElement,{subtree:true,attributes:true,childList:true,characterData:true});
+      observation.scan.document.addEventListener('input',invalidate,true);observation.scan.document.addEventListener('change',invalidate,true);
+      try{
+        const candidates=await inferSemanticCandidates(observation.scan.result,this.#profile,this.#provider,{signal,publicationContext,
+          excludedFieldIds:new Set(observation.scan.result.fields.filter(field=>!unknown.has(field.id)).map(field=>field.id)),
+          currentContext:async()=>{if(changed||observer.takeRecords().length||!await this.#verifyProfile()||!this.validateCapture(capture))throw Error('论文观察已变化');return{scan:observation.scan.result,profile:this.#profile}},
+        });
+        if(changed||observer.takeRecords().length||signal.aborted||!publicationSemanticContextCurrent(publicationContext,observation.scan.result,this.#profile,[...unknown]))return reject('snapshot-stale');
+        if(candidates.state!=='ready'||candidates.matches.length!==unknown.size)return reject();
+        const seen=new Set<string>();
+        for(const match of candidates.matches){
+          if(!unknown.has(match.fieldId)||seen.has(match.fieldId)||match.source!=='llm'||match.status!=='review'||match.confidence<0.9||match.value===undefined||!match.matchedProfileKey?.startsWith('papers.'))return reject();
+          const control=observation.scan.controls.get(match.fieldId),field=observation.scan.result.fields.find(field=>field.id===match.fieldId);
+          if(!control||!field)return reject('field-map-mismatch');
+          seen.add(match.fieldId);values.set(match.fieldId,match.value);meanings.set(control.node,{path:match.matchedProfileKey,evidence:publicationMeaningEvidence(field)});
+        }
+      }finally{observer.disconnect();observation.scan.document.removeEventListener('input',invalidate,true);observation.scan.document.removeEventListener('change',invalidate,true)}
+      if(!await this.#verifyProfile()||!this.validateCapture(capture))return reject('snapshot-stale');
     }
     // The current draft was checked before this call. Its rescan must observe
     // the new answers instead of comparing them with the previous draft.
@@ -206,6 +259,7 @@ class PublicationDriver implements RecordOrchestratorDriver {
       allowExpansion: true,
     });
     if (result.status === 'advanced' || result.status === 'expanded') {
+      for(const [node,meaning] of meanings)this.#semanticPaths.set(node,meaning);
       const verified = this.#observations.get(result.capture);
       if (verified) this.#verifiedFields = { observation: verified, capture: result.capture };
     }
@@ -216,7 +270,7 @@ class PublicationDriver implements RecordOrchestratorDriver {
 /** Internal factory: selectors, values and page eligibility never come from runtime messages. */
 export function createPublicationRecordSession(doc: Document, projection: PublicationProjectionResponse,
   refreshProjection?: () => Promise<PublicationProjectionResponse>,
-  additionalEligibility?: (doc: Document) => boolean): RecordV2Session {
+  additionalEligibility?: (doc: Document) => boolean, semanticProvider?:SemanticProvider): RecordV2Session {
   const initial = observe(doc);
   if (publicationPageProblem(doc, initial) || additionalEligibility?.(doc) === false) {
     throw new Error('当前页面没有唯一、可验证且已关闭编辑器的论文列表');
@@ -246,7 +300,7 @@ export function createPublicationRecordSession(doc: Document, projection: Public
     } catch { /* Missing or changed projections never update an in-flight record. */ }
     stoppedForProfileChange = true; context.stop(); return false;
   };
-  const orchestrator = new RecordTransactionOrchestrator(context, new PublicationDriver(context, parsed.data, observer, verifyProfile));
+  const orchestrator = new RecordTransactionOrchestrator(context, new PublicationDriver(context, parsed.data, observer, verifyProfile,semanticProvider));
   return {
     get state() { return orchestrator.state; },
     get snapshotVersion() { return orchestrator.snapshotVersion; },

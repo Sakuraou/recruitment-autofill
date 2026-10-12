@@ -1,3 +1,4 @@
+import { PUBLICATION_SEMANTIC_PORT, publicationSemanticRequestSchema } from '../ai/publicationPortProtocol';
 import { PROJECT_SEMANTIC_PORT, PROJECT_SEMANTIC_DEADLINE_MS, projectSemanticRequestSchema, projectSemanticReplySchema } from '../ai/projectPortProtocol';
 import { EDUCATION_SEMANTIC_PORT, educationSemanticRequestSchema } from '../ai/educationPortProtocol';
 import { INTERNSHIP_SEMANTIC_PORT, internshipSemanticRequestSchema } from '../ai/internshipPortProtocol';
@@ -6,10 +7,10 @@ import { parseSemanticProposal } from '../ai/semanticProtocol';
 import type { SemanticProvider } from '../ai/semanticCandidates';
 
 /** Fixed trusted-background channel. No token, API key, endpoint, answer or record index is available here. */
-export function createRecordSemanticClient(recordType: 'project' | 'education' | 'internship' | 'award'): SemanticProvider {
-  const schema = recordType === 'award' ? awardSemanticRequestSchema : recordType === 'internship' ? internshipSemanticRequestSchema : recordType === 'education' ? educationSemanticRequestSchema : projectSemanticRequestSchema;
-  const name = recordType === 'award' ? AWARD_SEMANTIC_PORT : recordType === 'internship' ? INTERNSHIP_SEMANTIC_PORT : recordType === 'education' ? EDUCATION_SEMANTIC_PORT : PROJECT_SEMANTIC_PORT;
-  const type = recordType === 'award' ? 'RA_AWARD_SEMANTIC' : recordType === 'internship' ? 'RA_INTERNSHIP_SEMANTIC' : recordType === 'education' ? 'RA_EDUCATION_SEMANTIC' : 'RA_PROJECT_SEMANTIC';
+export function createRecordSemanticClient(recordType: 'project' | 'education' | 'internship' | 'award' | 'publication'): SemanticProvider {
+  const schema = recordType === 'publication' ? publicationSemanticRequestSchema : recordType === 'award' ? awardSemanticRequestSchema : recordType === 'internship' ? internshipSemanticRequestSchema : recordType === 'education' ? educationSemanticRequestSchema : projectSemanticRequestSchema;
+  const name = recordType === 'publication' ? PUBLICATION_SEMANTIC_PORT : recordType === 'award' ? AWARD_SEMANTIC_PORT : recordType === 'internship' ? INTERNSHIP_SEMANTIC_PORT : recordType === 'education' ? EDUCATION_SEMANTIC_PORT : PROJECT_SEMANTIC_PORT;
+  const type = recordType === 'publication' ? 'RA_PUBLICATION_SEMANTIC' : recordType === 'award' ? 'RA_AWARD_SEMANTIC' : recordType === 'internship' ? 'RA_INTERNSHIP_SEMANTIC' : recordType === 'education' ? 'RA_EDUCATION_SEMANTIC' : 'RA_PROJECT_SEMANTIC';
   return { propose: (request, signal) => new Promise((resolve, reject) => {
     if (signal.aborted) { reject(new Error('栏目语义请求已取消')); return; }
     const parsed = schema.safeParse({ type, request });

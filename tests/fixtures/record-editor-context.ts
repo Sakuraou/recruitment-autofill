@@ -31,7 +31,7 @@ function action(id: string, parentId: string, kind: 'add-record' | 'save-record'
   };
 }
 
-function closedSource(list: HTMLElement, existingCount = 0, recordType: 'project' | 'education' | 'internship' | 'award' = 'project'): RecordRunCaptureSource {
+function closedSource(list: HTMLElement, existingCount = 0, recordType: 'project' | 'education' | 'internship' | 'award' | 'publication' = 'project'): RecordRunCaptureSource {
   const add = document.createElement('button');
   const cards = Array.from({ length: existingCount }, () => document.createElement('article'));
   list.replaceChildren(...cards, add);
@@ -41,7 +41,7 @@ function closedSource(list: HTMLElement, existingCount = 0, recordType: 'project
     structuralFingerprint: fingerprint, evidence: [],
   }, {
     kind: 'section', id: 'section:0', parentId: 'page:0', childIds: ['record-list:0'], order: 0,
-    structuralFingerprint: fingerprint, evidence: ['heading'], heading: recordType === 'award' ? '在校奖励' : recordType === 'education' ? '教育经历' : recordType === 'internship' ? '实习经历' : '项目经历', role: recordType, confidence: 1,
+    structuralFingerprint: fingerprint, evidence: ['heading'], heading: recordType === 'publication' ? '专业论著' : recordType === 'award' ? '在校奖励' : recordType === 'education' ? '教育经历' : recordType === 'internship' ? '实习经历' : '项目经历', role: recordType, confidence: 1,
   }, action('action:10', 'record-list:0', 'add-record', 'record-list:0'), {
     kind: 'record-list', id: 'record-list:0', parentId: 'section:0', childIds: [...cardIds, 'action:10'], order: 0,
     structuralFingerprint: fingerprint, evidence: ['repeated-structure'], recordType,
@@ -65,7 +65,7 @@ interface CreatingFixture {
 }
 
 function creatingFixture(list: HTMLElement, elements: readonly (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[],
-  radioMembers: ReadonlyMap<HTMLInputElement, HTMLInputElement[]> = new Map(), recordType: 'project' | 'education' | 'internship' | 'award' = 'project'): CreatingFixture {
+  radioMembers: ReadonlyMap<HTMLInputElement, HTMLInputElement[]> = new Map(), recordType: 'project' | 'education' | 'internship' | 'award' | 'publication' = 'project'): CreatingFixture {
   const editor = document.createElement('div');
   const save = document.createElement('button');
   const controls = new Map<string, ScannedControl>();
@@ -93,7 +93,7 @@ function creatingFixture(list: HTMLElement, elements: readonly (HTMLInputElement
     structuralFingerprint: fingerprint, evidence: [],
   }, {
     kind: 'section', id: 'section:0', parentId: 'page:0', childIds: ['record-list:0'], order: 0,
-    structuralFingerprint: fingerprint, evidence: ['heading'], heading: recordType === 'award' ? '在校奖励' : recordType === 'education' ? '教育经历' : recordType === 'internship' ? '实习经历' : '项目经历', role: recordType, confidence: 1,
+    structuralFingerprint: fingerprint, evidence: ['heading'], heading: recordType === 'publication' ? '专业论著' : recordType === 'award' ? '在校奖励' : recordType === 'education' ? '教育经历' : recordType === 'internship' ? '实习经历' : '项目经历', role: recordType, confidence: 1,
   }, {
     kind: 'record', id: 'record:99', parentId: 'record-list:0', childIds: [...fieldIds, 'action:20'], order: 0,
     structuralFingerprint: fingerprint, evidence: ['editor-actions'], index: cards.length, state: 'creating',
@@ -144,7 +144,7 @@ function plan(captured: RecordRunCapture, active?: ActiveRecordTransaction, inte
 
 export function lifecycle(elements: readonly (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[],
   radioMembers?: ReadonlyMap<HTMLInputElement, HTMLInputElement[]>, existingList?: HTMLElement, existingCount = 0,
-  recordType: 'project' | 'education' | 'internship' | 'award' = 'project') {
+  recordType: 'project' | 'education' | 'internship' | 'award' | 'publication' = 'project') {
   if (!existingList) document.body.innerHTML = '';
   const list = existingList ?? document.createElement('section');
   if (!existingList) document.body.append(list);
