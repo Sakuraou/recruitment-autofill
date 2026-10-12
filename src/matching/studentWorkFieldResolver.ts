@@ -6,6 +6,7 @@ import { effectiveMaxLength } from './profileResolver';
 import { resolveEndDate } from './endDate';
 import { matchOption } from './optionMatcher';
 import { detectField } from './fieldMatcher';
+import { recordFinancialQuestion } from './recordFinancialQuestion';
 import type { RecordFieldReason } from './recordFieldReason';
 export type StudentWorkFieldResolution = Readonly<{ status: 'known'; key: string; value: string; confidence: number }>
   | Readonly<{ status: 'request-human'; reason: RecordFieldReason }>;
@@ -34,7 +35,7 @@ export function resolveStudentWorkField(field: FieldDescriptor, record: StudentW
   if (field.disabled || field.blockedReason || field.kind === 'checkbox'
     || field.readOnly && !['date', 'month'].includes(field.type)
     || field.kind === 'input' && !['text', 'search', 'date', 'month'].includes(field.type)
-    || /是否|有无|有没有|验证码|校验码|证明人|联系人|上传|附件|签名|授权|协议|声明|承诺|月薪|工资|薪资|薪酬|salary|wage|captcha|referee|contact|upload|attachment|consent|signature|whether/iu.test(direct.join(' ')))
+    || /是否|有无|有没有|验证码|校验码|证明人|联系人|上传|附件|签名|授权|协议|声明|承诺|captcha|referee|contact|upload|attachment|consent|signature|whether/iu.test(direct.join(' ')))
     return reject('field-unsupported');
   const withoutCaption = (text: string) => text.trim() && !captions.has(normalize(text));
   const primary = [field.label, field.ariaLabel, field.tableHeader].filter(withoutCaption);
@@ -42,6 +43,7 @@ export function resolveStudentWorkField(field: FieldDescriptor, record: StudentW
   if ((primary.length ? primary : direct.filter(withoutCaption)).some(text => ['时间', '任期', '起止时间', '起止日期', 'duration', 'period'].includes(normalize(text)))) return reject('field-semantic-ambiguous');
   const keys = new Set(mapped.filter((key): key is Key => key !== undefined));
   if (!keys.size) {
+    if (recordFinancialQuestion(direct)) return reject('field-unsupported');
     const other = detectField({ ...field, sectionText: '校内职务', parentText: '', previousText: '', name: '', htmlId: '', title: '', placeholder: '' });
     if (other && (other.ambiguous || other.alias.scope !== 'studentWork')) return reject('field-semantic-ambiguous');
     return reject('field-semantic-unknown');

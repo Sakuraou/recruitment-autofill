@@ -7,6 +7,7 @@ import { detectField } from './fieldMatcher';
 import { effectiveMaxLength } from './profileResolver';
 import { matchOption } from './optionMatcher';
 import type { RecordFieldReason } from './recordFieldReason';
+import { recordFinancialQuestion } from './recordFinancialQuestion';
 
 export type AwardFieldResolution = Readonly<{ status: 'known'; key: string; value: string; confidence: number }>
   | Readonly<{ status: 'request-human'; reason: RecordFieldReason }>;
@@ -38,6 +39,7 @@ export function resolveAwardField(field: FieldDescriptor, record: AwardProjectio
     if(candidates.size!==1 || mapped.some(value=>!value)) return reject('field-semantic-ambiguous');
     key=[...candidates][0];
   } else {
+    if (recordFinancialQuestion(direct)) return reject('field-unsupported');
     const meaning=detectField({...field,sectionText:'在校奖励',parentText:'',previousText:'',
       label:captions.has(normalize(field.label))?'':field.label,
       ...(primary.length?{name:'',htmlId:'',title:'',placeholder:''}:{})});

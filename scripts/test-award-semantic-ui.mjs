@@ -5,6 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 
+const focused=process.env.RA_RECORD_TEST_FOCUS==='financial';
 const dir = resolve(process.env.RA_AWARD_TEST_DIST ?? 'artifacts/i013a-award-semantic-dist');
 const report = { scope: 'Unmodified popup, content, background, real companion and compatible provider; fictional awards only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
@@ -21,7 +22,7 @@ const fixtureBuild = await build({ stdin: { resolveDir: process.cwd(), sourcefil
   profile.basic.name='本机虚构姓名';profile.updatedAt='fictional-installed-awards';
   if(mode==='dynamic'){profile.basic.studentCadre='是';profile.basic.studentCadreDescription='虚构班级事务协调';}
   if(mode==='missing')delete profile.awards[0].school;
-  if(mode!=='known')fixture.add.addEventListener('click',()=>{fixture.list.querySelector('[data-key="name"]').closest('label').firstChild.textContent='这项荣誉具体叫什么';});
+  if(mode!=='known')fixture.add.addEventListener('click',()=>{fixture.list.querySelector('[data-key="name"]').closest('label').firstChild.textContent=mode==='financial'?'税前月薪':'这项荣誉具体叫什么';});
   window.awardFixture={...fixture,profile};
 ` }, bundle: true, write: false, format: 'iife', platform: 'browser' });
 const fixtureJs = fixtureBuild.outputFiles[0].text;
@@ -124,17 +125,18 @@ try {
     report.scenarios.push({mode,entry,requests:requests.slice(start),cancelled:cancelled-cancelledBefore,counts:state.counts});
     await popup.close();await form.close();return{state,text,requests:requests.slice(start),profile};
   }
-  for(const entry of ['Agent','Awards']){
+  if(!focused)for(const entry of ['Agent','Awards']){
     const result=await scenario('normal',entry);assert.equal(result.state.counts.add,3);assert.equal(result.state.counts.save,3);
     assert.equal(result.state.counts.submit,0);assert.equal(result.state.counts.remove,0);
     assert.deepEqual(result.state.saved.map(record=>[record.name,record.date]),result.profile.awards.map(record=>[record.name,record.date]));
     assert.equal(result.requests.filter(item=>item==='meaning-4').length,3);
     report.checks.push(`Actual ${entry} entry maps unknown award labels, fills three current records, saves each and preserves two equal names with different dates`);
   }
-  for(const mode of ['known','disabled','missing','existing']){
-    const result=await scenario(mode,'Awards');assert.equal(result.requests.length,0);assert.equal(result.state.counts.save,mode==='known'?3:0);
+  for(const mode of focused?['financial']:['known','disabled','missing','existing','financial']){
+    const result=await scenario(mode,'Awards');assert.equal(result.requests.length,0);assert.equal(result.state.counts.save,mode==='known'?3:0);if(mode==='financial'){assert.equal(result.state.draft,'');assert.equal(result.state.counts.submit,0);assert.equal(result.state.counts.remove,0);}
     report.checks.push(`Actual ${mode} scenario uses no model; only complete known facts may save`);
   }
+  if(!focused){
   const dynamic=await scenario('dynamic','Awards');assert.equal(dynamic.state.counts.save,3);assert.equal(dynamic.requests.filter(item=>item==='meaning-4').length,3);
   assert.deepEqual(dynamic.state.saved.map(record=>record.cadreDescription),Array(3).fill('虚构班级事务协调'));
   report.checks.push('Actual dynamic cadre description expansion preserves the original meaning without a second model request on the same node');
@@ -153,7 +155,8 @@ try {
     assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
     report.checks.push(`Actual ${mode} while meaning inference waits cancels upstream, preserves draft and refuses late completion`);
   }
+  }
   assert.deepEqual(report.externalRequests,[]);assert.deepEqual(report.errors,[]);report.passed=true;
 }catch(error){report.errors.push(String(error));throw error;}
-finally{await context?.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});report.finishedAt=new Date().toISOString();await writeFile('artifacts/i013a-award-semantic-installed-report.json',JSON.stringify(report,null,2));}
+finally{await context?.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});report.finishedAt=new Date().toISOString();await writeFile(process.env.RA_RECORD_TEST_REPORT ?? 'artifacts/i013a-award-semantic-installed-report.json',JSON.stringify(report,null,2));}
 console.log(JSON.stringify({passed:report.passed,version:report.version,checks:report.checks.length,errors:report.errors}));

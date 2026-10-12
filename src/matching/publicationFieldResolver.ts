@@ -5,6 +5,7 @@ import { AUTO_CONFIDENCE, normalize } from './confidence';
 import { effectiveMaxLength } from './profileResolver';
 import { matchOption } from './optionMatcher';
 import { detectField } from './fieldMatcher';
+import { recordFinancialQuestion } from './recordFinancialQuestion';
 import type { RecordFieldReason } from './recordFieldReason';
 
 export type PublicationFieldResolution = Readonly<{ status: 'known'; key: string; value: string; confidence: number }>
@@ -36,6 +37,7 @@ export function resolvePublicationField(field: FieldDescriptor, paper: Publicati
   const mapped = evidence.map(text => labels.get(normalize(text)));
   const keys = new Set(mapped.filter((key): key is keyof PublicationProjectionEntry => key !== undefined));
   if (!keys.size) {
+    if (recordFinancialQuestion(direct)) return reject('field-unsupported');
     const other = detectField({ ...field, sectionText: '专业论著', parentText: '', previousText: '', name: '', htmlId: '', title: '', placeholder: '' });
     if (other && (other.ambiguous || other.alias.scope !== 'research' || other.alias.key !== 'papers')) return reject('field-semantic-ambiguous');
     return reject('field-semantic-unknown');
