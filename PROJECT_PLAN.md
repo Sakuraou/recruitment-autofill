@@ -2030,3 +2030,14 @@ I012D收尾：新content原因分派在实际companion安装中节点替换/瞬�
 0.6.42回退在artifacts/i012e-release-v0.6.42/dist，新包artifacts/i012f-release-v0.6.43/dist附SHA索引。下一轮I-013A当前条奖励字段含义绑定：已核对awardProjection的8项独立事实、awardFieldResolver的现有未知字段拒绝与awardRecordSession的原事务/节点绑定。先做可复现未知标签例、抽离共享本地值校验并实现受控逻辑路径解析；保持原生控件、日期精度、字数、唯一选项、干部本人事实与当前记录身份边界。随后接独立奖励语义目录/会话/context/background provider并验证两条奖励各填自身事实、逐条保存、重启不重复。不能把解析helper或隔离测试计为专业论著/校内职务完整模型支持。
 
 后续执行顺序：奖励陌生字段→专业论著陌生字段→校内职务陌生字段→可核验复杂控件/标签布局→真实网页复现与模型效果核验。每步更新活计划和执行提示词，以实际源码和报告为依据，不自动付费探测。
+
+
+### 2026-10-12 · I-013A 奖励受控含义解析第一步
+
+已用真实scanner复现“这项荣誉具体叫什么”在明确奖励栏目返回field-semantic-unknown。抽离awardFieldResolver共享本地值校验，新增resolveBoundAwardField：仅8个固定awards逻辑路径，仅读调用者传入的当前条事实；known/ambiguous/protected/缺事实字段不能被模型重解释，日期精度/类型/长度/唯一选项继续校验，未知模型含义不接受模糊选项。只解析候选，未接模型或写入器。
+
+相关47项单元通过（新16/旧31，i013a-award-bound-resolver-report.json），strict/改动lint通过。正式安装包仍0.6.43，此helper不等同奖励模型功能已发布。源码核查：recordSemanticPort只接受project/education/internship，semanticRequestSchema仅protocol1/2/3，AwardRecordSession.bindEditor仍只调用本地resolver，下一步确需目录、context和端口接入。
+
+下一步执行提示词：保留935f4aa发布快照和0.6.43包SHA，以当前helper为基线。定义独立8路径奖励semantic协议（section=award、record=creating），维持旧1/2/3精确兼容；接semantic binding/session时，只允许来自原AwardRecordSession的plan/capture/activeTransaction/runContext/scanState及最小awardProjection构造的私有context，绑定当前intentIndex、原editor/list/控件节点、profileRevision，不允许网页/模型伪造context。背景仅转脱敏语义，不发送真实奖励答案或全档案。之后用两条奖励及重复名不同日期测试逐条填写/保存/去重、手改/节点替换/撤销/迟到拒绝，再正式打包验收。未接通前不增版、不称当前奖励陌生字段可填。论文、职务沿验证后的同一边界扩展。
+
+现有自动任务提示已同步0.6.43/I-013A，保留其原PAUSED状态；没有重新启动计时唤醒。当前聊天的开发已持续完成两轮发布并进入下一轮。

@@ -46,6 +46,21 @@ export function resolveAwardField(field: FieldDescriptor, record: AwardProjectio
     key=meaning.alias.key;
   }
   if(!key||!keys.has(key))return reject('field-semantic-unknown');
+  return resolveAwardValue(field,record,key);
+}
+
+/** A model may only supply a logical meaning for a genuinely unknown field.
+ * The caller must separately bind the exact current award transaction; no index
+ * or personal answer is accepted here. Known/ambiguous/protected fields stay local. */
+export function resolveBoundAwardField(field:FieldDescriptor,record:AwardProjectionEntry,path:string,applicant?:AwardApplicantFacts):AwardFieldResolution {
+  const direct=resolveAwardField(field,record,applicant);
+  if(direct.status==='known')return direct.key===path?direct:reject('field-semantic-ambiguous');
+  if(direct.reason!=='field-semantic-unknown')return direct;
+  if(!path.startsWith('awards.')||!keys.has(path.slice(7)))return reject('field-semantic-unknown');
+  return resolveAwardValue(field,record,path.slice(7),true);
+}
+
+function resolveAwardValue(field:FieldDescriptor,record:AwardProjectionEntry,key:string,model=false):AwardFieldResolution {
   if(field.kind==='input'&&['date','month'].includes(field.type)&&key!=='date')return reject('field-unsupported');
   let value=record[key as keyof AwardProjectionEntry];
   if(typeof value!=='string'||!value.trim())return reject('profile-value-missing');
@@ -60,7 +75,7 @@ export function resolveAwardField(field: FieldDescriptor, record: AwardProjectio
     const candidate:MatchResult={fieldId:field.id,fieldName:'',matchedProfileKey:'awards.'+key,value,
       confidence:AUTO_CONFIDENCE,source:'rule',status:'auto',sensitive:false,reason:''};
     const option=matchOption(field,candidate);
-    if(option.status!=='auto'||option.value===undefined)return reject('field-options-unresolved');
+    if(option.status!=='auto'||option.value===undefined||model&&(option.source==='fuzzy'||option.confidence<AUTO_CONFIDENCE))return reject('field-options-unresolved');
     value=option.value;
   }
   return Object.freeze({status:'known',key:'awards.'+key,value,confidence:AUTO_CONFIDENCE});
