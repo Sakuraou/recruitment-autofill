@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { visualShadowObserverScript } from './fixtures/visual-shadow-observer.mjs';
 
 const bundle = await build({ stdin: { resolveDir: process.cwd(), sourcefile: 'multilabel-admission.ts', loader: 'ts', contents: `
 import {scanDocument} from './src/content/scanner';
@@ -48,6 +49,7 @@ const report = { scope: 'Real scan/owner/multiple original labels, one-use plan 
 const browser = await chromium.launch({ channel: 'chromium', headless: true });
 try {
   const page = await browser.newPage({ viewport: {width:1280,height:720} });
+  await page.addInitScript({content:visualShadowObserverScript});
   await page.route('**/*', route => {
     if (new URL(route.request().url()).hostname !== '127.0.0.1') { report.externalRequests.push(route.request().url()); return route.abort(); }
     const count = new URL(route.request().url()).searchParams.get('count') ?? '2';
@@ -55,7 +57,7 @@ try {
     return route.fulfill({ contentType:'text/html;charset=utf-8',body:`<!doctype html><form><section><h2>个人信息</h2>${labels}<input id="opaque" style="position:absolute;left:100px;top:${100+Number(count)*32+8}px;width:160px;height:24px"></section></form>` });
   });
   for (const [mode, count, expected] of [
-    ['normal',2,'redacted'],['normal',4,'redacted'],['normal',5,'no-proof'],['private',2,'no-proof'],['split-private',2,'no-proof'],['nested',2,'no-proof'],['outline',2,'no-proof'],
+    ['normal',2,'redacted'],['normal',4,'redacted'],['normal',5,'no-proof'],['private',2,'no-proof'],['split-private',2,'no-proof'],['nested',2,'redacted'],['outline',2,'no-proof'],
     ['proof-clone',2,'rejected'],['plan-clone',2,'rejected'],['label-replace',2,'no-plan'],['label-transient',2,'no-plan'],['before-stop',2,'no-plan'],
     ['after-replace',2,'rejected'],['after-add',2,'rejected'],['after-move',2,'rejected'],['after-stop',2,'rejected'],['expire',2,'rejected'],
   ]) {

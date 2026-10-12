@@ -7,6 +7,7 @@ import { SemanticCropAdmission } from '../visual/semanticCropAdmission';
 import { SemanticRedactionPipeline } from '../visual/semanticRedactionPipeline';
 import { createLocalPngEncoder } from '../visual/localPngEncoder';
 import { runSemanticVisualImage } from '../visual/semanticVisualImageWorkflow';
+import { currentShadowPaintAbsent } from '../visual/shadowPaint';
 interface Dependencies {lease:AgentPageLease;getScan():ScanState|undefined;occupied():boolean;extensionId:string;popupUrl:string}
 /** Production composition: only semantic request and redacted pixels cross content; profiles stay trusted. */
 export function createProfileFreeVisualCoordinator(deps:Dependencies){
@@ -18,7 +19,8 @@ export function createProfileFreeVisualCoordinator(deps:Dependencies){
    let changed=false;const cancel=()=>{changed=true;deps.lease.end(intent.token)};
    const observer=new MutationObserver(cancel);observer.observe(scan.document.documentElement,{subtree:true,attributes:true,characterData:true,childList:true});
    scan.document.addEventListener('input',cancel,true);scan.document.addEventListener('change',cancel,true);signal.addEventListener('abort',cancel,{once:true});
-   const live=()=>!changed&&!signal.aborted&&!observer.takeRecords().length&&deps.getScan()===scan&&current(intent);
+   const live=()=>!changed&&!signal.aborted&&!observer.takeRecords().length&&deps.getScan()===scan&&current(intent)&&currentShadowPaintAbsent();
+   const shadowWatch=setInterval(()=>{if(!live())cancel()},250);
    try{
     const admission=new SemanticCropAdmission({lease:deps.lease,getScan:deps.getScan,occupied:deps.occupied,privateFacts:()=>[],
      labelPermission:(token,id,label)=>live()&&token===intent.token&&id===intent.fieldId&&label===scan.result.fields.find(f=>f.id===id)?.label,
@@ -28,7 +30,7 @@ export function createProfileFreeVisualCoordinator(deps:Dependencies){
     if(!live())return {state:'manual',reason:'stale-page'};
     const result=await requestVisualSemanticFromContent({lease:deps.lease,token:intent.token,request:intent.semanticRequest,image:pixels.image,userConfirmed:true});
     return result.state==='ready'&&live()?{state:'proposal',proposal:result.proposal}:{state:'manual',reason:'unavailable'};
-   }finally{observer.disconnect();scan.document.removeEventListener('input',cancel,true);scan.document.removeEventListener('change',cancel,true);signal.removeEventListener('abort',cancel)}
+   }finally{clearInterval(shadowWatch);observer.disconnect();scan.document.removeEventListener('input',cancel,true);scan.document.removeEventListener('change',cancel,true);signal.removeEventListener('abort',cancel)}
   }});
 }
 

@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { writeFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { visualShadowObserverScript } from './fixtures/visual-shadow-observer.mjs';
 const bundle=await build({stdin:{resolveDir:process.cwd(),sourcefile:'label-layout-check.ts',loader:'ts',contents:
  "import {inspectSemanticLabelPaint} from './src/visual/semanticLabelRegion';window.labelLayoutProbe=()=>inspectSemanticLabelPaint(document.querySelector('#u'),document.querySelector('label'));"},bundle:true,write:false,format:'iife',platform:'browser'});
 const report={scope:'Real Chromium conservative label layout; no model, image upload or full capture grant',checks:[],errors:[],externalRequests:[]};
 const browser=await chromium.launch({channel:'chromium',headless:true});
 try{
  const page=await browser.newPage();
+ await page.addInitScript({content:visualShadowObserverScript});
  await page.route('**/*',route=>{
   if(new URL(route.request().url()).hostname!=='127.0.0.1'){report.externalRequests.push(route.request().url());return route.abort();}
   return route.fulfill({contentType:'text/html; charset=utf-8',body:'<!doctype html><html><head><style>label{position:absolute;left:80px;top:80px;display:block;width:180px;height:24px;overflow:hidden;background:white;color:black;transition:none}input{position:absolute;left:80px;top:120px;width:180px;height:24px}.decoration{position:absolute;left:500px;top:20px;width:48px;height:48px;contain:paint;overflow:hidden;transition:none}</style></head><body><label for="u">你希望如何被称呼</label><input id="u"></body></html>'});

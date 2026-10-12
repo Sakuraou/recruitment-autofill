@@ -1,5 +1,6 @@
 import type { CssRect } from './cropGeometry';
 import { captureControlLabels } from './controlLabels';
+import { absentShadowPaint, isPainted as painted } from './shadowPaint';
 
 export type SemanticLabelResult = { readonly state: 'eligible'; readonly region: CssRect }
   | { readonly state: 'rejected'; readonly reason: 'unproved-label-region' };
@@ -49,6 +50,20 @@ function intersects(a: CssRect, b: CssRect): boolean {
 }
 function validBounds(rect: CssRect): boolean {
   return Object.values(rect).every(n => Number.isFinite(n) && Math.abs(n) <= 10_000_000) && rect.width >= 0 && rect.height >= 0;
+}
+const inlineLabelTags = new Set(['span', 'b', 'i', 'em', 'strong', 'small', 'mark', 'br']);
+function pureTextLabel(label: HTMLLabelElement, region: CssRect): boolean {
+  const descendants = [...label.querySelectorAll('*')];
+  return descendants.length <= 16 && descendants.every(element => {
+    if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !inlineLabelTags.has(element.localName)
+      || !absentShadowPaint(element) || element.hasAttribute('contenteditable') || element.getAttribute('role') === 'button'
+      || !painted(element) || !ordinaryPaint(element)) return false;
+    const css = getComputedStyle(element), rect = element.getBoundingClientRect();
+    return css.position === 'static' && ['none', ''].includes(css.outlineStyle)
+      && validBounds({left:rect.left,top:rect.top,width:rect.width,height:rect.height})
+      && rect.left >= region.left && rect.top >= region.top
+      && rect.right <= region.left + region.width && rect.bottom <= region.top + region.height;
+  });
 }
 
 const svgPaintTags = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
@@ -116,7 +131,7 @@ function inspectLabelRegion(
       || label.control !== node || !labels?.includes(label)
       || [...document.querySelectorAll('[id]')].filter(e => e.id === node.id).length !== 1
       || node.value !== '' || node.disabled || node.readOnly || node.matches(':disabled') || !visible(node) || !visible(label)
-      || node.placeholder !== '' || label.childElementCount !== 0 || label.closest('a,button,[contenteditable]')
+      || node.placeholder !== '' || label.closest('a,button,[contenteditable]')
       || !Array.isArray(privateFacts) || (requireFacts && privateFacts.length === 0) || privateFacts.length > 256
       || privateFacts.some(fact => typeof fact !== 'string' || fact.trim().length < 2 || fact.length > 500)) return rejected;
     if (node instanceof HTMLInputElement && !['text', 'search', 'email', 'tel', 'url'].includes(node.type)) return rejected;
@@ -128,23 +143,23 @@ function inspectLabelRegion(
       || !['hidden', 'clip'].includes(css.getPropertyValue('overflow-x')) || !['hidden', 'clip'].includes(css.getPropertyValue('overflow-y'))
       || !['', 'border-box'].includes(css.getPropertyValue('background-clip')) || css.getPropertyValue('display') === 'contents') return rejected;
     const bounds = label.getBoundingClientRect(), region = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
-    if (!validBounds(region) || region.width < 8 || region.width > 512 || region.height < 8 || region.height > 96) return rejected;
+    if (!validBounds(region) || region.width < 8 || region.width > 512 || region.height < 8 || region.height > 96 || !pureTextLabel(label,region)) return rejected;
     const all = [...document.querySelectorAll('*')]; if (all.length > 1500) return rejected;
     // Top-layer paint can escape ancestor containment. This conservative test
     // also rejects visible nonmodal dialogs instead of making a modal inference.
-    if (document.fullscreenElement || [...document.querySelectorAll('dialog[open], [popover]')].some(visible)) return rejected;
+    if (document.fullscreenElement || [...document.querySelectorAll('dialog[open], [popover]')].some(painted)) return rejected;
     for (const element of all) {
-      if (!visible(element)) continue;
-      if (element.shadowRoot || element.localName.includes('-')) return rejected;
+      if (!painted(element)) continue;
+      if (!absentShadowPaint(element) || element.localName.includes('-')) return rejected;
       if (element.matches('svg,canvas,video,img,iframe,object,embed') && !clippedDecoration(element, region, label)) return rejected;
       // Overflowing generated paint or shadows cannot be bounded by element rectangles.
       if (!ordinaryPaint(element)) return rejected;
       const r = element.getBoundingClientRect(); if (!validBounds({ left: r.left, top: r.top, width: r.width, height: r.height })) return rejected;
-      if (element !== label && !element.contains(label) && intersects(r, region)) return rejected;
+      if (element !== label && !element.contains(label) && !label.contains(element) && intersects(r, region)) return rejected;
     }
     const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
     for (let current = walker.nextNode(); current; current = walker.nextNode()) {
-      if (current.parentElement === label || !current.textContent?.trim() || !current.parentElement || !visible(current.parentElement)
+      if (!current.textContent?.trim() || !current.parentElement || label.contains(current.parentElement) || !painted(current.parentElement)
         || current.parentElement.closest('script,style,template')) continue;
       const range = document.createRange(); range.selectNodeContents(current);
       for (const r of range.getClientRects()) {
