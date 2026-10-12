@@ -1,6 +1,6 @@
 {
   "name": "recruitment-autofill",
-  "version": "0.6.43",
+  "version": "0.6.44",
   "private": true,
   "type": "module",
   "engines": {
@@ -55,5 +55,3 @@
     "vitest": "^4.1.11"
   }
 }
-
-

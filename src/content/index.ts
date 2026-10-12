@@ -19,6 +19,8 @@ import { requestEducationProjection, requestProjectProjection, requestInternship
 import { StudentWorkRecordWorkflow } from './studentWorkRecordWorkflow';
 import { PublicationRecordWorkflow } from './publicationRecordWorkflow';
 import { AwardRecordWorkflow } from './awardRecordWorkflow';
+import { createAwardRecordSession } from './awardRecordSession';
+import { createAwardSemanticClient } from './awardSemanticClient';
 import { EducationRecordWorkflow } from './educationRecordWorkflow';
 import { InternshipRecordWorkflow } from './internshipRecordWorkflow';
 import { createInternshipRecordSession } from './internshipRecordSession';
@@ -98,7 +100,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
   const studentWorkWorkflow = new StudentWorkRecordWorkflow(document, requestStudentWorkProjection);
   const publicationWorkflow = new PublicationRecordWorkflow(document, requestPublicationProjection);
-  const awardWorkflow = new AwardRecordWorkflow(document, requestAwardProjection);
+  const awardWorkflow = new AwardRecordWorkflow(document, requestAwardProjection,
+    (doc, projection, refresh) => createAwardRecordSession(doc, projection, refresh, undefined, createAwardSemanticClient()));
   const internshipWorkflow = new InternshipRecordWorkflow(document, requestInternshipProjection,
     (doc, projection, refresh) => createInternshipRecordSession(doc, projection, refresh, undefined, createInternshipSemanticClient()));
   const educationWorkflow = new EducationRecordWorkflow(document, requestEducationProjection,

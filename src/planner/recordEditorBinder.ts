@@ -148,6 +148,11 @@ function controlHasValue(control: ScannedControl): boolean {
   return hasValue(control.node);
 }
 
+/** Read-only preflight. This grants no ownership, write permission or verification receipt. */
+export function recordEditorExistingValueConflicts(control: ScannedControl, value: string): boolean {
+  return controlHasValue(control) && !currentValueMatches(control, value);
+}
+
 function failure(reason: RecordEditorBindReason, writtenFieldCount = 0, rollbackComplete = true,
   plannerResult?: RequestHumanRecordPlan): RecordEditorBindResult {
   return Object.freeze({ status: 'request-human', reason, writtenFieldCount, rollbackComplete,

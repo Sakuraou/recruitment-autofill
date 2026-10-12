@@ -26,7 +26,11 @@ export const INTERNSHIP_SEMANTIC_BINDING_PATHS = [
   'internships.description', 'internships.achievements', 'internships.experienceType', 'internships.workType',
   'internships.companyProperty', 'internships.monthlySalary', 'internships.hasProof',
 ] as const;
-const ALL_SEMANTIC_BINDING_PATHS = [...SEMANTIC_BINDING_PATHS, ...EDUCATION_SEMANTIC_BINDING_PATHS, ...INTERNSHIP_SEMANTIC_BINDING_PATHS] as const;
+export const AWARD_SEMANTIC_BINDING_PATHS = [
+  'awards.name', 'awards.school', 'awards.category', 'awards.level', 'awards.issuer',
+  'awards.date', 'awards.description', 'awards.scholarshipLevel',
+] as const;
+const ALL_SEMANTIC_BINDING_PATHS = [...SEMANTIC_BINDING_PATHS, ...EDUCATION_SEMANTIC_BINDING_PATHS, ...INTERNSHIP_SEMANTIC_BINDING_PATHS, ...AWARD_SEMANTIC_BINDING_PATHS] as const;
 export type SemanticBindingPath = typeof ALL_SEMANTIC_BINDING_PATHS[number];
 
 export const semanticProposalSchema = z.object({
@@ -108,19 +112,34 @@ export const SEMANTIC_BINDING_INSTRUCTIONS = [
 ].join('\n');
 
 export const INTERNSHIP_SEMANTIC_BINDING_INSTRUCTIONS = SEMANTIC_BINDING_INSTRUCTIONS + ' Map only current creating internship field meanings. An experience existence question is not internships.hasProof; hasProof describes evidence for this individual record. Refuse concepts outside the fixed catalog. Never invent a personal fact, record index or page action.';
+export const AWARD_SEMANTIC_BINDING_INSTRUCTIONS = SEMANTIC_BINDING_INSTRUCTIONS + ' Map only field meanings in the current creating award editor. Never select a record or use the first award. Student cadre identity, scholarship eligibility, existence questions and uploads are outside this catalogue. Never derive scholarshipLevel from an award title or return any personal answer. Use only the eight allowedPaths or unresolved.';
+export const AWARD_SEMANTIC_BINDING_FORMAT = {
+  ...SEMANTIC_BINDING_FORMAT, name: 'award_field_bindings', schema: {
+    ...SEMANTIC_BINDING_FORMAT.schema, properties: {
+      ...SEMANTIC_BINDING_FORMAT.schema.properties, bindings: {
+        ...SEMANTIC_BINDING_FORMAT.schema.properties.bindings, items: {
+          ...SEMANTIC_BINDING_FORMAT.schema.properties.bindings.items, properties: {
+            ...SEMANTIC_BINDING_FORMAT.schema.properties.bindings.items.properties,
+            path: { type: 'string', enum: [...AWARD_SEMANTIC_BINDING_PATHS] },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 const publicFieldSchema = z.object({
   ref: z.string().regex(/^field-\d{1,2}$/u), fingerprint: z.string().regex(/^[a-f\d]{16,64}$/u),
   kind: z.enum(['input', 'textarea', 'select', 'radio']),
   type: z.enum(['text', 'search', 'email', 'tel', 'url', 'number', 'date', 'month', 'textarea', 'select', 'radio']),
-  section: z.enum(['basic', 'job-intent', 'project', 'education', 'internship', 'skill', 'other']), record: z.enum(['none', 'creating']),
+  section: z.enum(['basic', 'job-intent', 'project', 'education', 'internship', 'award', 'skill', 'other']), record: z.enum(['none', 'creating']),
   label: z.string().max(180), ariaLabel: z.string().max(180), tableHeader: z.string().max(180),
   title: z.string().max(180), placeholder: z.string().max(180),
   options: z.array(z.object({ ref: z.string().regex(/^option-\d{1,2}$/u), label: z.string().max(80) }).strict()).max(40),
 }).strict().superRefine((field, context) => {
   if ((field.kind !== 'input' && field.type !== field.kind) || (field.kind === 'input' && ['textarea', 'select', 'radio'].includes(field.type)))
     context.addIssue({ code: 'custom', path: ['type'], message: '控件类型不一致' });
-  if (['project', 'education', 'internship'].includes(field.section) !== (field.record === 'creating')) context.addIssue({ code: 'custom', path: ['record'], message: '栏目与新增状态不一致' });
+  if (['project', 'education', 'internship', 'award'].includes(field.section) !== (field.record === 'creating')) context.addIssue({ code: 'custom', path: ['record'], message: '栏目与新增状态不一致' });
   if (field.options.some((option, index) => option.ref !== `option-${index}`)) context.addIssue({ code: 'custom', path: ['options'], message: '选项引用必须连续' });
 });
 
@@ -131,7 +150,7 @@ const legacyRequestSchema = z.object({
   fields: z.array(publicFieldSchema).min(1).max(30),
 }).strict().superRefine((request, context) => {
   if (request.fields.some((field, index) => field.ref !== `field-${index}`)) context.addIssue({ code: 'custom', path: ['fields'], message: '字段引用必须连续' });
-  if (request.fields.some(field => ['education', 'internship'].includes(field.section))) context.addIssue({ code: 'custom', path: ['fields'], message: '旧协议不开放其他记录字段' });
+  if (request.fields.some(field => ['education', 'internship', 'award'].includes(field.section))) context.addIssue({ code: 'custom', path: ['fields'], message: '旧协议不开放其他记录字段' });
 });
 const educationRequestSchema = z.object({
   protocol: z.literal(2), requestId: z.uuid(),
@@ -151,11 +170,21 @@ const internshipRequestSchema = z.object({
   if (request.fields.some((field, index) => field.ref !== `field-${index}`)) context.addIssue({ code: 'custom', path: ['fields'], message: '字段引用必须连续' });
   if (request.fields.some(field => field.section !== 'internship' || field.record !== 'creating')) context.addIssue({ code: 'custom', path: ['fields'], message: '实习协议只开放新增实习字段' });
 });
-export const semanticRequestSchema = z.discriminatedUnion('protocol', [legacyRequestSchema, educationRequestSchema, internshipRequestSchema]);
+const awardRequestSchema = z.object({
+  protocol: z.literal(4), requestId: z.uuid(),
+  allowedPaths: z.array(z.enum(AWARD_SEMANTIC_BINDING_PATHS)).length(AWARD_SEMANTIC_BINDING_PATHS.length)
+    .refine(paths => paths.every((path, index) => path === AWARD_SEMANTIC_BINDING_PATHS[index]), '必须使用完整固定奖励目录'),
+  fields: z.array(publicFieldSchema).min(1).max(30),
+}).strict().superRefine((request, context) => {
+  if (request.fields.some((field, index) => field.ref !== `field-${index}`)) context.addIssue({ code: 'custom', path: ['fields'], message: '字段引用必须连续' });
+  if (request.fields.some(field => field.section !== 'award' || field.record !== 'creating')) context.addIssue({ code: 'custom', path: ['fields'], message: '奖励协议只开放新增奖励字段' });
+});
+export const semanticRequestSchema = z.discriminatedUnion('protocol', [legacyRequestSchema, educationRequestSchema, internshipRequestSchema, awardRequestSchema]);
 export type SemanticRequest = z.infer<typeof semanticRequestSchema>;
 export type SemanticProposal = z.infer<typeof semanticProposalSchema>;
 
 export function semanticPathAllowed(path: SemanticBindingPath, section: string, record: string): boolean {
+  if (path.startsWith('awards.')) return section === 'award' && record === 'creating';
   if (path.startsWith('internships.')) return section === 'internship' && record === 'creating';
   if (path.startsWith('education.')) return section === 'education' && record === 'creating';
   if (path.startsWith('projects.')) return section === 'project' && record === 'creating';
