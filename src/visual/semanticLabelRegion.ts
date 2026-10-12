@@ -1,4 +1,5 @@
 import type { CssRect } from './cropGeometry';
+import { captureControlLabels } from './controlLabels';
 
 export type SemanticLabelResult = { readonly state: 'eligible'; readonly region: CssRect }
   | { readonly state: 'rejected'; readonly reason: 'unproved-label-region' };
@@ -107,11 +108,12 @@ function inspectLabelRegion(
   node: HTMLInputElement | HTMLTextAreaElement, label: HTMLLabelElement, privateFacts: readonly string[], requireFacts: boolean,
 ): SemanticLabelResult {
   try {
+    const labels = captureControlLabels(node);
     if (document.defaultView?.top !== document.defaultView || !/^https?:/u.test(document.URL)
       || !(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) || !(label instanceof HTMLLabelElement)
       || node.ownerDocument !== document || label.ownerDocument !== document || !node.isConnected || !label.isConnected
       || node.getRootNode() !== document || label.getRootNode() !== document || !node.id || label.htmlFor !== node.id
-      || label.control !== node || node.labels?.length !== 1 || node.labels[0] !== label
+      || label.control !== node || !labels?.includes(label)
       || [...document.querySelectorAll('[id]')].filter(e => e.id === node.id).length !== 1
       || node.value !== '' || node.disabled || node.readOnly || node.matches(':disabled') || !visible(node) || !visible(label)
       || node.placeholder !== '' || label.childElementCount !== 0 || label.closest('a,button,[contenteditable]')

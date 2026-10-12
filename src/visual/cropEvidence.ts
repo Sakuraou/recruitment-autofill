@@ -1,9 +1,10 @@
 import { planCropGeometry, type CssRect, type CropGeometryResult, type ViewportGeometry } from './cropGeometry';
+import { sameControlLabels } from './controlLabels';
 
 /** Local caller seam, never a model/message payload. Scanner admission is still required. */
 export interface LocalCropContext {
   owner: object; scan: object; node: HTMLInputElement | HTMLTextAreaElement;
-  label: HTMLLabelElement; scope: 'ordinary' | 'repeated' | 'protected';
+  label: HTMLLabelElement; labels?: readonly HTMLLabelElement[]; scope: 'ordinary' | 'repeated' | 'protected';
   unanswered: boolean; signal: AbortSignal;
 }
 export interface CropEvidence { readonly kind: 'crop-geometry-proof' }
@@ -44,8 +45,10 @@ function admitted(c: LocalCropContext | undefined): c is LocalCropContext {
     || c.node.closest('a,button,[contenteditable="true"]') || !c.node.id || c.label.control !== c.node
     || !c.label.textContent?.trim() || c.label.htmlFor !== c.node.id
     || [...document.querySelectorAll('[id]')].filter(element => element.id === c.node.id).length !== 1) return false;
+  const labels = c.labels ?? [c.label];
+  if (labels[0] !== c.label || !sameControlLabels(c.node, labels) || labels.some(label => !visible(label) || !label.textContent?.trim())) return false;
   if (c.node instanceof HTMLInputElement && !['text', 'search', 'email', 'tel', 'url'].includes(c.node.type)) return false;
-  return !protectedMeaning.test([c.label.textContent, c.node.name, c.node.id, c.node.getAttribute('aria-label'),
+  return !protectedMeaning.test([...labels.map(label => label.textContent), c.node.name, c.node.id, c.node.getAttribute('aria-label'),
     c.node.getAttribute('title'), c.node.getAttribute('placeholder'), c.node.getAttribute('autocomplete')].join(' '));
 }
 function footprint(node: Node): string {
@@ -84,7 +87,8 @@ export function createCropEvidenceSession(current: () => LocalCropContext | unde
     const c = current(), time = clock();
     if (closed || issue.dirty || issue.observer.takeRecords().length || !admitted(c)
       || c.owner !== issue.context.owner || c.scan !== issue.context.scan || c.node !== issue.context.node
-      || c.label !== issue.context.label || c.signal !== issue.context.signal || !Number.isFinite(time)
+      || c.label !== issue.context.label || !sameControlLabels(c.node, issue.context.labels ?? [issue.context.label])
+      || c.signal !== issue.context.signal || !Number.isFinite(time)
       || time < issue.time || time - issue.time > 1000 || document.URL !== issue.url
       || JSON.stringify(viewport()) !== JSON.stringify(issue.viewport)) return false;
     return issue.page.every(p => p.node.isConnected && p.node.parentNode === p.parent
@@ -97,16 +101,16 @@ export function createCropEvidenceSession(current: () => LocalCropContext | unde
         if (closed || outstanding) return undefined;
         const context = current(), v = { ...viewport() }, time = clock();
         if (!admitted(context) || !Number.isFinite(time)) return undefined;
-        const field = bounds(context.node), label = bounds(context.label);
+        const field = bounds(context.node), labels = context.labels ?? [context.label], regions = labels.map(bounds);
         const image = { width: Math.round(v.width * v.dpr), height: Math.round(v.height * v.dpr) };
-        if ([field, label].some(target => planCropGeometry({ viewport: v, image, target, masks: [] }).state !== 'planned')) return undefined;
-        const target = union(field, label);
+        if ([field, ...regions].some(target => planCropGeometry({ viewport: v, image, target, masks: [] }).state !== 'planned')) return undefined;
+        const target = regions.reduce(union, field);
         if (planCropGeometry({ viewport: v, image, target, masks: [] }).state !== 'planned') return undefined;
         const page = pageSnapshot();
         const proof = Object.freeze({ kind: 'crop-geometry-proof' as const });
         const observer = new MutationObserver(() => { issue.dirty = true; });
         const invalidate = () => { issue.dirty = true; };
-        const issue: Issue = { context: { ...context }, viewport: v, target, page, url: document.URL, time, dirty: false,
+        const issue: Issue = { context: { ...context, labels: Object.freeze([...labels]) }, viewport: v, target, page, url: document.URL, time, dirty: false,
           observer, detach: () => {
             document.removeEventListener('input', invalidate, true); document.removeEventListener('change', invalidate, true);
             context.signal.removeEventListener('abort', invalidate);

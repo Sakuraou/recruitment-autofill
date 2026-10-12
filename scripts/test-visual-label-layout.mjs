@@ -36,7 +36,7 @@ try{
    if(mode==='shadow'){const host=document.createElement('span');host.attachShadow({mode:'open'}).innerHTML='<span>其他内容</span>';clip.append(host);}
   },mode);
   const result=await page.evaluate(()=>window.labelLayoutProbe());
-  assert.equal(result.state,['plain','svg','image'].includes(mode)?'eligible':'rejected',mode);report.checks.push({mode,result:result.state});
+  assert.equal(result.state,['plain','svg','image','second-label'].includes(mode)?'eligible':'rejected',mode);report.checks.push({mode,result:result.state});
  }
  await page.goto('http://127.0.0.1:8123/label-layout-check?mode=change');await page.addScriptTag({content:bundle.outputFiles[0].text});
  await page.evaluate(()=>{const clip=document.createElement('div');clip.className='decoration';clip.innerHTML='<img style="overflow:visible" width="40" height="40" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">';document.body.append(clip);});

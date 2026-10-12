@@ -5,6 +5,7 @@ import { createCropEvidenceSession, type CropEvidence, type CropEvidenceSession 
 import { verifyScanObservation } from '../content/scanFreshness';
 import { agentOptionFieldIds } from '../agent/optionFieldScope';
 import { detectField } from '../matching/fieldMatcher';
+import { captureControlLabels, sameControlLabels } from './controlLabels';
 export interface ScanCropDependencies {
   lease: AgentPageLease; getScan(): ScanState | undefined; occupied(): boolean;
   viewport(): ViewportGeometry; clock?(): number;
@@ -20,14 +21,14 @@ export class ScanCropAdmission {
     return this.#deps.lease.holdsPage() && this.#deps.lease.mayWrite(token) && !this.#deps.occupied()
       && (!scan || this.#deps.getScan() === scan);
   }
-  #field(scan: ScanState, fieldId: string): { node: HTMLInputElement | HTMLTextAreaElement; label: HTMLLabelElement } | undefined {
+  #field(scan: ScanState, fieldId: string): { node: HTMLInputElement | HTMLTextAreaElement; label: HTMLLabelElement; labels: readonly HTMLLabelElement[] } | undefined {
     const field = scan.result.fields.find(f => f.id === fieldId), control = scan.controls.get(fieldId);
     if (scan.document !== document || !field || !control || control.adapter !== undefined
       || !(control.node instanceof HTMLInputElement || control.node instanceof HTMLTextAreaElement)
       || field.hasValue || field.blockedReason || field.disabled || field.readOnly
       || !agentOptionFieldIds(scan.result).has(fieldId) || detectField(field) || !verifyScanObservation(scan)) return undefined;
-    const labels = control.node.labels;
-    return labels?.length === 1 ? { node: control.node, label: labels[0]! } : undefined;
+    const labels = captureControlLabels(control.node);
+    return labels ? { node: control.node, label: labels[0]!, labels } : undefined;
   }
   issue(token: string, fieldId: string): CropEvidence | undefined {
     try {
@@ -43,7 +44,7 @@ export class ScanCropAdmission {
       const session = createCropEvidenceSession(() => {
         if (!this.#holds(token, scan) || this.#ledger !== ledger || ledger.revoked) return undefined;
         const current = this.#field(scan, fieldId);
-        return current?.node === field.node && current.label === field.label
+        return current?.node === field.node && sameControlLabels(current.node, field.labels)
           ? { owner: ledger.owner, scan, ...field, scope: 'ordinary', unanswered: true, signal: controller.signal } : undefined;
       }, this.#deps.viewport, this.#deps.clock);
       const proof = session.issue();

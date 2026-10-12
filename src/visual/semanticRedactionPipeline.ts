@@ -14,7 +14,7 @@ export class SemanticRedactionPipeline {
     try {
       const owned = this.#admission.consumePlan(plan, image);
       if (!owned) return Object.freeze({ state: 'rejected', reason: 'unproved-redaction' });
-      return redactLocalPixels({ image, crop: owned.geometry.crop, keep: [owned.keep], masks: owned.geometry.masks });
+      return redactLocalPixels({ image, crop: owned.geometry.crop, keep: owned.keeps ?? [owned.keep], masks: owned.geometry.masks });
     } catch { return Object.freeze({ state: 'rejected', reason: 'unproved-redaction' }); }
   }
 }

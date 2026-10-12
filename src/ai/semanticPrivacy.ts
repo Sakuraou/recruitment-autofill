@@ -8,9 +8,12 @@ export function semanticRedactor(profile: unknown): (text: string) => string {
   };
   collect(profile);
   const escaped = [...literals].sort((a, b) => b.length - a.length).map(value => {
-    const literal = value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    // A fact can be split across explicit labels or layout whitespace. Redact
+    // it before any text metadata leaves the local profile, just as for images.
+    const compact = value.replace(/\s/gu, '');
+    const literal = [...compact].map(character => character.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('\\s*');
     // Single Latin letters (e.g. C) must not consume the letters in a field label.
-    return /^[a-z\d]{1,2}$/iu.test(value) ? `(?<![\\p{L}\\p{N}])${literal}(?![\\p{L}\\p{N}])` : literal;
+    return /^[a-z\d]{1,2}$/iu.test(compact) ? `(?<![\\p{L}\\p{N}])${literal}(?![\\p{L}\\p{N}])` : literal;
   });
   const pattern = escaped.length ? new RegExp(escaped.join('|'), 'giu') : undefined;
   return text => {
