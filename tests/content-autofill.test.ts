@@ -9,6 +9,23 @@ function fill(state: ScanState, values: string[], confirmed = true) {
 }
 
 describe('安全填写原生 HTML 控件', () => {
+  it('checks the local candidate restriction before native writes without activating a rejected field',async()=>{
+    const state=prepare('<label>姓名<input id="fictional-name"></label>'),guard=vi.fn(()=>false),input=document.querySelector('input')!;
+    let events=0;input.addEventListener('input',()=>events++);
+    const result=await fillScan(state,{scanId:state.result.scanId,items:[{fieldId:state.result.fields[0]!.id,value:'虚构姓名',confirmed:true}]},undefined,undefined,undefined,guard);
+    expect(result[0]?.status).toBe('skipped');expect(result[0]?.reason).toContain('显示或候选归属');expect(input.value).toBe('');expect(events).toBe(0);
+  });
+  it('rechecks each native item after the previous field event and preserves the first verified write',async()=>{
+    const state=prepare('<label>姓名<input id="fictional-name"></label><label>邮箱<input id="fictional-email" type="email"></label>');let current=true;
+    document.querySelector('#fictional-name')!.addEventListener('input',()=>{current=false});
+    const result=await fillScan(state,{scanId:state.result.scanId,items:state.result.fields.map((field,index)=>({fieldId:field.id,value:index?'fictional@example.invalid':'虚构姓名',confirmed:true}))},undefined,undefined,undefined,()=>current);
+    expect(result.map(item=>item.status)).toEqual(['filled','skipped']);expect(document.querySelector<HTMLInputElement>('#fictional-name')!.value).toBe('虚构姓名');expect(document.querySelector<HTMLInputElement>('#fictional-email')!.value).toBe('');
+  });
+  it('preserves existing values before evaluating a stale visual restriction',async()=>{
+    const state=prepare('<label>姓名<input value="用户已有内容"></label>'),guard=vi.fn(()=>false);
+    const result=await fillScan(state,{scanId:state.result.scanId,items:[{fieldId:state.result.fields[0]!.id,value:'虚构姓名',confirmed:true}]},undefined,undefined,undefined,guard);
+    expect(result[0]?.reason).toContain('已有内容');expect(document.querySelector('input')!.value).toBe('用户已有内容');expect(guard).not.toHaveBeenCalled();
+  });
   it.each(['inside', 'hidden', 'form-associated'])('扫描后同原生单选组新增%s成员，不点击旧选项或清除新成员原值', async mode => {
     const state = prepare('<form id="fictional-form"><p>性别</p><label><input type="radio" name="gender">男</label><label><input type="radio" name="gender">女</label></form>');
     const extra = document.createElement('input'); extra.type = 'radio'; extra.name = 'gender';

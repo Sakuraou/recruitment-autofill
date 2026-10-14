@@ -9,7 +9,8 @@ import { createLocalPngEncoder } from '../visual/localPngEncoder';
 import { runSemanticVisualImage } from '../visual/semanticVisualImageWorkflow';
 import { currentShadowPaintAbsent } from '../visual/shadowPaint';
 import { createSemanticPaintFreshness, type SemanticPaintFreshness } from '../visual/semanticPaintFreshness';
-interface Dependencies {lease:AgentPageLease;getScan():ScanState|undefined;occupied():boolean;extensionId:string;popupUrl:string}
+interface Dependencies {lease:AgentPageLease;getScan():ScanState|undefined;occupied():boolean;extensionId:string;popupUrl:string;
+ remember?(scan:ScanState,fieldId:string,paint:SemanticPaintFreshness):boolean}
 /** Production composition: only semantic request and redacted pixels cross content; profiles stay trusted. */
 export function createProfileFreeVisualCoordinator(deps:Dependencies){
  const current=(intent:{token:string;scanId:string;fieldId:string})=>!deps.occupied()&&deps.lease.mayWrite(intent.token)
@@ -41,7 +42,10 @@ export function createProfileFreeVisualCoordinator(deps:Dependencies){
     if(!live()||admission.inspect(intent.token,intent.fieldId)!=='eligible')return {state:'manual',reason:'stale-page'};
     const result=await requestVisualSemanticFromContent({lease:deps.lease,token:intent.token,request:intent.semanticRequest,image:pixels.image,userConfirmed:true});
     if(!live()||admission.inspect(intent.token,intent.fieldId)!=='eligible')return {state:'manual',reason:'stale-page'};
-    if(result.state==='ready')return {state:'proposal',proposal:result.proposal};
+    if(result.state==='ready'){
+     if(!paint||deps.remember&&!deps.remember(scan,intent.fieldId,paint))return {state:'manual',reason:'stale-page'};
+     return {state:'proposal',proposal:result.proposal};
+    }
     return {state:'manual',reason:result.reason==='invalid-output'?'invalid-proposal':result.reason==='disabled'?'disabled':result.reason==='owner-ended'||result.reason==='cancelled'?'stale-page':'unavailable'};
    }finally{clearInterval(shadowWatch);observer.disconnect();scan.document.removeEventListener('input',cancel,true);scan.document.removeEventListener('change',cancel,true);signal.removeEventListener('abort',cancel)}
   }});

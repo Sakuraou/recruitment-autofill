@@ -65,7 +65,7 @@ export interface FillScanInteractionTrace { readonly ariaComboboxAttempts: Set<E
 
 /** Only explicit requests from the extension UI are executed; the page is never submitted. */
 export async function fillScan(state: ScanState, request: FillRequest, signal?: AbortSignal, trace?: FillScanInteractionTrace,
-  beforeWrite?: () => boolean): Promise<FillOutcome[]> {
+  beforeWrite?: () => boolean, fieldCurrent?: (fieldId: string) => boolean): Promise<FillOutcome[]> {
   const outcomes: FillOutcome[] = [];
   const seen = new Set<string>();
   for (const item of request.items) {
@@ -183,6 +183,7 @@ export async function fillScan(state: ScanState, request: FillRequest, signal?: 
     try {
       const problem = candidateProblem(node, item.value, current);
       if (problem) { skip(problem); continue; }
+      if (fieldCurrent && !fieldCurrent(item.fieldId)) { skip('字段的显示或候选归属已变化，请重新扫描并核对'); continue; }
       const adapter = createControlAdapter(node);
       const pending = adapter.write(item.value, signal);
       const result = isPromiseLike(pending) ? await pending : pending;

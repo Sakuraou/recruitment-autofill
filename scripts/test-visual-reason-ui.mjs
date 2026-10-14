@@ -11,6 +11,7 @@ const focused = process.env.RA_VISUAL_TEST_FOCUS === 'reasons';
 const transparentSuite = process.env.RA_VISUAL_TEST_FOCUS === 'transparent';
 const unclippedSuite = process.env.RA_VISUAL_TEST_FOCUS === 'unclipped';
 const paintSuite = process.env.RA_VISUAL_TEST_FOCUS === 'paint';
+const reviewSuite = process.env.RA_VISUAL_TEST_FOCUS === 'review';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -95,7 +96,7 @@ try {
     const url = route.request().url();
     if (url.startsWith('chrome-extension://') || url.startsWith('http://127.0.0.1:43127/')) return route.continue();
     if (url.startsWith('http://127.0.0.1:8123/agent-visual')) {
-      const mode = new URL(url).searchParams.get('mode'), count = mode === 'budget' ? 4 : mode === 'mixed-layout' ? 2 : 1;
+      const mode = new URL(url).searchParams.get('mode'), count = mode === 'budget' ? 4 : mode?.endsWith('-batch') ? 3 : mode === 'mixed-layout' ? 2 : 1;
       const inputs = Array.from({ length: count }, (_, i) => {
         let text='陌生问题'+['甲','乙','丙','丁'][i];
         if(mode.startsWith('inline-'))text='<span>'+text+'</span>';
@@ -114,7 +115,7 @@ try {
         const height=mode==='inline-lines'?48:24;
         const unclipped=mode.startsWith('unclipped-'),translucent=mode.startsWith('transparent-')||unclipped;
         const second=['inline-multi','transparent-multi','unclipped-multi'].includes(mode)?`<label for="unknown${i}" style="display:block;margin-top:8px;${translucent?'margin-left:20px;':''}width:160px;height:24px;overflow:${unclipped?'visible':'hidden'};background:${translucent?'transparent':'white'};color:black"><span>附加问题甲</span></label>`:'';
-        const block=translucent?'left:80px;top:80px;width:220px;height:160px;background:white':'left:100px;top:'+String(100+i*100)+'px;width:200px;height:'+String(mode==='inline-multi'||mode==='inline-lines'?160:90)+'px';
+        const block=translucent?'left:80px;top:'+String(80+i*180)+'px;width:220px;height:160px;background:white':'left:100px;top:'+String(100+i*100)+'px;width:200px;height:'+String(mode==='inline-multi'||mode==='inline-lines'?160:90)+'px';
         return `<div class="surface" style="position:absolute;${block}"><label style="display:block;${translucent?'margin-left:20px;margin-top:20px;':''}width:160px;height:${height}px;overflow:${unclipped?'visible':'hidden'};background:${translucent||mode==='mixed-layout'&&i===1?'transparent':'white'};color:black" for="unknown${i}">${text}</label>${second}<input style="display:block;margin-top:12px;${translucent?'margin-left:20px;':''}width:160px;height:24px" id="unknown${i}" ${mode==='existing'?'value="用户已填"':''} required></div>`;
       }).join('');
       const isImage = mode === 'own-image' || mode === 'decoration-image';
@@ -149,6 +150,7 @@ try {
         if(mode==='transparent-unclipped')label.style.overflow='visible';
         if(mode==='transparent-overlay'){const input=document.createElement('input');input.value='已有私密信息';input.style.cssText='position:absolute;left:100px;top:100px;width:150px;height:24px';input.setAttribute('aria-hidden','true');document.body.append(input);}
         if(mode==='transparent-closed')panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';
+        if(unclipped&&mode==='transparent-css-agent-batch')document.querySelector('#unknown0').addEventListener('input',()=>{const sheet=document.querySelector('#fixture-rules').sheet;sheet.insertRule('label[for="unknown1"]::before{content:"变更后的问题"}',sheet.cssRules.length)},{once:true});
       })()</script>`:'';
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
     }
@@ -225,7 +227,7 @@ try {
         if (result.result !== 'undefined') throw Error('test capability unavailable simulation failed');
       }, form.url());
     }
-    if(action==='standalone'){
+    if(action==='standalone'||action==='review-fill'){
       await click('扫描页面');await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='局部截图识别未知字段'&&!b.disabled)");
       await click('局部截图识别未知字段');
     }else await click('启动 Agent 连续填写');
@@ -235,6 +237,23 @@ try {
       await mutate(form, click, worker);
     }
     await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='启动 Agent 连续填写'&&!b.disabled)");
+    if(action==='review-fill'){
+      const count=mode.endsWith('-batch')?3:1;
+      await wait(`document.querySelector('.notice')?.textContent.includes('局部截图识别得到 ${count} 项候选')`);
+      await form.evaluate(mode=>{
+        const sheet=document.querySelector('#fixture-rules').sheet,label=document.querySelector('label');
+        if(mode.endsWith('-post-rule'))sheet.insertRule('label::before{content:"变更后的问题"}',sheet.cssRules.length);
+        if(mode.endsWith('-post-disabled'))sheet.disabled=true;
+        if(mode.endsWith('-post-adopted')){const added=new CSSStyleSheet();added.replaceSync('label::before{content:"变更后的问题"}');document.adoptedStyleSheets.push(added);}
+        if(mode.endsWith('-post-shadow'))document.querySelector('.surface').attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>变更后的问题</b>';
+        if(mode.endsWith('-post-replace'))label.replaceWith(label.cloneNode(true));
+        if(mode.endsWith('-post-batch'))document.querySelector('#unknown0').addEventListener('input',()=>sheet.insertRule('label[for="unknown1"]::before{content:"变更后的问题"}',sheet.cssRules.length),{once:true});
+      },mode);
+      if(mode.endsWith('-post-manual'))await form.locator('#unknown0').fill('用户手改');
+      await evaluate("(()=>{const labels=[...document.querySelectorAll('label')].filter(label=>label.textContent.includes('我已核对这个候选'));if(!labels.length)throw Error('candidate confirmation missing');for(const label of labels)label.querySelector('input').click();return true})()");
+      await wait(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='确认填写已勾选的 ${count} 项'&&!b.disabled)`);
+      await click(`确认填写已勾选的 ${count} 项`);await wait("document.querySelector('.notice')?.textContent.startsWith('已填写 ')");
+    }
     if (mutate) { for (let i = 0; i < 100 && cancelled === cancelledBefore; i++) await new Promise(resolve => setTimeout(resolve, 25)); assert.ok(cancelled > cancelledBefore); }
     if (mode === 'late') { assert.ok(lateResponse); lateResponse(); await new Promise(resolve => setTimeout(resolve, 250)); }
     const text = await evaluate('document.body.innerText'), values = await form.locator('input').evaluateAll(inputs => inputs.map(input => input.value));
@@ -246,7 +265,16 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(paintSuite){
+  if(reviewSuite){
+    for(const mode of ['unclipped-css-post-normal','unclipped-css-post-normal-batch','unclipped-css-post-rule','unclipped-css-post-disabled','unclipped-css-post-adopted','unclipped-css-post-shadow','unclipped-css-post-replace','unclipped-css-post-manual','unclipped-css-post-batch']){
+      const result=await scenario(mode,true,undefined,'review-fill');const expected=mode.endsWith('-post-normal')?['本机虚构姓名']:mode.endsWith('-normal-batch')?Array(3).fill('本机虚构姓名'):mode.endsWith('-post-batch')?['本机虚构姓名','','']:mode.endsWith('-post-manual')?['用户手改']:[''];
+      assert.deepEqual(result.values,expected,mode);assert.equal(result.requests.filter(kind=>kind==='visual').length,expected.length);
+      const filled=expected.filter(value=>value==='本机虚构姓名').length;assert.ok(result.text.includes('已填写 '+filled+' 项'));
+      report.checks.push(mode+' uses original candidate paint at each confirmed native write and preserves existing values');
+    }
+    const batch=await scenario('unclipped-css-agent-batch',true);assert.deepEqual(batch.values,['本机虚构姓名','','']);assert.equal(batch.requests.filter(kind=>kind==='visual').length,3);assert.ok(!batch.text.includes('本页可访问且支持的任务已核验完成'));
+    report.checks.push('Agent checks original candidate paint before each write after the previous native event and retains only the first verified value');
+  }else if(paintSuite){
     const modes=process.env.RA_VISUAL_PAINT_BASELINE==='1'?['unclipped-css-rule']:['unclipped-css-rule','unclipped-css-disabled','unclipped-css-adopted','unclipped-css-replace','unclipped-css-property','unclipped-css-media'];
     for(const mode of modes){
       const result=await scenario(mode,true,async form=>{

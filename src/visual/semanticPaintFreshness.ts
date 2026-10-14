@@ -2,6 +2,11 @@ import { captureControlLabels, sameControlLabels } from './controlLabels';
 
 /** A local read-only predicate, not a capture proof or permission to write. */
 export interface SemanticPaintFreshness { isCurrent(): boolean }
+const originalNodes = new WeakMap<SemanticPaintFreshness, HTMLInputElement | HTMLTextAreaElement>();
+/** Private local identity only; structural copies and wire objects do not match. */
+export function semanticPaintFreshnessMatches(guard: SemanticPaintFreshness, node: HTMLInputElement | HTMLTextAreaElement): boolean {
+  return originalNodes.get(guard) === node;
+}
 const pseudoProperties = ['content','display','visibility','opacity','font-family','font-size','font-weight','font-style',
   'line-height','letter-spacing','word-spacing','text-indent','text-transform','text-shadow','color','background-color',
   'background-image','transform','filter','position','left','top','width','height'];
@@ -91,7 +96,7 @@ export function createSemanticPaintFreshness(node: HTMLInputElement | HTMLTextAr
     if (targets.reduce((size,target)=>size+target.signature.length,0)>512_000) return undefined;
     const sheets=sheetState(doc),viewport=viewportSignature(doc),text=textGeometry(labels);
     let ended = false;
-    return Object.freeze({isCurrent(): boolean {
+    const guard=Object.freeze({isCurrent(): boolean {
       if (ended) return false;
       try {
         const next=sheetState(doc);
@@ -106,5 +111,6 @@ export function createSemanticPaintFreshness(node: HTMLInputElement | HTMLTextAr
         return current;
       } catch { ended=true; return false; }
     }});
+    originalNodes.set(guard,node); return guard;
   } catch { return undefined; }
 }

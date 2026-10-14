@@ -1,4 +1,5 @@
 import { createProfileFreeVisualCoordinator } from './profileFreeVisualCoordinator';
+import { VisualCandidatePaint } from './visualCandidatePaint';
 import { z } from 'zod';
 import { AgentPageLease } from '../agent/pageLease';
 import { verifyRecordPresence } from '../agent/recordCompletion';
@@ -100,6 +101,7 @@ const requestSchema = z.discriminatedUnion('type', [
 if (!window.__recruitmentAutofillInstalled && window.top === window) {
   window.__recruitmentAutofillInstalled = true;
   let currentScan: ScanState | undefined;
+  const visualPaint = new VisualCandidatePaint();
   let filling = false;
   const workflow = new MobileWorkflow(() => { currentScan = undefined; });
   const studentWorkWorkflow = new StudentWorkRecordWorkflow(document, requestStudentWorkProjection,
@@ -133,7 +135,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
   bindCaptureLifecycleToOwner(agentLease, ownerCaptureLifecycle);
   const optionObservation: OptionObservationSession = new OptionObservationSession({ extensionId: chrome.runtime.id, popupUrl: chrome.runtime.getURL('popup.html'), lease: agentLease,
     getScan: () => currentScan, occupied: occupiedByOtherTask });
-  chrome.runtime.onConnect.addListener(createProfileFreeVisualCoordinator({extensionId:chrome.runtime.id,popupUrl:chrome.runtime.getURL('popup.html'),lease:agentLease,getScan:()=>currentScan,occupied:()=>occupiedByOtherTask()||optionObservation.holdsPage()}));
+  chrome.runtime.onConnect.addListener(createProfileFreeVisualCoordinator({extensionId:chrome.runtime.id,popupUrl:chrome.runtime.getURL('popup.html'),lease:agentLease,getScan:()=>currentScan,occupied:()=>occupiedByOtherTask()||optionObservation.holdsPage(),
+    remember:(scan,id,paint)=>currentScan===scan&&visualPaint.remember(scan,id,paint)}));
   const ownedAgentWorkflows = new Set<{ holdsPage(): boolean; stop(): unknown }>();
   chrome.runtime.onConnect.addListener(createAgentOwnerPortHandler({ extensionId: chrome.runtime.id,
     extensionUrl: path => chrome.runtime.getURL(path), version: EXTENSION_VERSION, lease: agentLease,
@@ -153,7 +156,8 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
       signal.throwIfAborted();
       if (request.type === 'RA_FILL') {
         if (!currentScan) throw new Error('scan missing');
-        return fillScan(currentScan, request.payload, signal);
+        const scan=currentScan;
+        return fillScan(scan, request.payload, signal,undefined,undefined,id=>visualPaint.isCurrent(scan,id));
       }
       const originalUrl = document.URL; currentScan = undefined;
       const result = await waitForDomStability({ root: document.documentElement, quietWindowMs: 750, timeoutMs: 3000,
@@ -345,13 +349,14 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     }
     if (!currentScan) { sendResponse({ ok: false, error: '请先扫描当前页面' }); return false; }
     if (request.type === 'RA_VERIFY_SCAN') {
-      const valid = currentScan.result.scanId === request.payload.scanId && verifyScanObservation(currentScan);
+      const valid = currentScan.result.scanId === request.payload.scanId && visualPaint.isCurrent(currentScan) && verifyScanObservation(currentScan);
       sendResponse(valid ? { ok: true, data: valid } : { ok: false, error: '网页内容已变化，已丢弃旧的 AI 结果。请重新扫描。' });
       return false;
     }
     if (!agentLease.mayWrite()) { sendResponse({ ok: false, error: 'Agent 正在处理本页，请先停止' }); return false; }
     filling = true;
-    void fillScan(currentScan, request.payload)
+    const scan=currentScan;
+    void fillScan(scan, request.payload,undefined,undefined,undefined,id=>visualPaint.isCurrent(scan,id))
       .then((outcomes) => sendResponse({ ok: true, data: outcomes }))
       .catch(() => sendResponse({ ok: false, error: '填写失败，请检查页面并重新扫描' }))
       .finally(() => { filling = false; });
