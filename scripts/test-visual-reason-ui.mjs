@@ -10,6 +10,7 @@ const reportPath = process.env.RA_VISUAL_TEST_REPORT ?? 'artifacts/i014e-visual-
 const focused = process.env.RA_VISUAL_TEST_FOCUS === 'reasons';
 const transparentSuite = process.env.RA_VISUAL_TEST_FOCUS === 'transparent';
 const unclippedSuite = process.env.RA_VISUAL_TEST_FOCUS === 'unclipped';
+const paintSuite = process.env.RA_VISUAL_TEST_FOCUS === 'paint';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -125,6 +126,7 @@ try {
       const overlay=mode==='blocked-aria-overlay'||mode==='blocked-inert-overlay'?`<input ${mode==='blocked-aria-overlay'?'aria-hidden="true"':'inert'} style="position:absolute;left:100px;top:100px;width:150px;height:24px" value="已有私密信息">`:'';
       const pseudo=mode==='blocked-pseudo'?'<style>.generated::before{content:"其他文字"}</style>':'';
       const shadow=mode==='blocked-closed-shadow'?'<script>document.querySelector("label span").attachShadow({mode:"closed"}).innerHTML="<b>本机虚构姓名</b>"</script>':mode==='blocked-ancestor-shadow'?'<script>document.querySelector("section").attachShadow({mode:"closed"}).innerHTML="<slot></slot><b style=position:absolute;left:100px;top:100px>本机虚构姓名</b>"</script>':'';
+      const paintFixture=mode.includes('-css-')?'<style id="fixture-rules">.surface{background-color:#ddeeff!important}label{color:black!important}</style><script>window.fixtureSheet=new CSSStyleSheet();window.fixtureSheet.replaceSync("label{letter-spacing:normal}");document.adoptedStyleSheets=[window.fixtureSheet];</script>':'';
       const backdrop=/^(?:transparent|unclipped)-/u.test(mode)?`<script>(()=>{const mode=${JSON.stringify(mode.replace(/^unclipped-/u,'transparent-'))},unclipped=${mode.startsWith('unclipped-')},panel=document.querySelector('.surface'),label=document.querySelector('label');
         if(unclipped&&mode==='transparent-inline'){label.style.display='inline';label.style.width='auto';label.style.height='auto';panel.style.padding='20px';panel.style.boxSizing='border-box';label.style.margin='0';document.querySelector('input').style.marginLeft='0';}
         if(unclipped&&mode==='transparent-inline-block')label.style.display='inline-block';
@@ -148,7 +150,7 @@ try {
         if(mode==='transparent-overlay'){const input=document.createElement('input');input.value='已有私密信息';input.style.cssText='position:absolute;left:100px;top:100px;width:150px;height:24px';input.setAttribute('aria-hidden','true');document.body.append(input);}
         if(mode==='transparent-closed')panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';
       })()</script>`:'';
-      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
     }
     report.externalRequests.push(url); return route.abort();
   });
@@ -180,11 +182,15 @@ try {
     });
     const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] });
     const tab = targetInfos.find(target => target.url === form.url()); assert.ok(tab);
-    await cdp.send('Extensions.triggerAction', { id, targetId: tab.targetId });
     let popupTarget;
-    for (let i = 0; i < 50; i++) {
-      popupTarget = (await cdp.send('Target.getTargets')).targetInfos.find(target => target.url === `chrome-extension://${id}/popup.html`);
-      if (popupTarget) break; await new Promise(resolve => setTimeout(resolve, 50));
+    for(let attempt=0;attempt<3&&!popupTarget;attempt++){
+      // Some disposable headless windows lose their first action dispatch.
+      // Retry only opening a missing popup, before any scan, model or fill.
+      await cdp.send('Extensions.triggerAction', { id, targetId: tab.targetId });
+      for (let i = 0; i < 50; i++) {
+        popupTarget = (await cdp.send('Target.getTargets')).targetInfos.find(target => target.url === `chrome-extension://${id}/popup.html`);
+        if (popupTarget) break; await new Promise(resolve => setTimeout(resolve, 50));
+      }
     }
     assert.ok(popupTarget);
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: popupTarget.targetId, flatten: false });
@@ -240,7 +246,30 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(transparentSuite||unclippedSuite){
+  if(paintSuite){
+    const modes=process.env.RA_VISUAL_PAINT_BASELINE==='1'?['unclipped-css-rule']:['unclipped-css-rule','unclipped-css-disabled','unclipped-css-adopted','unclipped-css-replace','unclipped-css-property','unclipped-css-media'];
+    for(const mode of modes){
+      const result=await scenario(mode,true,async form=>{
+        const records=await form.evaluate(async mode=>{
+          const observer=new MutationObserver(()=>{});observer.observe(document.documentElement,{subtree:true,attributes:true,childList:true,characterData:true});
+          const sheet=document.querySelector('#fixture-rules').sheet;
+          if(mode.endsWith('-rule'))sheet.insertRule('label::before{content:"变更后的问题"}',sheet.cssRules.length);
+          if(mode.endsWith('-disabled'))sheet.disabled=true;
+          if(mode.endsWith('-adopted')){const added=new CSSStyleSheet();added.replaceSync('label::before{content:"变更后的问题"}');document.adoptedStyleSheets=[...document.adoptedStyleSheets,added];}
+          if(mode.endsWith('-replace'))window.fixtureSheet.replaceSync('label::before{content:"变更后的问题"}');
+          if(mode.endsWith('-property'))sheet.cssRules[1].style.setProperty('color','red','important');
+          if(mode.endsWith('-media'))sheet.media.mediaText='not all';
+          const records=observer.takeRecords().length;observer.disconnect();return records;
+        },mode);assert.equal(records,0,'CSSOM fixture must not generate a DOM mutation');
+        await new Promise(resolve=>setTimeout(resolve,750));assert.ok(lateResponse);lateResponse();
+        if(process.env.RA_VISUAL_PAINT_BASELINE==='1'){
+          await new Promise(resolve=>setTimeout(resolve,500));report.paintBaselineValues=await form.locator('input').evaluateAll(inputs=>inputs.map(input=>input.value));
+        }
+      });
+      assert.deepEqual(result.values,['']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' cancels the image request and rejects its late proposal despite zero DOM mutation');
+    }
+  }else if(transparentSuite||unclippedSuite){
     for(const mode of (unclippedSuite?['unclipped-block','unclipped-inline','unclipped-inline-block','unclipped-nested','unclipped-star','unclipped-lines','unclipped-multi']:['transparent-panel','transparent-tint','transparent-body','transparent-grandparent','transparent-nested','transparent-multi','transparent-unclipped'])){
       const result=await scenario(mode,true);assert.deepEqual(result.values,['本机虚构姓名']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);
       assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));report.checks.push(mode+' retains only original label PNG islands and fills the verified local fact');
