@@ -11,6 +11,7 @@ const descriptions: Record<VisualSkipReason, string> = {
   'browser-capability': '当前浏览器缺少截图所需的页面检查能力，已保留待办',
   'unsupported-component': '页面含暂不支持截图识别的组件，已保留待办',
   'unsupported-layout': '标签布局暂不支持截图识别，可查看文字识别结果或手动填写',
+  'outside-viewport': '字段或标签不在截图范围内，请调整页面位置后重新扫描识别',
 };
 export function describeVisualSkips(outcome:VisualOutcome):string {
   return (Object.keys(descriptions) as VisualSkipReason[]).filter(key=>(outcome.skipped[key]??0)>0)

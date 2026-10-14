@@ -12,6 +12,7 @@ const transparentSuite = process.env.RA_VISUAL_TEST_FOCUS === 'transparent';
 const unclippedSuite = process.env.RA_VISUAL_TEST_FOCUS === 'unclipped';
 const paintSuite = process.env.RA_VISUAL_TEST_FOCUS === 'paint';
 const reviewSuite = process.env.RA_VISUAL_TEST_FOCUS === 'review';
+const viewportSuite = process.env.RA_VISUAL_TEST_FOCUS === 'viewport';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -151,6 +152,11 @@ try {
         if(mode==='transparent-overlay'){const input=document.createElement('input');input.value='已有私密信息';input.style.cssText='position:absolute;left:100px;top:100px;width:150px;height:24px';input.setAttribute('aria-hidden','true');document.body.append(input);}
         if(mode==='transparent-closed')panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';
         if(unclipped&&mode==='transparent-css-agent-batch')document.querySelector('#unknown0').addEventListener('input',()=>{const sheet=document.querySelector('#fixture-rules').sheet;sheet.insertRule('label[for="unknown1"]::before{content:"变更后的问题"}',sheet.cssRules.length)},{once:true});
+        if(unclipped&&mode==='transparent-css-viewport-below')panel.style.top='1600px';
+        if(unclipped&&mode==='transparent-css-viewport-right')panel.style.left='2000px';
+        if(unclipped&&mode==='transparent-css-viewport-partial')panel.style.left='-30px';
+        if(unclipped&&mode==='transparent-css-viewport-control'){panel.style.height='2000px';document.querySelector('input').style.marginTop='1500px';}
+        if(unclipped&&mode==='transparent-css-viewport-wide')document.querySelector('input').style.width='2000px';
       })()</script>`:'';
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
     }
@@ -265,7 +271,15 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(reviewSuite){
+  if(viewportSuite){
+    for(const mode of (process.env.RA_VISUAL_VIEWPORT_BASELINE==='1'?['unclipped-css-viewport-below']:['unclipped-css-viewport-below','unclipped-css-viewport-right','unclipped-css-viewport-partial','unclipped-css-viewport-control','unclipped-css-viewport-wide'])){
+      for(const action of (process.env.RA_VISUAL_VIEWPORT_BASELINE==='1'?['agent']:['agent','standalone'])){
+        const result=await scenario(mode,true,undefined,action);assert.deepEqual(result.values,['']);assert.equal(result.requests.filter(kind=>kind==='visual').length,0);
+        assert.ok(result.text.includes('字段或标签不在截图范围内'),mode+' must show viewport cause');assert.ok(!result.text.includes('请检查本机服务及图片模型'));
+        report.checks.push(mode+' in '+action+' reports outside-viewport with zero image inference and zero writes');
+      }
+    }
+  }else if(reviewSuite){
     for(const mode of ['unclipped-css-post-normal','unclipped-css-post-normal-batch','unclipped-css-post-rule','unclipped-css-post-disabled','unclipped-css-post-adopted','unclipped-css-post-shadow','unclipped-css-post-replace','unclipped-css-post-manual','unclipped-css-post-batch']){
       const result=await scenario(mode,true,undefined,'review-fill');const expected=mode.endsWith('-post-normal')?['本机虚构姓名']:mode.endsWith('-normal-batch')?Array(3).fill('本机虚构姓名'):mode.endsWith('-post-batch')?['本机虚构姓名','','']:mode.endsWith('-post-manual')?['用户手改']:[''];
       assert.deepEqual(result.values,expected,mode);assert.equal(result.requests.filter(kind=>kind==='visual').length,expected.length);

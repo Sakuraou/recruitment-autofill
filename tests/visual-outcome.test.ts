@@ -3,7 +3,7 @@ import { describeVisualOutcome, describeVisualSkips } from '../src/popup/visualO
 it('explains no eligible fields and preserves existing values', () => {
   expect(describeVisualOutcome({ identified: 0, eligible: 0, skipped: {} })).toContain('当前没有可处理的未知空字段');
 });
-it.each(['browser-capability','unsupported-component','unsupported-layout'] as const)('explains %s without blaming service/model or showing any page text',reason=>{
+it.each(['browser-capability','unsupported-component','unsupported-layout','outside-viewport'] as const)('explains %s without blaming service/model or showing any page text',reason=>{
   const skipped:import('../src/popup/visualOutcome').VisualOutcome['skipped']={ [reason]:1 };
   Object.assign(skipped,{injected:'私人标签和模型解释'});
   const text=describeVisualSkips({identified:0,eligible:1,skipped});

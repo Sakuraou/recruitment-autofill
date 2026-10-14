@@ -1,6 +1,7 @@
 import type { AgentPageLease } from '../agent/pageLease';
 import type { ScanState } from '../content/scanner';
 import type { CropGeometryResult, CssRect, ViewportGeometry } from './cropGeometry';
+import { planCropGeometry } from './cropGeometry';
 import { inspectSemanticLabelPaint, inspectSemanticLabelRegion } from './semanticLabelRegion';
 import { ScanCropAdmission } from './scanCropAdmission';
 import type { CropEvidence } from './cropEvidence';
@@ -43,6 +44,17 @@ export class SemanticCropAdmission {
         .includes(fact.normalize('NFKC').replace(/\s/gu,'').toLocaleLowerCase('en-US')))
         && labels.every(label=>inspectSemanticLabelRegion(node,label,this.#deps.privateFacts()).state==='eligible');
   }
+  #geometry(node:HTMLInputElement|HTMLTextAreaElement,labels:readonly HTMLLabelElement[]): 'eligible' | VisualManualReason {
+    const viewport=this.#deps.viewport(),image={width:Math.round(viewport.width*viewport.dpr),height:Math.round(viewport.height*viewport.dpr)};
+    const rectangles=[node,...labels].map(element=>{const r=element.getBoundingClientRect();return{left:r.left,top:r.top,width:r.width,height:r.height}});
+    const left=Math.min(...rectangles.map(r=>r.left)),top=Math.min(...rectangles.map(r=>r.top));
+    const union={left,top,width:Math.max(...rectangles.map(r=>r.left+r.width))-left,height:Math.max(...rectangles.map(r=>r.top+r.height))-top};
+    for(const target of [...rectangles,union]){
+      const plan=planCropGeometry({viewport,image,target,masks:[]});
+      if(plan.state==='rejected')return plan.reason==='target-not-visible'?'outside-viewport':'unsupported-layout';
+    }
+    return 'eligible';
+  }
   /** Read-only explanation. This does not issue a proof or grant capture/writes. */
   inspect(token:string,fieldId:string): 'eligible' | VisualManualReason {
     try {
@@ -54,7 +66,7 @@ export class SemanticCropAdmission {
       if(shadow==='component')return 'unsupported-component';
       if(shadow==='complex-page')return 'unsupported-layout';
       if(this.#deps.labelPermission&&!this.#deps.labelPermission(token,fieldId,controlLabels(field.node)))return 'local-scope';
-      return this.#eligible(token,fieldId,field.node,field.labels)?'eligible':'unsupported-layout';
+      return this.#eligible(token,fieldId,field.node,field.labels)?this.#geometry(field.node,field.labels):'unsupported-layout';
     } catch { return 'unsupported-layout'; }
   }
   issue(token: string, fieldId: string): SemanticCropProof | undefined {
