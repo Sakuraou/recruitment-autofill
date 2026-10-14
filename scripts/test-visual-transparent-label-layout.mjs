@@ -7,7 +7,7 @@ const bundle=await build({stdin:{resolveDir:process.cwd(),sourcefile:'transparen
  "import{inspectSemanticLabelPaint}from'./src/visual/semanticLabelRegion';window.transparentLabelProbe=()=>[...document.querySelector('input').labels].map(label=>inspectSemanticLabelPaint(document.querySelector('input'),label));"},bundle:true,write:false,format:'iife',platform:'browser'});
 const cases=[['opaque',true],['transparent-panel',true],['transparent-tint',true],['transparent-body',true],['transparent-grandparent',true],['transparent-nested',true],['transparent-multi',true],
  ['no-backdrop',false],['half-parent',false],['half-label',false],['short-surface',false],['rounded',false],['background-image',false],['opacity',false],['content-clip',false],
- ['overlay',false],['aria-hidden-overlay',false],['closed-parent',false],['unclipped',false]];
+ ['overlay',false],['aria-hidden-overlay',false],['closed-parent',false],['unclipped',true]];
 const report={scope:'Controlled Chromium transparent-label/backdrop layout; test-only shadow registry, no capture/send/model authority',checks:[],errors:[],externalRequests:[]};
 const browser=await chromium.launch({channel:'chromium',headless:true});
 try{

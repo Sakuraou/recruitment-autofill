@@ -9,13 +9,14 @@ const dir = resolve(process.env.RA_VISUAL_TEST_DIST ?? 'artifacts/i014e-visual-r
 const reportPath = process.env.RA_VISUAL_TEST_REPORT ?? 'artifacts/i014e-visual-reason-installed-report.json';
 const focused = process.env.RA_VISUAL_TEST_FOCUS === 'reasons';
 const transparentSuite = process.env.RA_VISUAL_TEST_FOCUS === 'transparent';
+const unclippedSuite = process.env.RA_VISUAL_TEST_FOCUS === 'unclipped';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
 const { createSemanticServer } = await import('../artifacts/i014e-visual-reason-service/server.js');
 const { createChatCompletionsProvider, createVisualChatCompletionsProvider } = await import('../artifacts/i014e-visual-reason-service/chatCompletionsProvider.js');
 const { createAgentProvider } = await import('../artifacts/i014e-visual-reason-service/agentProvider.js');
-let activeMode = '';
+let activeMode = '', fixtureIslands;
 function verifyLabelOnlyPng(data) {
   assert.ok(data.startsWith('data:image/png;base64,'));
   const png = Buffer.from(data.split(',')[1], 'base64');
@@ -31,7 +32,8 @@ function verifyLabelOnlyPng(data) {
   assert.equal(rows.length, (width * 4 + 1) * height);
   assert.ok(width >= 160 && height > 24);
   const labelCount=['inline-multi','transparent-multi'].includes(activeMode)?2:1, labelHeight=activeMode==='inline-lines'?48:24;
-  const retained = Array(labelCount).fill(0);
+  const islands = fixtureIslands ?? Array.from({length:labelCount},(_,i)=>({left:13,top:13+i*32,width:158,height:labelHeight-2}));
+  const retained = Array(islands.length).fill(0);
   for (let y = 0; y < height; y++) {
     assert.equal(rows[y * (width * 4 + 1)], 0);
     for (let x = 0; x < width; x++) {
@@ -39,7 +41,7 @@ function verifyLabelOnlyPng(data) {
       assert.equal(a, 255);
       // The crop includes the existing 12px context margin; retain only the
       // fixture label's inward-rounded interior at (13,13), 158x22 pixels.
-      const island=Array.from({length:labelCount},(_,i)=>13+i*32).findIndex(top=>x>=13&&x<171&&y>=top&&y<top+labelHeight-2);
+      const island=islands.findIndex(rect=>x>=rect.left&&x<rect.left+rect.width&&y>=rect.top&&y<rect.top+rect.height);
       if (island>=0) { if (r > 0) retained[island]++; }
       else assert.deepEqual([r, g, b], [0, 0, 0], `Only label pixels may survive at ${x},${y} in ${width}x${height}`);
     }
@@ -109,10 +111,10 @@ try {
         if(mode==='blocked-background')text='<b style="background-image:linear-gradient(red,blue)">陌生问题甲</b>';
         if(mode==='blocked-pseudo')text='<b class="generated">陌生问题甲</b>';
         const height=mode==='inline-lines'?48:24;
-        const translucent=mode.startsWith('transparent-');
-        const second=['inline-multi','transparent-multi'].includes(mode)?`<label for="unknown${i}" style="display:block;margin-top:8px;${translucent?'margin-left:20px;':''}width:160px;height:24px;overflow:hidden;background:${translucent?'transparent':'white'};color:black"><span>附加问题甲</span></label>`:'';
+        const unclipped=mode.startsWith('unclipped-'),translucent=mode.startsWith('transparent-')||unclipped;
+        const second=['inline-multi','transparent-multi','unclipped-multi'].includes(mode)?`<label for="unknown${i}" style="display:block;margin-top:8px;${translucent?'margin-left:20px;':''}width:160px;height:24px;overflow:${unclipped?'visible':'hidden'};background:${translucent?'transparent':'white'};color:black"><span>附加问题甲</span></label>`:'';
         const block=translucent?'left:80px;top:80px;width:220px;height:160px;background:white':'left:100px;top:'+String(100+i*100)+'px;width:200px;height:'+String(mode==='inline-multi'||mode==='inline-lines'?160:90)+'px';
-        return `<div class="surface" style="position:absolute;${block}"><label style="display:block;${translucent?'margin-left:20px;margin-top:20px;':''}width:160px;height:${height}px;overflow:hidden;background:${translucent||mode==='mixed-layout'&&i===1?'transparent':'white'};color:black" for="unknown${i}">${text}</label>${second}<input style="display:block;margin-top:12px;${translucent?'margin-left:20px;':''}width:160px;height:24px" id="unknown${i}" ${mode==='existing'?'value="用户已填"':''} required></div>`;
+        return `<div class="surface" style="position:absolute;${block}"><label style="display:block;${translucent?'margin-left:20px;margin-top:20px;':''}width:160px;height:${height}px;overflow:${unclipped?'visible':'hidden'};background:${translucent||mode==='mixed-layout'&&i===1?'transparent':'white'};color:black" for="unknown${i}">${text}</label>${second}<input style="display:block;margin-top:12px;${translucent?'margin-left:20px;':''}width:160px;height:24px" id="unknown${i}" ${mode==='existing'?'value="用户已填"':''} required></div>`;
       }).join('');
       const isImage = mode === 'own-image' || mode === 'decoration-image';
       const decorated = mode.startsWith('own-') || mode.startsWith('decoration-') || mode.startsWith('blocked-');
@@ -123,7 +125,16 @@ try {
       const overlay=mode==='blocked-aria-overlay'||mode==='blocked-inert-overlay'?`<input ${mode==='blocked-aria-overlay'?'aria-hidden="true"':'inert'} style="position:absolute;left:100px;top:100px;width:150px;height:24px" value="已有私密信息">`:'';
       const pseudo=mode==='blocked-pseudo'?'<style>.generated::before{content:"其他文字"}</style>':'';
       const shadow=mode==='blocked-closed-shadow'?'<script>document.querySelector("label span").attachShadow({mode:"closed"}).innerHTML="<b>本机虚构姓名</b>"</script>':mode==='blocked-ancestor-shadow'?'<script>document.querySelector("section").attachShadow({mode:"closed"}).innerHTML="<slot></slot><b style=position:absolute;left:100px;top:100px>本机虚构姓名</b>"</script>':'';
-      const backdrop=mode.startsWith('transparent-')?`<script>(()=>{const mode=${JSON.stringify(mode)},panel=document.querySelector('.surface'),label=document.querySelector('label');
+      const backdrop=/^(?:transparent|unclipped)-/u.test(mode)?`<script>(()=>{const mode=${JSON.stringify(mode.replace(/^unclipped-/u,'transparent-'))},unclipped=${mode.startsWith('unclipped-')},panel=document.querySelector('.surface'),label=document.querySelector('label');
+        if(unclipped&&mode==='transparent-inline'){label.style.display='inline';label.style.width='auto';label.style.height='auto';panel.style.padding='20px';panel.style.boxSizing='border-box';label.style.margin='0';document.querySelector('input').style.marginLeft='0';}
+        if(unclipped&&mode==='transparent-inline-block')label.style.display='inline-block';
+        if(unclipped&&mode==='transparent-nested')label.innerHTML='<span><strong>陌生问题甲</strong></span>';
+        if(unclipped&&mode==='transparent-star')label.innerHTML='陌生问题甲<span aria-hidden="true" style="color:red">*</span>';
+        if(unclipped&&mode==='transparent-lines'){label.innerHTML='<span>陌生问题甲<br>附加说明</span>';label.style.height='48px';}
+        if(unclipped&&mode==='transparent-indent')label.style.textIndent='-100px';
+        if(unclipped&&mode==='transparent-overflow')label.style.width='20px';
+        if(unclipped&&mode==='transparent-long'){label.textContent='陌生问题ABCDEFGHIJKLMN';label.style.width='40px';label.style.whiteSpace='nowrap';}
+        if(unclipped&&mode==='transparent-scroll')label.style.overflow='auto';
         if(mode==='transparent-tint')panel.style.backgroundColor='#ddeeff';
         if(mode==='transparent-body'){panel.style.backgroundColor='transparent';document.body.style.backgroundColor='white';document.body.style.minHeight='100vh';}
         if(mode==='transparent-grandparent'){const outer=document.createElement('div');outer.style.cssText='position:absolute;left:70px;top:70px;width:300px;height:220px;background:white';panel.before(outer);outer.append(panel);panel.style.left='10px';panel.style.top='10px';panel.style.backgroundColor='transparent';}
@@ -159,6 +170,14 @@ try {
     }, visual);
     const form = await context.newPage(); form.on('pageerror', error => report.errors.push(error.message));
     await form.goto('http://127.0.0.1:8123/agent-visual?mode=' + mode); await form.bringToFront();
+    fixtureIslands=undefined;
+    if(mode.startsWith('unclipped-'))fixtureIslands=await form.evaluate(()=>{
+      // Observe the disposable fixture's original rectangles independently of
+      // the model and extension; verify that no pixels outside them are sent.
+      const input=document.querySelector('#unknown0'),labels=[...input.labels],rectangles=[input,...labels].map(node=>node.getBoundingClientRect());
+      const left=Math.floor(Math.min(...rectangles.map(r=>r.left))-12),top=Math.floor(Math.min(...rectangles.map(r=>r.top))-12);
+      return labels.map(label=>{const r=label.getBoundingClientRect();return {left:Math.ceil(r.left)+1-left,top:Math.ceil(r.top)+1-top,width:Math.floor(r.right)-Math.ceil(r.left)-2,height:Math.floor(r.bottom)-Math.ceil(r.top)-2};});
+    });
     const { targetInfos } = await cdp.send('Target.getTargets', { filter: [{ type: 'tab' }] });
     const tab = targetInfos.find(target => target.url === form.url()); assert.ok(tab);
     await cdp.send('Extensions.triggerAction', { id, targetId: tab.targetId });
@@ -221,30 +240,30 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(transparentSuite){
-    for(const mode of ['transparent-panel','transparent-tint','transparent-body','transparent-grandparent','transparent-nested','transparent-multi']){
+  if(transparentSuite||unclippedSuite){
+    for(const mode of (unclippedSuite?['unclipped-block','unclipped-inline','unclipped-inline-block','unclipped-nested','unclipped-star','unclipped-lines','unclipped-multi']:['transparent-panel','transparent-tint','transparent-body','transparent-grandparent','transparent-nested','transparent-multi','transparent-unclipped'])){
       const result=await scenario(mode,true);assert.deepEqual(result.values,['本机虚构姓名']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);
       assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));report.checks.push(mode+' retains only original label PNG islands and fills the verified local fact');
     }
-    for(const mode of ['transparent-no-backdrop','transparent-half-parent','transparent-half-label','transparent-short','transparent-rounded','transparent-content-clip','transparent-unclipped','transparent-overlay','transparent-closed']){
+    for(const mode of (unclippedSuite?['unclipped-indent','unclipped-overflow','unclipped-long','unclipped-scroll','unclipped-no-backdrop','unclipped-overlay','unclipped-closed']:['transparent-no-backdrop','transparent-half-parent','transparent-half-label','transparent-short','transparent-rounded','transparent-content-clip','transparent-overlay','transparent-closed'])){
       const result=await scenario(mode,true);assert.equal(result.values[0],'');assert.equal(result.requests.filter(kind=>kind==='visual').length,0);
-      if(mode==='transparent-overlay')assert.deepEqual(result.values.slice(1),['已有私密信息']);else assert.deepEqual(result.values,['']);
-      assert.ok(result.text.includes(mode==='transparent-closed'?'页面含暂不支持截图识别的组件':'标签布局暂不支持截图识别'));
+      if(mode.endsWith('-overlay'))assert.deepEqual(result.values.slice(1),['已有私密信息']);else assert.deepEqual(result.values,['']);
+      assert.ok(result.text.includes(mode.endsWith('-closed')?'页面含暂不支持截图识别的组件':'标签布局暂不支持截图识别'));
       report.checks.push(mode+' is pending with no image or write and preserves existing pixels/values');
     }
-    const standalone=await scenario('transparent-panel',true,undefined,'standalone');assert.deepEqual(standalone.values,['']);assert.equal(standalone.requests.filter(kind=>kind==='visual').length,1);
+    const standalone=await scenario(unclippedSuite?'unclipped-inline':'transparent-panel',true,undefined,'standalone');assert.deepEqual(standalone.values,['']);assert.equal(standalone.requests.filter(kind=>kind==='visual').length,1);
     assert.ok(standalone.text.includes('局部截图识别得到 1 项候选'));report.checks.push('Standalone transparent-label recognition remains review-only');
-    for(const mode of ['transparent-change','transparent-transient','transparent-replace','transparent-shadow','transparent-stop','transparent-manual']){
+    for(const mode of ['change','transient','replace','shadow','stop','manual'].map(suffix=>(unclippedSuite?'unclipped-':'transparent-')+suffix)){
       const result=await scenario(mode,true,async(form,click)=>{
-        if(mode==='transparent-stop'){await click('停止 Agent');return;}
-        if(mode==='transparent-manual'){await form.locator('input').fill('用户手改');return;}
+        if(mode.endsWith('-stop')){await click('停止 Agent');return;}
+        if(mode.endsWith('-manual')){await form.locator('input').fill('用户手改');return;}
         await form.locator('.surface').evaluate((panel,mode)=>{
-          if(mode==='transparent-replace'){panel.replaceWith(panel.cloneNode(true));return;}
-          if(mode==='transparent-shadow'){panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';return;}
-          const color=panel.style.backgroundColor;panel.style.backgroundColor='transparent';if(mode==='transparent-transient')panel.style.backgroundColor=color;
+          if(mode.endsWith('-replace')){panel.replaceWith(panel.cloneNode(true));return;}
+          if(mode.endsWith('-shadow')){panel.attachShadow({mode:'closed'}).innerHTML='<slot></slot><b>已有私密信息</b>';return;}
+          const color=panel.style.backgroundColor;panel.style.backgroundColor='transparent';if(mode.endsWith('-transient'))panel.style.backgroundColor=color;
         },mode);
       });
-      assert.deepEqual(result.values,[mode==='transparent-manual'?'用户手改':'']);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
+      assert.deepEqual(result.values,[mode.endsWith('-manual')?'用户手改':'']);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
       report.checks.push(mode+' while inference waits cancels upstream without a late write');
     }
   }else{

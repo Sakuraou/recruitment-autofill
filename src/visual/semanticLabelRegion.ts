@@ -88,6 +88,29 @@ function pureTextLabel(label: HTMLLabelElement, region: CssRect): boolean {
   });
 }
 
+/** Layout evidence for ordinary visible-overflow text, not a pixel/privacy grant.
+ * Range rectangles include the original text's line metrics (CSSOM View §9).
+ * Do not enlarge the original label or keep surrounding pixels to make it fit.
+ * https://www.w3.org/TR/cssom-view-1/#dom-range-getclientrects
+ */
+function textWithinLabel(label: HTMLLabelElement, region: CssRect): boolean {
+  const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+  let visibleText = false, count = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.textContent?.trim()) continue;
+    const range = document.createRange(); range.selectNodeContents(node);
+    const rectangles = [...range.getClientRects()]; range.detach();
+    if (rectangles.length === 0) return false;
+    for (const rect of rectangles) {
+      if (++count > 32 || !validBounds({left:rect.left,top:rect.top,width:rect.width,height:rect.height})
+        || rect.left < region.left || rect.top < region.top
+        || rect.right > region.left + region.width || rect.bottom > region.top + region.height) return false;
+      if (rect.width > 0 && rect.height > 0) visibleText = true;
+    }
+  }
+  return visibleText;
+}
+
 const svgPaintTags = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
   'defs', 'linearGradient', 'radialGradient', 'stop', 'title', 'desc', 'clipPath', 'mask']);
 /** No outward clip expansion; the zero origin may be any edge inside the border box. */
@@ -137,7 +160,7 @@ function clippedDecoration(element: Element, region: CssRect, label: HTMLLabelEl
   return false;
 }
 
-/** Local DOM eligibility only: short clipped labels over a known opaque backdrop, never control pixels.
+/** Local DOM eligibility only: short bounded labels over a known opaque backdrop, never control pixels.
  * privateFacts comes from the local profile; absence of a match does not prove all text public.
  * This numerical result is not a private capture proof or image-send authority.
  */
@@ -161,11 +184,14 @@ function inspectLabelRegion(
     if (text.length < 2 || text.length > 32 || !/^[\p{L}\p{M}\s·（）()、，：:?？*]+$/u.test(text)
       || privateFacts.some(fact => normalized.includes(normalize(fact)))) return rejected;
     const css = getComputedStyle(label);
+    const clipped = ['hidden', 'clip'].includes(css.overflowX) && ['hidden', 'clip'].includes(css.overflowY);
+    const ordinaryTextOverflow = css.overflowX === 'visible' && css.overflowY === 'visible';
     if (!opaque(css.getPropertyValue('color'))
-      || !['hidden', 'clip'].includes(css.getPropertyValue('overflow-x')) || !['hidden', 'clip'].includes(css.getPropertyValue('overflow-y'))
+      || (!clipped && !ordinaryTextOverflow)
       || !['', 'border-box'].includes(css.getPropertyValue('background-clip')) || css.getPropertyValue('display') === 'contents') return rejected;
     const bounds = label.getBoundingClientRect(), region = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
     if (!validBounds(region) || region.width < 8 || region.width > 512 || region.height < 8 || region.height > 96 || !pureTextLabel(label,region)) return rejected;
+    if (!clipped && !textWithinLabel(label,region)) return rejected;
     const background = css.getPropertyValue('background-color');
     if (!opaque(background) && !(transparent(background) && knownOpaqueBackdrop(label,region))) return rejected;
     const all = [...document.querySelectorAll('*')]; if (all.length > 1500) return rejected;
