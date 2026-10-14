@@ -13,6 +13,7 @@ const unclippedSuite = process.env.RA_VISUAL_TEST_FOCUS === 'unclipped';
 const paintSuite = process.env.RA_VISUAL_TEST_FOCUS === 'paint';
 const reviewSuite = process.env.RA_VISUAL_TEST_FOCUS === 'review';
 const viewportSuite = process.env.RA_VISUAL_TEST_FOCUS === 'viewport';
+const placeholderSuite = process.env.RA_VISUAL_TEST_FOCUS === 'placeholder';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -56,7 +57,7 @@ const requests = []; let hold = false, held = false, cancelled = 0, ignoreAbort 
 const fetcher = async (url, options) => {
   assert.equal(url, 'https://fictional.invalid/v1/chat/completions');
   const body = JSON.parse(options.body), content = body.messages[1].content;
-  assert.ok(!JSON.stringify(body).includes('本机虚构姓名')); assert.ok(!JSON.stringify(body).includes('recruitment.profile'));
+  assert.ok(!JSON.stringify(body).includes('本机虚构姓名')); assert.ok(!JSON.stringify(body).includes('CANDIDATEZXQ')); assert.ok(!JSON.stringify(body).includes('recruitment.profile'));
   const image = Array.isArray(content), request = JSON.parse(image ? content[0].text : content);
   if (image) {
     try { verifyLabelOnlyPng(content[1].image_url.url); }
@@ -157,6 +158,16 @@ try {
         if(unclipped&&mode==='transparent-css-viewport-partial')panel.style.left='-30px';
         if(unclipped&&mode==='transparent-css-viewport-control'){panel.style.height='2000px';document.querySelector('input').style.marginTop='1500px';}
         if(unclipped&&mode==='transparent-css-viewport-wide')document.querySelector('input').style.width='2000px';
+        if(unclipped&&mode.startsWith('transparent-placeholder-')){
+          let input=document.querySelector('input');
+          if(mode.endsWith('-textarea')||mode.endsWith('-margin')){const textarea=document.createElement('textarea');textarea.id=input.id;textarea.style.cssText=input.style.cssText;input.replaceWith(textarea);input=textarea;}
+          input.placeholder=mode.endsWith('-private')||mode.endsWith('-textarea')?'CANDIDATEZXQ':'请输入内容';
+          if(mode.endsWith('-margin')){input.style.overflow='clip';input.style.overflowClipMargin='200px';}
+          const style=document.createElement('style');
+          style.id='placeholder-rules';
+          style.textContent=mode.endsWith('-shadow')?'input::placeholder,textarea::placeholder{text-shadow:0 -40px red}':mode.endsWith('-background')?'input::placeholder{background-image:linear-gradient(red,blue)}':mode.endsWith('-transform')?'input::placeholder{transform:translateY(-40px)}':mode.endsWith('-color')||mode.endsWith('-css-change')?'input::placeholder{color:#777}':'';
+          if(style.textContent)document.head.append(style);
+        }
       })()</script>`:'';
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
     }
@@ -171,13 +182,13 @@ try {
     activeMode = mode;
     hold = !!mutate; held = false; ignoreAbort = mode === 'late'; lateResponse = undefined;
     const start = requests.length, cancelledBefore = cancelled;
-    await worker.evaluate(async enabled => {
-      const profile = { schemaVersion: 1, basic: { name: '本机虚构姓名' }, education: [], research: { papers: [], patents: [] },
+    await worker.evaluate(async ({enabled,placeholder}) => {
+      const profile = { schemaVersion: 1, basic: { name: placeholder ? 'CANDIDATEZXQ' : '本机虚构姓名' }, education: [], research: { papers: [], patents: [] },
         projects: [], internships: [], studentWork: [], awards: [], certificates: [], skills: {}, commonAnswers: {}, family: [] };
       await chrome.storage.local.set({ 'recruitment.profile.v1': profile, 'recruitment.semantic.connection.v1': { protocol: 1, token: 'a'.repeat(64), enabled: true, userConfirmed: true } });
       if (enabled) await chrome.storage.local.set({ 'recruitment.visual.consent.v1': { version: 1, enabled: true, userConfirmed: true } });
       else await chrome.storage.local.remove('recruitment.visual.consent.v1');
-    }, visual);
+    }, {enabled:visual,placeholder:mode.startsWith('unclipped-placeholder-')});
     const form = await context.newPage(); form.on('pageerror', error => report.errors.push(error.message));
     await form.goto('http://127.0.0.1:8123/agent-visual?mode=' + mode); await form.bringToFront();
     fixtureIslands=undefined;
@@ -262,7 +273,7 @@ try {
     }
     if (mutate) { for (let i = 0; i < 100 && cancelled === cancelledBefore; i++) await new Promise(resolve => setTimeout(resolve, 25)); assert.ok(cancelled > cancelledBefore); }
     if (mode === 'late') { assert.ok(lateResponse); lateResponse(); await new Promise(resolve => setTimeout(resolve, 250)); }
-    const text = await evaluate('document.body.innerText'), values = await form.locator('input').evaluateAll(inputs => inputs.map(input => input.value));
+    const text = await evaluate('document.body.innerText'), values = await form.locator('input,textarea').evaluateAll(inputs => inputs.map(input => input.value));
     await cdp.send('Target.detachFromTarget', { sessionId }); await cdp.send('Target.closeTarget', { targetId: popupTarget.targetId });
     for (let i = 0; i < 100; i++) {
       if (!(await cdp.send('Target.getTargets')).targetInfos.some(target => target.targetId === popupTarget.targetId)) break;
@@ -271,7 +282,27 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(viewportSuite){
+  if(placeholderSuite){
+    for(const mode of ['unclipped-placeholder-default','unclipped-placeholder-private','unclipped-placeholder-textarea','unclipped-placeholder-color']){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['CANDIDATEZXQ']);
+      assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' keeps all control pixels black and reads its answer only from the local profile');
+    }
+    for(const mode of ['unclipped-placeholder-shadow','unclipped-placeholder-background','unclipped-placeholder-transform','unclipped-placeholder-margin']){
+      const result=await scenario(mode,true);assert.ok(result.values.every(value=>value===''));assert.equal(result.requests.filter(kind=>kind==='visual').length,0);assert.ok(result.text.includes('标签布局暂不支持截图识别'));
+      report.checks.push(mode+' refuses special placeholder paint without image inference or writes');
+    }
+    for(const mode of ['unclipped-placeholder-change','unclipped-placeholder-css-change']){
+      const result=await scenario(mode,true,async form=>{
+        await form.evaluate(mode=>{
+          if(mode.endsWith('-css-change'))document.querySelector('#placeholder-rules').sheet.cssRules[0].style.setProperty('text-shadow','0 -40px red');
+          else document.querySelector('input').placeholder='变更后的提示';
+        },mode);
+      });
+      assert.deepEqual(result.values,['']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' during inference cancels its request without copying a hint or late local fact');
+    }
+  }else if(viewportSuite){
     for(const mode of (process.env.RA_VISUAL_VIEWPORT_BASELINE==='1'?['unclipped-css-viewport-below']:['unclipped-css-viewport-below','unclipped-css-viewport-right','unclipped-css-viewport-partial','unclipped-css-viewport-control','unclipped-css-viewport-wide'])){
       for(const action of (process.env.RA_VISUAL_VIEWPORT_BASELINE==='1'?['agent']:['agent','standalone'])){
         const result=await scenario(mode,true,undefined,action);assert.deepEqual(result.values,['']);assert.equal(result.requests.filter(kind=>kind==='visual').length,0);

@@ -25,7 +25,7 @@ function transparent(color: string): boolean {
 }
 /** CSS Backgrounds 3 §2.7: a plain border-box background covers this rectangle.
  * Only a known opaque ancestor may back a transparent label; the browser's
- * default canvas color is not evidence. Keep the label's own clip requirement.
+ * default canvas color is not evidence. Keep clipped or bounded text checks.
  * https://www.w3.org/TR/css-backgrounds-3/#background-clip
  */
 function knownOpaqueBackdrop(label: HTMLLabelElement, region: CssRect): boolean {
@@ -117,6 +117,21 @@ const svgPaintTags = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', '
 function zeroClipMargin(css: CSSStyleDeclaration): boolean {
   return /^(?:|0px|(?:content|padding|border)-box(?:\s+0px)?)$/u.test(css.getPropertyValue('overflow-clip-margin').trim());
 }
+/** Native placeholder pixels stay in the blacked-out control viewport.
+ * A static, ordinary placeholder cannot borrow the retained label rectangle;
+ * expanded clips, special pseudo paint and overlapping controls remain refused.
+ * This also checks other controls, not just the requested input.
+ */
+function boundedPlaceholder(element: Element): boolean {
+  if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) || element.placeholder === '') return true;
+  const host=getComputedStyle(element),pseudo=getComputedStyle(element,'::placeholder');
+  if (!['hidden','clip','auto','scroll'].includes(host.overflowX) || !['hidden','clip','auto','scroll'].includes(host.overflowY)
+    || !zeroClipMargin(host) || pseudo.position !== 'static' || !['','none','normal'].includes(pseudo.content)
+    || !['','none'].includes(pseudo.textShadow) || !['','none'].includes(pseudo.outlineStyle)) return false;
+  return Object.entries(boundedStyles).every(([name,allowed])=>{
+    const value=pseudo.getPropertyValue(name).trim();return value===''||allowed.includes(value);
+  });
+}
 /** Only ordinary images and self-contained vector shapes can use this exception.
  * Their own clipping viewport, or a disjoint paint-containing ancestor, bounds
  * the paint. Foreign HTML, references, other media and shadow trees stay rejected.
@@ -176,7 +191,7 @@ function inspectLabelRegion(
       || label.control !== node || !labels?.includes(label)
       || [...document.querySelectorAll('[id]')].filter(e => e.id === node.id).length !== 1
       || node.value !== '' || node.disabled || node.readOnly || node.matches(':disabled') || !visible(node) || !visible(label)
-      || node.placeholder !== '' || label.closest('a,button,[contenteditable]')
+      || label.closest('a,button,[contenteditable]')
       || !Array.isArray(privateFacts) || (requireFacts && privateFacts.length === 0) || privateFacts.length > 256
       || privateFacts.some(fact => typeof fact !== 'string' || fact.trim().length < 2 || fact.length > 500)) return rejected;
     if (node instanceof HTMLInputElement && !['text', 'search', 'email', 'tel', 'url'].includes(node.type)) return rejected;
@@ -204,6 +219,7 @@ function inspectLabelRegion(
       if (element.matches('svg,canvas,video,img,iframe,object,embed') && !clippedDecoration(element, region, label)) return rejected;
       // Overflowing generated paint or shadows cannot be bounded by element rectangles.
       if (!ordinaryPaint(element)) return rejected;
+      if (!boundedPlaceholder(element)) return rejected;
       const r = element.getBoundingClientRect(); if (!validBounds({ left: r.left, top: r.top, width: r.width, height: r.height })) return rejected;
       if (element !== label && !element.contains(label) && !label.contains(element) && intersects(r, region)) return rejected;
     }

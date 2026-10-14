@@ -57,7 +57,8 @@ function elementSignature(node: Element): string {
   const rect = [bounds.left,bounds.top,bounds.width,bounds.height];
   if (rect.some(value => !Number.isFinite(value))) throw Error('invalid paint bounds');
   return JSON.stringify([rect,[...css].map(name=>[name,css.getPropertyValue(name)]),
-    ['::before','::after','::first-letter','::first-line','::marker'].map(pseudo=>{
+    ['::before','::after','::first-letter','::first-line','::marker',
+      ...(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement ? ['::placeholder'] : [])].map(pseudo=>{
       const style = view.getComputedStyle(node,pseudo); return pseudoProperties.map(name=>style.getPropertyValue(name));
     })]);
 }
