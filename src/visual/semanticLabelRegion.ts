@@ -1,6 +1,7 @@
 import type { CssRect } from './cropGeometry';
 import { captureControlLabels } from './controlLabels';
 import { absentShadowPaint, isPainted as painted } from './shadowPaint';
+import { computedColorAlpha } from './computedColorAlpha';
 
 export type SemanticLabelResult = { readonly state: 'eligible'; readonly region: CssRect }
   | { readonly state: 'rejected'; readonly reason: 'unproved-label-region' };
@@ -17,11 +18,10 @@ const boundedStyles: Readonly<Record<string, readonly string[]>> = {
 };
 function normalize(text: string): string { return text.normalize('NFKC').replace(/\s/gu, '').toLocaleLowerCase('en-US'); }
 function opaque(color: string): boolean {
-  return /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/u.test(color)
-    || /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*1(?:\.0*)?\s*\)$/u.test(color);
+  return computedColorAlpha(color) === 1;
 }
 function transparent(color: string): boolean {
-  return color === 'transparent' || /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0(?:\.0*)?\s*\)$/u.test(color);
+  return computedColorAlpha(color) === 0;
 }
 /** CSS Backgrounds 3 §2.7: a plain border-box background covers this rectangle.
  * Only a known opaque ancestor may back a transparent label; the browser's

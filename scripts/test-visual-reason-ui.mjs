@@ -14,6 +14,7 @@ const paintSuite = process.env.RA_VISUAL_TEST_FOCUS === 'paint';
 const reviewSuite = process.env.RA_VISUAL_TEST_FOCUS === 'review';
 const viewportSuite = process.env.RA_VISUAL_TEST_FOCUS === 'viewport';
 const placeholderSuite = process.env.RA_VISUAL_TEST_FOCUS === 'placeholder';
+const colorSuite = process.env.RA_VISUAL_TEST_FOCUS === 'color';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -168,6 +169,13 @@ try {
           style.textContent=mode.endsWith('-shadow')?'input::placeholder,textarea::placeholder{text-shadow:0 -40px red}':mode.endsWith('-background')?'input::placeholder{background-image:linear-gradient(red,blue)}':mode.endsWith('-transform')?'input::placeholder{transform:translateY(-40px)}':mode.endsWith('-color')||mode.endsWith('-css-change')?'input::placeholder{color:#777}':'';
           if(style.textContent)document.head.append(style);
         }
+        if(unclipped&&mode.startsWith('transparent-color-')){
+          const colors={'transparent-color-oklch':'oklch(.95 .02 220)','transparent-color-oklab':'oklab(.95 .02 .02)','transparent-color-lab':'lab(95 2 2)','transparent-color-p3':'color(display-p3 .9 .9 .9)','transparent-color-half':'oklch(.95 .02 220 / .5)','transparent-color-p3-half':'color(display-p3 .9 .9 .9 / .5)','transparent-color-almost':'oklch(.95 .02 220 / .9999)'};
+          if(colors[mode])label.style.backgroundColor=colors[mode];
+          if(mode==='transparent-color-foreground')label.style.color='lch(20 10 30)';
+          if(mode==='transparent-color-parent'){label.style.backgroundColor='oklch(.95 .02 220 / 0)';panel.style.backgroundColor='oklch(.95 .02 220)';}
+          if(mode==='transparent-color-css-change'){const style=document.createElement('style');style.id='color-rules';style.textContent='label{background-color:oklch(.95 .02 220)!important}';document.head.append(style);}
+        }
       })()</script>`:'';
       return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
     }
@@ -282,7 +290,20 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(placeholderSuite){
+  if(colorSuite){
+    for(const mode of ['unclipped-color-rgb','unclipped-color-oklch','unclipped-color-oklab','unclipped-color-lab','unclipped-color-p3','unclipped-color-foreground','unclipped-color-parent']){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['本机虚构姓名']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' uses current label-only PNG with exact opaque or known parent alpha');
+    }
+    for(const mode of ['unclipped-color-half','unclipped-color-p3-half','unclipped-color-almost']){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['']);assert.equal(result.requests.filter(kind=>kind==='visual').length,0);assert.ok(result.text.includes('标签布局暂不支持截图识别'));
+      report.checks.push(mode+' cannot round a partial alpha into an opaque label proof');
+    }
+    const changed=await scenario('unclipped-color-css-change',true,async form=>{
+      await form.evaluate(()=>document.querySelector('#color-rules').sheet.cssRules[0].style.setProperty('background-color','oklch(.95 .02 220 / .5)','important'));
+    });assert.deepEqual(changed.values,['']);assert.equal(changed.requests.filter(kind=>kind==='visual').length,1);assert.ok(!changed.text.includes('本页可访问且支持的任务已核验完成'));
+    report.checks.push('Modern color CSSOM changes during inference cancel the request and cannot apply its old local fact');
+  }else if(placeholderSuite){
     for(const mode of ['unclipped-placeholder-default','unclipped-placeholder-private','unclipped-placeholder-textarea','unclipped-placeholder-color']){
       const result=await scenario(mode,true);assert.deepEqual(result.values,['CANDIDATEZXQ']);
       assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));

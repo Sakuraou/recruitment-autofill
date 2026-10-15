@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "校招智能网申助手 · 2027",
-  "version": "0.6.58",
+  "version": "0.6.59",
   "description": "从本地档案识别并补全网申表单；支持通用字段、项目连续填写试用和中国移动多栏目流程。最终投递由本人完成。",
   "minimum_chrome_version": "114",
   "permissions": [
