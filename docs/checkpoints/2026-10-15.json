@@ -1,0 +1,179 @@
+{
+  "date": "2026-10-15",
+  "scope": "Fictional fixtures/providers only; no real cloud or authenticated recruiting-site verification. Raw reports and install archives remain local. Locator is not registered in the extension.",
+  "groups": [
+    {
+      "name": "I-014L",
+      "stage": "formal-0.6.59",
+      "git": "dc374b8",
+      "reports": [
+        {
+          "localReport": "artifacts/i014l-color-formal-report.json",
+          "sha256": "5fa90a832467985bf0bfaffca624ed8297875456e7234b4796e6be67abdf163c",
+          "checks": 11,
+          "pixelChecks": 8,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        },
+        {
+          "localReport": "artifacts/i014l-placeholder-formal-regression-report.json",
+          "sha256": "fce40043bbc1b437f263c7b6dbfeefa1aed32581d2c72dc4dd4f82767f62eef0",
+          "checks": 10,
+          "pixelChecks": 6,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        },
+        {
+          "localReport": "artifacts/i014l-confirmation-formal-regression-report.json",
+          "sha256": "5e9fe7765f57df1b451aa4f0607589648880dca3409cb2931b340e89b3c3f6e7",
+          "checks": 10,
+          "pixelChecks": 16,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        },
+        {
+          "localReport": "artifacts/i014l-viewport-formal-regression-report.json",
+          "sha256": "f921ac501708940941626bcb75982b74b36dcab0fc353cd18ee6aab19db7e70b",
+          "checks": 10,
+          "pixelChecks": 0,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        }
+      ],
+      "checks": 41
+    },
+    {
+      "name": "I-014M",
+      "stage": "formal-0.6.60",
+      "git": "20c814d",
+      "reports": [
+        {
+          "localReport": "artifacts/i014m-marker-formal-report.json",
+          "sha256": "375f751f6edc43e237d0094d29ea875e773642bbfa6be5c800db703e5903e390",
+          "checks": 20,
+          "pixelChecks": 13,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        },
+        {
+          "localReport": "artifacts/i014m-reasons-formal-regression-report.json",
+          "sha256": "d1f2d819117e2d46ded45234ae162c70b81cc5c30d7ff14e44adc02dacc4cf51",
+          "checks": 10,
+          "pixelChecks": 5,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        },
+        {
+          "localReport": "artifacts/i014m-confirmation-formal-regression-report.json",
+          "sha256": "8a2e4ef70a7376967dd22dd309945d693b1f7144254db9630ab0af73cd0a3356",
+          "checks": 10,
+          "pixelChecks": 16,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        }
+      ],
+      "checks": 40
+    },
+    {
+      "name": "I-014N",
+      "stage": "isolated-controller-not-registered",
+      "reports": [
+        {
+          "localReport": "artifacts/i014n-locator-report.json",
+          "sha256": "9615f8d58462f6f5b0f1e02228b6ecfdfac04a836edd001591fc9911e099cf21",
+          "checks": 29,
+          "pixelChecks": 0,
+          "errors": 0,
+          "externalRequests": 0,
+          "passed": true
+        }
+      ],
+      "checks": 29
+    }
+  ],
+  "archives": [
+    {
+      "localArchive": "artifacts/i014l-release-v0.6.59",
+      "version": "0.6.59",
+      "git": "dc374b8",
+      "previous": "artifacts/i014k-release-v0.6.58/dist",
+      "sha256": {
+        "artifacts/i014l-release-v0.6.59/dist/assets/options-BL7OKJJ-.js": "87f3052f94b5f1373146edb8f8edc7eb1de6c62949eb59363056f691e8fa9e9c",
+        "artifacts/i014l-release-v0.6.59/dist/assets/popup-D8pzkbex.js": "0709f2e25e7d4a79f3f656eb7d3c99aef9995e6b25a76a3065c3df553f58c117",
+        "artifacts/i014l-release-v0.6.59/dist/assets/styles-CKCceSHu.js": "122add3c6377152c20a33e7db4ed339dbe15ed1b8843b2fd3115dc01f20b18ed",
+        "artifacts/i014l-release-v0.6.59/dist/assets/styles-CL1SFa1v.css": "44df0ed8f8ff8a83d6d5607bfe9f8b8530392263b4207164712a3c9f2cccbb21",
+        "artifacts/i014l-release-v0.6.59/dist/background.js": "7022aef4c7039e5ab80fc08ecea5450337c67d5f2e6ba0bb174475224814f933",
+        "artifacts/i014l-release-v0.6.59/dist/content.js": "f525d2869e2faea090bfac55c3533ca385a0aa98151b24e959166f1eb8e4a559",
+        "artifacts/i014l-release-v0.6.59/dist/docs/AGENT_NEXT_STEP.md": "8f7568e8a513a733a14a3e1c60a5f12cd7ee0b361ddf339a17d34c7d944f13cc",
+        "artifacts/i014l-release-v0.6.59/dist/docs/COMPATIBLE_API_SETUP.md": "5cff900e3f2caab299c792b834515768bb7ed3a0f449092a6b5028c7a807ec02",
+        "artifacts/i014l-release-v0.6.59/dist/docs/UNIVERSAL_AWARDS_PROGRESS.md": "cb7ead7f46bff4966c6aedee45f0a54cf2fb4e681c9221dddae8b30dd4324609",
+        "artifacts/i014l-release-v0.6.59/dist/docs/UNIVERSAL_PUBLICATIONS_PROGRESS.md": "2842db71813fe59685d9f3b39b6abadc22ed63bcebc5fd4efaa849d5d7cfaaf9",
+        "artifacts/i014l-release-v0.6.59/dist/docs/UNIVERSAL_STUDENT_WORK_PROGRESS.md": "49fe973eaf0550793a0f8e1349d2d1d8d4941c4c90ec20b181e726925a3e1e64",
+        "artifacts/i014l-release-v0.6.59/dist/docs/UNKNOWN_CONTROL_OBSERVATION_PROGRESS.md": "08494aadef20e1cc58e3476b58ec305c3a43dbd5aad290c34da9f9f23ecc2d85",
+        "artifacts/i014l-release-v0.6.59/dist/examples/.gitkeep": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "artifacts/i014l-release-v0.6.59/dist/examples/collection-facts-form.html": "223d9481551bdd7ee598a4a51ab0151dd0eeed564c14fe1cdc4cfd1d3e0a5e9d",
+        "artifacts/i014l-release-v0.6.59/dist/examples/collection-facts-form.js": "5180126b12e8ed73278872562603e97318ff0a5954778aa8f0aa052f2896e500",
+        "artifacts/i014l-release-v0.6.59/dist/examples/common-facts-form.html": "5730530461ce5078e2062f532abaf269c2607098bdaaffcba8e0b64e0e5e08b7",
+        "artifacts/i014l-release-v0.6.59/dist/examples/common-facts-form.js": "6d8d25ae065b33d001361a8ce1d5ef1b5d2a09fcb22a133ee5418b3c46fc12d9",
+        "artifacts/i014l-release-v0.6.59/dist/examples/legacy-recruitment-form.html": "b13cbed46bbf74fa39b959c63912a476b58c5a8792fcac91f6b9da35c87bba77",
+        "artifacts/i014l-release-v0.6.59/dist/examples/legacy-recruitment-form.js": "854c7452c71312e0894ef853af118aec08757b760cf9bc7e66af4ce3fc146656",
+        "artifacts/i014l-release-v0.6.59/dist/examples/sample-profile.json": "f10bf6da1b173710d62091f56a387f0a5447d3d8ab8ad4f1d4563816b040b383",
+        "artifacts/i014l-release-v0.6.59/dist/examples/semantic-model.example.json": "b2fa185d6fa86a1645f0bc157972829ca8c4f30c33d4090639fb23e26dc011bc",
+        "artifacts/i014l-release-v0.6.59/dist/examples/test-form.css": "31774b4c59a9e7c25f70117db9f085dc6a6bab432a303becf6a5431b46910f04",
+        "artifacts/i014l-release-v0.6.59/dist/examples/test-form.html": "1fefd8272798a895de1d589351deefba4269d31157a8c88fb9f0ad5dd7e15f1f",
+        "artifacts/i014l-release-v0.6.59/dist/examples/test-form.js": "c705b4ee1ec322e40ebd11501d90fd49503633dbf1b78fcd2cf5047e67d6376c",
+        "artifacts/i014l-release-v0.6.59/dist/manifest.json": "0fd19e3d5b88c438be369e709dea3ce369e08b10cb2fbc11e3fa539b4ecb4e2e",
+        "artifacts/i014l-release-v0.6.59/dist/MOBILE_FIX.md": "e9edd16365ef823e43976c8e69d882ab42373eede7901f4c2748b78e1f2447bb",
+        "artifacts/i014l-release-v0.6.59/dist/options.html": "18911a92349af638f9c16073cf09e993ce2164177420d5a5c0b178cd64ea83ce",
+        "artifacts/i014l-release-v0.6.59/dist/popup.html": "1fbab91a168a28f098c69ae324bced5f111a14762cf448550606fffbaab5b1fb",
+        "artifacts/i014l-release-v0.6.59/dist/README.md": "01dc02cc841b2e5ffeb2752851f2399a0b78cbdba7c8010fa8815d38faca79b1",
+        "artifacts/i014l-release-v0.6.59/dist/VERIFICATION.md": "6c68a8f5de6771b27260d09e094c19fbe5ba2d6286a49c7f3ef3539259c43ea2"
+      }
+    },
+    {
+      "localArchive": "artifacts/i014m-release-v0.6.60",
+      "version": "0.6.60",
+      "git": "20c814d",
+      "previous": "artifacts/i014l-release-v0.6.59/dist",
+      "sha256": {
+        "artifacts/i014m-release-v0.6.60/dist/assets/options-BL7OKJJ-.js": "87f3052f94b5f1373146edb8f8edc7eb1de6c62949eb59363056f691e8fa9e9c",
+        "artifacts/i014m-release-v0.6.60/dist/assets/popup-CLS0te7L.js": "48ac6dd4142f2ddf419b57f36929f98a1f69e30484195544b1f5913ace5f42da",
+        "artifacts/i014m-release-v0.6.60/dist/assets/styles-CKCceSHu.js": "122add3c6377152c20a33e7db4ed339dbe15ed1b8843b2fd3115dc01f20b18ed",
+        "artifacts/i014m-release-v0.6.60/dist/assets/styles-CL1SFa1v.css": "44df0ed8f8ff8a83d6d5607bfe9f8b8530392263b4207164712a3c9f2cccbb21",
+        "artifacts/i014m-release-v0.6.60/dist/background.js": "cd543a542bb4cf0ab2cf56c1e967255dfa5cf9beaf5b43329016d34ffece2ab2",
+        "artifacts/i014m-release-v0.6.60/dist/content.js": "a4fcc090d22c6cf995d2234f95e09adc0b507a8e089375a6a0fa68a9287cbcce",
+        "artifacts/i014m-release-v0.6.60/dist/docs/AGENT_NEXT_STEP.md": "2137aebfe3b8a4c79f1898f3ad65390d32aa4a202c15c977c48c2bc8ab1efe38",
+        "artifacts/i014m-release-v0.6.60/dist/docs/COMPATIBLE_API_SETUP.md": "5cff900e3f2caab299c792b834515768bb7ed3a0f449092a6b5028c7a807ec02",
+        "artifacts/i014m-release-v0.6.60/dist/docs/UNIVERSAL_AWARDS_PROGRESS.md": "cb7ead7f46bff4966c6aedee45f0a54cf2fb4e681c9221dddae8b30dd4324609",
+        "artifacts/i014m-release-v0.6.60/dist/docs/UNIVERSAL_PUBLICATIONS_PROGRESS.md": "2842db71813fe59685d9f3b39b6abadc22ed63bcebc5fd4efaa849d5d7cfaaf9",
+        "artifacts/i014m-release-v0.6.60/dist/docs/UNIVERSAL_STUDENT_WORK_PROGRESS.md": "49fe973eaf0550793a0f8e1349d2d1d8d4941c4c90ec20b181e726925a3e1e64",
+        "artifacts/i014m-release-v0.6.60/dist/docs/UNKNOWN_CONTROL_OBSERVATION_PROGRESS.md": "08494aadef20e1cc58e3476b58ec305c3a43dbd5aad290c34da9f9f23ecc2d85",
+        "artifacts/i014m-release-v0.6.60/dist/examples/.gitkeep": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "artifacts/i014m-release-v0.6.60/dist/examples/collection-facts-form.html": "223d9481551bdd7ee598a4a51ab0151dd0eeed564c14fe1cdc4cfd1d3e0a5e9d",
+        "artifacts/i014m-release-v0.6.60/dist/examples/collection-facts-form.js": "5180126b12e8ed73278872562603e97318ff0a5954778aa8f0aa052f2896e500",
+        "artifacts/i014m-release-v0.6.60/dist/examples/common-facts-form.html": "5730530461ce5078e2062f532abaf269c2607098bdaaffcba8e0b64e0e5e08b7",
+        "artifacts/i014m-release-v0.6.60/dist/examples/common-facts-form.js": "6d8d25ae065b33d001361a8ce1d5ef1b5d2a09fcb22a133ee5418b3c46fc12d9",
+        "artifacts/i014m-release-v0.6.60/dist/examples/legacy-recruitment-form.html": "b13cbed46bbf74fa39b959c63912a476b58c5a8792fcac91f6b9da35c87bba77",
+        "artifacts/i014m-release-v0.6.60/dist/examples/legacy-recruitment-form.js": "854c7452c71312e0894ef853af118aec08757b760cf9bc7e66af4ce3fc146656",
+        "artifacts/i014m-release-v0.6.60/dist/examples/sample-profile.json": "f10bf6da1b173710d62091f56a387f0a5447d3d8ab8ad4f1d4563816b040b383",
+        "artifacts/i014m-release-v0.6.60/dist/examples/semantic-model.example.json": "b2fa185d6fa86a1645f0bc157972829ca8c4f30c33d4090639fb23e26dc011bc",
+        "artifacts/i014m-release-v0.6.60/dist/examples/test-form.css": "31774b4c59a9e7c25f70117db9f085dc6a6bab432a303becf6a5431b46910f04",
+        "artifacts/i014m-release-v0.6.60/dist/examples/test-form.html": "1fefd8272798a895de1d589351deefba4269d31157a8c88fb9f0ad5dd7e15f1f",
+        "artifacts/i014m-release-v0.6.60/dist/examples/test-form.js": "c705b4ee1ec322e40ebd11501d90fd49503633dbf1b78fcd2cf5047e67d6376c",
+        "artifacts/i014m-release-v0.6.60/dist/manifest.json": "8c6997bed0fb6154fe8ef424ea30412e7f5886f38c0c2488af0a2d2a74ca1a5b",
+        "artifacts/i014m-release-v0.6.60/dist/MOBILE_FIX.md": "e9edd16365ef823e43976c8e69d882ab42373eede7901f4c2748b78e1f2447bb",
+        "artifacts/i014m-release-v0.6.60/dist/options.html": "18911a92349af638f9c16073cf09e993ce2164177420d5a5c0b178cd64ea83ce",
+        "artifacts/i014m-release-v0.6.60/dist/popup.html": "c908bf30747e0cc02868b6beae10f39dfc6d76e12fba23fdfcbe7de8c517b30b",
+        "artifacts/i014m-release-v0.6.60/dist/README.md": "b9626ec5f3d7ace53ba244dd5a58eac2515bd4b651723e0ef4f73c7f7df44261",
+        "artifacts/i014m-release-v0.6.60/dist/VERIFICATION.md": "185e8e338fd01400c9f0ca8333c2b17985b64c7bc63e1cbec49625cfda59de43"
+      }
+    }
+  ]
+}
