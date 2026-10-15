@@ -15,6 +15,7 @@ const reviewSuite = process.env.RA_VISUAL_TEST_FOCUS === 'review';
 const viewportSuite = process.env.RA_VISUAL_TEST_FOCUS === 'viewport';
 const placeholderSuite = process.env.RA_VISUAL_TEST_FOCUS === 'placeholder';
 const colorSuite = process.env.RA_VISUAL_TEST_FOCUS === 'color';
+const markerSuite = process.env.RA_VISUAL_TEST_FOCUS === 'marker';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
@@ -39,6 +40,7 @@ function verifyLabelOnlyPng(data) {
   const labelCount=['inline-multi','transparent-multi'].includes(activeMode)?2:1, labelHeight=activeMode==='inline-lines'?48:24;
   const islands = fixtureIslands ?? Array.from({length:labelCount},(_,i)=>({left:13,top:13+i*32,width:158,height:labelHeight-2}));
   const retained = Array(islands.length).fill(0);
+  let redMarkerPixels = 0;
   for (let y = 0; y < height; y++) {
     assert.equal(rows[y * (width * 4 + 1)], 0);
     for (let x = 0; x < width; x++) {
@@ -47,11 +49,12 @@ function verifyLabelOnlyPng(data) {
       // The crop includes the existing 12px context margin; retain only the
       // fixture label's inward-rounded interior at (13,13), 158x22 pixels.
       const island=islands.findIndex(rect=>x>=rect.left&&x<rect.left+rect.width&&y>=rect.top&&y<rect.top+rect.height);
-      if (island>=0) { if (r > 0) retained[island]++; }
+      if (island>=0) { if (r > 0) retained[island]++; if (r > 120 && g < 100 && b < 100) redMarkerPixels++; }
       else assert.deepEqual([r, g, b], [0, 0, 0], `Only label pixels may survive at ${x},${y} in ${width}x${height}`);
     }
   }
   assert.ok(retained.every(count=>count>100), 'Every original label interior must actually be retained');
+  if (activeMode.startsWith('marker-')) assert.ok(redMarkerPixels > 2, 'The original fixed red star must actually survive inside the label');
   report.pixelChecks = (report.pixelChecks ?? 0) + 1;
 }
 const requests = []; let hold = false, held = false, cancelled = 0, ignoreAbort = false, lateResponse;
@@ -117,7 +120,7 @@ try {
         if(mode==='blocked-pseudo')text='<b class="generated">陌生问题甲</b>';
         const height=mode==='inline-lines'?48:24;
         const unclipped=mode.startsWith('unclipped-'),translucent=mode.startsWith('transparent-')||unclipped;
-        const second=['inline-multi','transparent-multi','unclipped-multi'].includes(mode)?`<label for="unknown${i}" style="display:block;margin-top:8px;${translucent?'margin-left:20px;':''}width:160px;height:24px;overflow:${unclipped?'visible':'hidden'};background:${translucent?'transparent':'white'};color:black"><span>附加问题甲</span></label>`:'';
+        const second=['inline-multi','transparent-multi','unclipped-multi','marker-multi'].includes(mode)?`<label for="unknown${i}" style="display:block;margin-top:8px;${translucent?'margin-left:20px;':''}width:160px;height:24px;overflow:${unclipped?'visible':'hidden'};background:${translucent?'transparent':'white'};color:black"><span>附加问题甲</span></label>`:'';
         const block=translucent?'left:80px;top:'+String(80+i*180)+'px;width:220px;height:160px;background:white':'left:100px;top:'+String(100+i*100)+'px;width:200px;height:'+String(mode==='inline-multi'||mode==='inline-lines'?160:90)+'px';
         return `<div class="surface" style="position:absolute;${block}"><label style="display:block;${translucent?'margin-left:20px;margin-top:20px;':''}width:160px;height:${height}px;overflow:${unclipped?'visible':'hidden'};background:${translucent||mode==='mixed-layout'&&i===1?'transparent':'white'};color:black" for="unknown${i}">${text}</label>${second}<input style="display:block;margin-top:12px;${translucent?'margin-left:20px;':''}width:160px;height:24px" id="unknown${i}" ${mode==='existing'?'value="用户已填"':''} required></div>`;
       }).join('');
@@ -177,7 +180,23 @@ try {
           if(mode==='transparent-color-css-change'){const style=document.createElement('style');style.id='color-rules';style.textContent='label{background-color:oklch(.95 .02 220)!important}';document.head.append(style);}
         }
       })()</script>`:'';
-      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop });
+      const markerFixture=mode.startsWith('marker-')?`<script>(()=>{
+        const mode=${JSON.stringify(mode)},label=document.querySelector('label');
+        let selector='label::before',rule='content:"*";color:red';
+        if(mode==='marker-after')selector='label::after';
+        if(mode==='marker-both')selector='label::before,label::after';
+        if(mode==='marker-transparent'){label.style.backgroundColor='transparent';label.style.margin='20px';const panel=document.querySelector('.surface');panel.style.cssText='position:absolute;left:80px;top:80px;width:240px;height:160px;background:white';document.querySelector('input').style.marginLeft='20px';}
+        if(mode==='marker-visible')label.style.overflow='visible';
+        if(mode==='marker-attribute') {label.dataset.marker='CANDIDATEZXQ';rule='content:attr(data-marker);color:red';}
+        if(mode==='marker-attribute-star'||mode==='marker-attribute-change'){label.dataset.marker='*';rule='content:attr(data-marker);color:red';}
+        if(mode==='marker-private')rule='content:"CANDIDATEZXQ";color:red';
+        if(mode==='marker-alternative')rule='content:"*" / "CANDIDATEZXQ";color:red';
+        if(mode==='marker-absolute')rule+=';position:absolute;left:100px;top:100px';
+        if(mode==='marker-shadow')rule+=';text-shadow:0 -40px red';
+        if(mode==='marker-margin'){label.style.overflow='clip';label.style.overflowClipMargin='200px';}
+        const style=document.createElement('style');style.id='marker-rules';style.textContent=selector+'{'+rule+'}';document.head.append(style);
+      })()</script>`:'';
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop+markerFixture });
     }
     report.externalRequests.push(url); return route.abort();
   });
@@ -196,11 +215,11 @@ try {
       await chrome.storage.local.set({ 'recruitment.profile.v1': profile, 'recruitment.semantic.connection.v1': { protocol: 1, token: 'a'.repeat(64), enabled: true, userConfirmed: true } });
       if (enabled) await chrome.storage.local.set({ 'recruitment.visual.consent.v1': { version: 1, enabled: true, userConfirmed: true } });
       else await chrome.storage.local.remove('recruitment.visual.consent.v1');
-    }, {enabled:visual,placeholder:mode.startsWith('unclipped-placeholder-')});
+    }, {enabled:visual,placeholder:mode.startsWith('unclipped-placeholder-')||mode.startsWith('marker-')});
     const form = await context.newPage(); form.on('pageerror', error => report.errors.push(error.message));
     await form.goto('http://127.0.0.1:8123/agent-visual?mode=' + mode); await form.bringToFront();
     fixtureIslands=undefined;
-    if(mode.startsWith('unclipped-'))fixtureIslands=await form.evaluate(()=>{
+    if(mode.startsWith('unclipped-')||mode.startsWith('marker-'))fixtureIslands=await form.evaluate(()=>{
       // Observe the disposable fixture's original rectangles independently of
       // the model and extension; verify that no pixels outside them are sent.
       const input=document.querySelector('#unknown0'),labels=[...input.labels],rectangles=[input,...labels].map(node=>node.getBoundingClientRect());
@@ -266,7 +285,8 @@ try {
       const count=mode.endsWith('-batch')?3:1;
       await wait(`document.querySelector('.notice')?.textContent.includes('局部截图识别得到 ${count} 项候选')`);
       await form.evaluate(mode=>{
-        const sheet=document.querySelector('#fixture-rules').sheet,label=document.querySelector('label');
+        const sheet=document.querySelector(mode.startsWith('marker-')?'#marker-rules':'#fixture-rules').sheet,label=document.querySelector('label');
+        if(mode==='marker-post-change')sheet.cssRules[0].style.setProperty('content','"CANDIDATEZXQ"');
         if(mode.endsWith('-post-rule'))sheet.insertRule('label::before{content:"变更后的问题"}',sheet.cssRules.length);
         if(mode.endsWith('-post-disabled'))sheet.disabled=true;
         if(mode.endsWith('-post-adopted')){const added=new CSSStyleSheet();added.replaceSync('label::before{content:"变更后的问题"}');document.adoptedStyleSheets.push(added);}
@@ -290,7 +310,34 @@ try {
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
     const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(colorSuite){
+  if(markerSuite){
+    for(const mode of ['marker-before','marker-after','marker-both','marker-transparent','marker-attribute-star','marker-multi']){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['CANDIDATEZXQ']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' keeps only original clipped label pixels including its actual fixed star; answer stays local');
+    }
+    for(const mode of ['marker-visible','marker-attribute','marker-private','marker-alternative','marker-absolute','marker-shadow','marker-margin']){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['']);assert.equal(result.requests.filter(kind=>kind==='visual').length,0);assert.ok(result.text.includes('标签布局暂不支持截图识别'));
+      report.checks.push(mode+' preserves the pending field without image inference or writes');
+    }
+    const standalone=await scenario('marker-before',true,undefined,'standalone');assert.deepEqual(standalone.values,['']);assert.equal(standalone.requests.filter(kind=>kind==='visual').length,1);assert.ok(standalone.text.includes('局部截图识别得到 1 项候选'));
+    report.checks.push('Standalone fixed-star recognition remains review-only');
+    for(const mode of ['marker-post-normal','marker-post-change']){
+      const result=await scenario(mode,true,undefined,'review-fill');assert.deepEqual(result.values,[mode==='marker-post-normal'?'CANDIDATEZXQ':'']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);
+      assert.ok(result.text.includes('已填写 '+(mode==='marker-post-normal'?1:0)+' 项'));
+      report.checks.push(mode+' verifies original marker paint again at the confirmed write');
+    }
+    for(const mode of ['marker-css-change','marker-attribute-change','marker-stop','marker-manual']){
+      const result=await scenario(mode,true,async(form,click)=>{
+        if(mode==='marker-stop')return click('停止 Agent');
+        if(mode==='marker-manual')return form.locator('input').fill('用户手改');
+        await form.evaluate(mode=>{
+          if(mode==='marker-attribute-change')document.querySelector('label').dataset.marker='CANDIDATEZXQ';
+          else document.querySelector('#marker-rules').sheet.cssRules[0].style.setProperty('content','"CANDIDATEZXQ"');
+        },mode);
+      });assert.deepEqual(result.values,[mode==='marker-manual'?'用户手改':'']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
+      report.checks.push(mode+' cancels a waiting request and never applies a stale local fact');
+    }
+  }else if(colorSuite){
     for(const mode of ['unclipped-color-rgb','unclipped-color-oklch','unclipped-color-oklab','unclipped-color-lab','unclipped-color-p3','unclipped-color-foreground','unclipped-color-parent']){
       const result=await scenario(mode,true);assert.deepEqual(result.values,['本机虚构姓名']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));
       report.checks.push(mode+' uses current label-only PNG with exact opaque or known parent alpha');

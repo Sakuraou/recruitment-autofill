@@ -48,7 +48,8 @@ function ordinaryPaint(element: Element): boolean {
   if (!['', '0s'].includes(value('transition-duration')) || !['', '1'].includes(value('opacity'))) return false;
   for (const pseudo of ['::before', '::after', '::first-letter', '::first-line', '::marker']) {
     const style = getComputedStyle(element, pseudo);
-    if (!['', 'none', 'normal'].includes(style.getPropertyValue('content').trim())) return false;
+    if (!['', 'none', 'normal'].includes(style.getPropertyValue('content').trim())
+      && !boundedRequiredMarker(element, pseudo, style)) return false;
     // Text pseudo-elements can change paint without generated content.
     if (pseudo === '::first-letter' || pseudo === '::first-line') {
       for (const name of ['background-image', 'text-shadow', 'transform', 'filter']) {
@@ -116,6 +117,24 @@ const svgPaintTags = new Set(['svg', 'g', 'path', 'rect', 'circle', 'ellipse', '
 /** No outward clip expansion; the zero origin may be any edge inside the border box. */
 function zeroClipMargin(css: CSSStyleDeclaration): boolean {
   return /^(?:|0px|(?:content|padding|border)-box(?:\s+0px)?)$/u.test(css.getPropertyValue('overflow-clip-margin').trim());
+}
+/** A fixed star is public generated text, never a source of profile facts.
+ * Only the label's own clipped block can bound its static ::before/::after;
+ * ordinary visible-overflow labels and all other generated content stay refused.
+ * https://www.w3.org/TR/css-pseudo-4/#generated-content
+ * https://www.w3.org/TR/css-overflow-3/#overflow-properties
+ */
+function boundedRequiredMarker(element: Element, pseudo: string, style: CSSStyleDeclaration): boolean {
+  if (!(element instanceof HTMLLabelElement) || !['::before', '::after'].includes(pseudo)
+    || style.content !== '"*"' || style.position !== 'static' || style.cssFloat !== 'none'
+    || !['inline', 'inline-block'].includes(style.display) || !['', 'none'].includes(style.outlineStyle)
+    || style.opacity !== '1' || style.transitionDuration !== '0s' || !opaque(style.color)) return false;
+  const host = getComputedStyle(element);
+  if (!['block', 'inline-block'].includes(host.display) || !['hidden', 'clip'].includes(host.overflowX)
+    || !['hidden', 'clip'].includes(host.overflowY) || !zeroClipMargin(host)) return false;
+  return Object.entries(boundedStyles).every(([name, allowed]) => {
+    const value = style.getPropertyValue(name).trim(); return value === '' || allowed.includes(value);
+  });
 }
 /** Native placeholder pixels stay in the blacked-out control viewport.
  * A static, ordinary placeholder cannot borrow the retained label rectangle;
