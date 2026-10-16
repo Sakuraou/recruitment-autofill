@@ -85,7 +85,9 @@
       "artifacts/i014n-release-v0.6.61/dist/popup.html": "e3b3115459f0f30c8971d3bf9d898a49845156ec4135a7b2a66c0963c3809cf7",
       "artifacts/i014n-release-v0.6.61/dist/README.md": "ca4b7f3da95770dff4ce990f582cd905cbc94554dc58176ef01087e46139f374",
       "artifacts/i014n-release-v0.6.61/dist/VERIFICATION.md": "1266b53870ae2606d24e74feacd3e00eb23f391d00aeb7317813174763dd6047"
-    }
+    },
+    "git": "31e70cd",
+    "recordV2TestBuild": false
   },
   "next": "I-014O original-node attempt ledger and bounded sequential viewports; not implemented in 0.6.61"
 }
