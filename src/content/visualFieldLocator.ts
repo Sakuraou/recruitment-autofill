@@ -36,7 +36,7 @@ function nestedScroller(nodes: readonly Element[], doc: Document): boolean {
   return false;
 }
 
-/** Development-only local controller, intentionally not registered in content/RPC.
+/** Local controller used before the Agent's separately consented visual fallback.
  * One native window scroll before any visual candidates, then a fresh scan.
  * It cannot issue capture proofs, send images, select values or write fields.
  * The caller must install the returned scan and rebuild all candidates before

@@ -16,13 +16,21 @@ const viewportSuite = process.env.RA_VISUAL_TEST_FOCUS === 'viewport';
 const placeholderSuite = process.env.RA_VISUAL_TEST_FOCUS === 'placeholder';
 const colorSuite = process.env.RA_VISUAL_TEST_FOCUS === 'color';
 const markerSuite = process.env.RA_VISUAL_TEST_FOCUS === 'marker';
+const locationSuite = process.env.RA_VISUAL_TEST_FOCUS === 'location';
 const report = { scope: 'Unmodified full MV3 popup/content/background; actual companion and compatible text, next-step and image providers; fictional upstream only', checks: [], errors: [], externalRequests: [], scenarios: [] };
 await build({ entryPoints: ['src/companion/server.ts', 'src/companion/chatCompletionsProvider.ts', 'src/companion/agentProvider.ts'],
   outdir: 'artifacts/i014e-visual-reason-service', bundle: true, platform: 'node', format: 'esm', target: 'node22' });
 const { createSemanticServer } = await import('../artifacts/i014e-visual-reason-service/server.js');
 const { createChatCompletionsProvider, createVisualChatCompletionsProvider } = await import('../artifacts/i014e-visual-reason-service/chatCompletionsProvider.js');
 const { createAgentProvider } = await import('../artifacts/i014e-visual-reason-service/agentProvider.js');
-let activeMode = '', fixtureIslands;
+let activeMode = '', fixtureIslands, activeFixturePage;
+async function originalFixtureIslands(page) {
+  return page.evaluate(() => {
+    const input=document.querySelector('#unknown0'),labels=[...input.labels],rectangles=[input,...labels].map(node=>node.getBoundingClientRect());
+    const left=Math.max(0,Math.floor(Math.min(...rectangles.map(r=>r.left))-12)),top=Math.max(0,Math.floor(Math.min(...rectangles.map(r=>r.top))-12));
+    return labels.map(label=>{const r=label.getBoundingClientRect();return {left:Math.ceil(r.left)+1-left,top:Math.ceil(r.top)+1-top,width:Math.floor(r.right)-Math.ceil(r.left)-2,height:Math.floor(r.bottom)-Math.ceil(r.top)-2};});
+  });
+}
 function verifyLabelOnlyPng(data) {
   assert.ok(data.startsWith('data:image/png;base64,'));
   const png = Buffer.from(data.split(',')[1], 'base64');
@@ -64,6 +72,7 @@ const fetcher = async (url, options) => {
   assert.ok(!JSON.stringify(body).includes('本机虚构姓名')); assert.ok(!JSON.stringify(body).includes('CANDIDATEZXQ')); assert.ok(!JSON.stringify(body).includes('recruitment.profile'));
   const image = Array.isArray(content), request = JSON.parse(image ? content[0].text : content);
   if (image) {
+    if (activeMode.startsWith('unclipped-location-')) fixtureIslands = await originalFixtureIslands(activeFixturePage);
     try { verifyLabelOnlyPng(content[1].image_url.url); }
     catch (error) { report.errors.push('PNG verification: ' + String(error)); throw error; }
   }
@@ -180,6 +189,20 @@ try {
           if(mode==='transparent-color-css-change'){const style=document.createElement('style');style.id='color-rules';style.textContent='label{background-color:oklch(.95 .02 220)!important}';document.head.append(style);}
         }
       })()</script>`:'';
+      const locationFixture=mode.startsWith('unclipped-location-')?`<script>(()=>{
+        const mode=${JSON.stringify(mode)},panels=[...document.querySelectorAll('.surface')],input=document.querySelector('#unknown0');
+        if(!mode.endsWith('-visible'))panels.forEach((panel,i)=>panel.style.top=String(1600+i*600)+'px');
+        if(mode.endsWith('-right')){panels[0].style.top='80px';panels[0].style.left='2000px';}
+        if(mode.endsWith('-wide'))input.style.width='2000px';
+        if(mode.endsWith('-existing'))input.value='用户已填';
+        window.locationScrolls=0;
+        window.addEventListener('scroll',()=>{
+          window.locationScrolls++;
+          if(mode.endsWith('-manual')){input.value='用户手改';input.dispatchEvent(new Event('input',{bubbles:true}));}
+          if(mode.endsWith('-replace'))input.replaceWith(input.cloneNode(true));
+          if(mode.endsWith('-navigation'))history.pushState({},'',location.pathname+'?changed=1');
+        });
+      })()</script>`:'';
       const markerFixture=mode.startsWith('marker-')?`<script>(()=>{
         const mode=${JSON.stringify(mode)},label=document.querySelector('label');
         let selector='label::before',rule='content:"*";color:red';
@@ -196,7 +219,7 @@ try {
         if(mode==='marker-margin'){label.style.overflow='clip';label.style.overflowClipMargin='200px';}
         const style=document.createElement('style');style.id='marker-rules';style.textContent=selector+'{'+rule+'}';document.head.append(style);
       })()</script>`:'';
-      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop+markerFixture });
+      return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html>'+pseudo+paintFixture+'<form><section><h2 style="margin:0;height:24px">个人信息</h2>' + inputs + '</section></form>' + decoration +overlay+shadow+backdrop+markerFixture+locationFixture });
     }
     report.externalRequests.push(url); return route.abort();
   });
@@ -218,6 +241,7 @@ try {
     }, {enabled:visual,placeholder:mode.startsWith('unclipped-placeholder-')||mode.startsWith('marker-')});
     const form = await context.newPage(); form.on('pageerror', error => report.errors.push(error.message));
     await form.goto('http://127.0.0.1:8123/agent-visual?mode=' + mode); await form.bringToFront();
+    activeFixturePage=form;
     fixtureIslands=undefined;
     if(mode.startsWith('unclipped-')||mode.startsWith('marker-'))fixtureIslands=await form.evaluate(()=>{
       // Observe the disposable fixture's original rectangles independently of
@@ -271,7 +295,22 @@ try {
         if (result.result !== 'undefined') throw Error('test capability unavailable simulation failed');
       }, form.url());
     }
-    if(action==='standalone'||action==='review-fill'){
+    let locationPort;
+    if(action==='locate-port'){
+      locationPort=await evaluate(`(async()=>{
+        const tab=(await chrome.tabs.query({})).find(tab=>tab.url===${JSON.stringify(form.url())});
+        await chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},files:['content.js']});
+        const before=await chrome.tabs.sendMessage(tab.id,{type:'RA_SCAN'},{frameId:0});if(!before.ok)throw Error('fixture scan failed');
+        const old=before.data,field=old.fields[0];
+        const reply=await new Promise((resolve,reject)=>{const port=chrome.tabs.connect(tab.id,{name:'recruitment.visual-location.v1',frameId:0});
+          const timer=setTimeout(()=>{port.disconnect();reject(Error('location fixture timeout'))},7000);
+          port.onMessage.addListener(reply=>{clearTimeout(timer);resolve(reply);port.disconnect()});port.postMessage({type:'locate',scanId:old.scanId,fieldId:field.id});});
+        const oldCheck=await chrome.tabs.sendMessage(tab.id,{type:'RA_VERIFY_SCAN',payload:{scanId:old.scanId}},{frameId:0});
+        const oldFill=await chrome.tabs.sendMessage(tab.id,{type:'RA_FILL',payload:{scanId:old.scanId,items:[{fieldId:field.id,value:'禁止写入的旧候选',confirmed:true}]}},{frameId:0});
+        const freshCheck=reply.ok&&reply.result.state==='located'?await chrome.tabs.sendMessage(tab.id,{type:'RA_VERIFY_SCAN',payload:{scanId:reply.result.scan.scanId}},{frameId:0}):undefined;
+        return{located:reply.ok&&reply.result.state==='located'&&reply.result.moved,oldRejected:!oldCheck.ok,oldWrites:oldFill.ok?oldFill.data.filter(item=>item.status==='filled').length:0,freshVerified:!!freshCheck?.ok,newScan:reply.ok&&reply.result.scan?.scanId!==old.scanId};
+      })()`);
+    }else if(action==='standalone'||action==='review-fill'){
       await click('扫描页面');await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='局部截图识别未知字段'&&!b.disabled)");
       await click('局部截图识别未知字段');
     }else await click('启动 Agent 连续填写');
@@ -302,15 +341,42 @@ try {
     if (mutate) { for (let i = 0; i < 100 && cancelled === cancelledBefore; i++) await new Promise(resolve => setTimeout(resolve, 25)); assert.ok(cancelled > cancelledBefore); }
     if (mode === 'late') { assert.ok(lateResponse); lateResponse(); await new Promise(resolve => setTimeout(resolve, 250)); }
     const text = await evaluate('document.body.innerText'), values = await form.locator('input,textarea').evaluateAll(inputs => inputs.map(input => input.value));
+    const location = mode.startsWith('unclipped-location-') ? await form.evaluate(()=>({scrolls:window.locationScrolls??0,x:scrollX,y:scrollY})) : undefined;
     await cdp.send('Target.detachFromTarget', { sessionId }); await cdp.send('Target.closeTarget', { targetId: popupTarget.targetId });
     for (let i = 0; i < 100; i++) {
       if (!(await cdp.send('Target.getTargets')).targetInfos.some(target => target.targetId === popupTarget.targetId)) break;
       await new Promise(resolve => setTimeout(resolve, 25));
     }
     await form.close(); await new Promise(resolve => setTimeout(resolve, 100));
-    const result = { text, values, requests: requests.slice(start) }; report.scenarios.push({ mode, ...result }); return result;
+    const result = { text, values, requests: requests.slice(start), ...(location?{location}:{}), ...(locationPort?{locationPort}:{}) }; report.scenarios.push({ mode, ...result }); return result;
   }
-  if(markerSuite){
+  if(locationSuite){
+    if(process.env.RA_VISUAL_LOCATION_PART!=='extra'){
+    for(const mode of (process.env.RA_VISUAL_LOCATION_BASELINE==='1'?['unclipped-location-below']:['unclipped-location-below','unclipped-location-right','unclipped-location-visible'])){
+      const result=await scenario(mode,true);assert.deepEqual(result.values,['本机虚构姓名']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.equal(result.location.scrolls,mode.endsWith('-visible')?0:1);
+      assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));report.checks.push(mode+' uses a freshly bound target after at most one native move and derives completion from new observation');
+    }
+    if(process.env.RA_VISUAL_LOCATION_BASELINE!=='1'){
+      for(const mode of ['unclipped-location-below','unclipped-location-right']){
+        const result=await scenario(mode,true,undefined,'standalone');assert.deepEqual(result.values,['']);assert.equal(result.location.scrolls,0);assert.equal(result.requests.filter(kind=>kind==='visual').length,0);assert.ok(result.text.includes('字段或标签不在截图范围内'));
+        report.checks.push('Standalone '+mode+' does not acquire Agent location authority');
+      }
+      const disabled=await scenario('unclipped-location-disabled',false);assert.deepEqual(disabled.values,['']);assert.equal(disabled.location.scrolls,0);assert.equal(disabled.requests.filter(kind=>kind==='visual').length,0);report.checks.push('Without separate image consent Agent sends no location or image request');
+      const existing=await scenario('unclipped-location-existing',true);assert.deepEqual(existing.values,['用户已填']);assert.equal(existing.location.scrolls,0);assert.equal(existing.requests.filter(kind=>kind==='visual').length,0);report.checks.push('Existing offscreen value is preserved without location or image requests');
+      const wide=await scenario('unclipped-location-wide',true);assert.deepEqual(wide.values,['']);assert.equal(wide.location.scrolls,0);assert.equal(wide.requests.filter(kind=>kind==='visual').length,0);report.checks.push('A target wider than one viewport stays pending without moving or cropping it');
+      for(const mode of ['unclipped-location-manual','unclipped-location-replace','unclipped-location-navigation']){
+        const result=await scenario(mode,true);assert.deepEqual(result.values,[mode.endsWith('-manual')?'用户手改':'']);assert.equal(result.location.scrolls,1);assert.equal(result.requests.filter(kind=>kind==='visual').length,0);assert.ok(!result.text.includes('本页可访问且支持的任务已核验完成'));
+        report.checks.push(mode+' cancels before the image phase and preserves user changes');
+      }
+    }
+    }
+    if(process.env.RA_VISUAL_LOCATION_BASELINE!=='1'){
+      const batch=await scenario('unclipped-location-batch',true);assert.deepEqual(batch.values,['本机虚构姓名','','']);assert.equal(batch.location.scrolls,1);assert.equal(batch.requests.filter(kind=>kind==='visual').length,1);assert.ok(!batch.text.includes('本页可访问且支持的任务已核验完成'));assert.ok(batch.text.includes('2 个字段'));
+      report.checks.push('One offscreen target receives new image authority; later viewports remain pending without accumulating stale candidates');
+      const raw=await scenario('unclipped-location-raw',true,undefined,'locate-port');assert.deepEqual(raw.values,['']);assert.deepEqual(raw.locationPort,{located:true,oldRejected:true,oldWrites:0,freshVerified:true,newScan:true});assert.equal(raw.location.scrolls,1);assert.equal(raw.requests.length,0);
+      report.checks.push('Actual trusted popup location installs a fresh scan; old scan verification and confirmed old field writes cannot cross its viewport handoff');
+    }
+  }else if(markerSuite){
     for(const mode of ['marker-before','marker-after','marker-both','marker-transparent','marker-attribute-star','marker-multi']){
       const result=await scenario(mode,true);assert.deepEqual(result.values,['CANDIDATEZXQ']);assert.equal(result.requests.filter(kind=>kind==='visual').length,1);assert.ok(result.text.includes('本页可访问且支持的任务已核验完成'));
       report.checks.push(mode+' keeps only original clipped label pixels including its actual fixed star; answer stays local');

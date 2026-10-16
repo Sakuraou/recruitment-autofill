@@ -14,6 +14,7 @@ import { currentTab, send, scanPage, fillPlan, type PagePlan } from './bridge';
 import { openAgentPageOwner, type AgentPageOwner } from './agentOwnerClient';
 import { runAiFillWorkflow } from './aiWorkflow';
 import { identifyVisualUnknowns } from './visualBridge';
+import { prepareAgentVisual } from './prepareAgentVisual';
 import { runAgentWithVisualFallback } from './agentVisualWorkflow';
 import { loadVisualConsent, hasVisualRequestConsent, VISUAL_SETTINGS_KEY } from '../ai/visualSettings';
 import { agentOptionFieldIds } from '../agent/optionFieldScope';
@@ -221,6 +222,7 @@ export async function fillWithAgent(signal: AbortSignal, progress?: (value: Agen
       context, text: (active, remaining, report) => runAgentPage(ports, active, report, remaining),
       consent: async () => hasVisualRequestConsent(await loadAiConnection(), await loadVisualConsent()),
       verify: ports.verify,
+      prepare: prepareAgentVisual,
       visual: (plan, active, ids) => identifyVisualUnknowns(plan, active, ids),
       fill: (plan, ids, active) => fillPlan(plan, ids, 'review', active),
       scope: plan => agentOptionFieldIds(plan.scan),

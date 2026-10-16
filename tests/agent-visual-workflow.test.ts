@@ -114,3 +114,57 @@ it('runs at most one image fallback and preserves fresh remaining fields and rec
   expect(result.result).toEqual({ state: 'needs-user', steps: 3, pending: { fields: 1, records: 2, blockers: 1 } });
   expect(s.ports.text).toHaveBeenCalledTimes(2); expect(s.ports.visual).toHaveBeenCalledTimes(1);
 });
+
+function movedSetup() {
+  const s = setup(), scan = scanDocument();
+  const plan = { ...s.plan, scan: scan.result, matches: matchFields(scan.result.fields, s.plan.profile) };
+  const id = plan.scan.fields[0]!.id;
+  const visualPlan = { ...plan, matches: [{ ...s.visualPlan.matches[0]!, fieldId: id }] };
+  const prepare = vi.fn(async () => ({ plan, ids: new Set([id]), moved: true }));
+  Object.assign(s.ports, { prepare });
+  vi.mocked(s.ports.visual).mockResolvedValue({ plan: visualPlan, outcome: { identified: 1, eligible: 1, skipped: {} } });
+  vi.mocked(s.ports.fill).mockResolvedValue([{ fieldId: id, status: 'filled', reason: 'verified' }]);
+  return { ...s, movedPlan: plan, movedId: id, movedVisual: visualPlan, prepare };
+}
+it('locates before opening any visual owner, uses only new references and shares the original step budget', async () => {
+  const s = movedSetup();
+  vi.mocked(s.ports.text).mockResolvedValueOnce(s.first).mockImplementationOnce(async (_signal, remaining) => {
+    expect(remaining).toBe(9);
+    return { plan: s.movedVisual, result: { state: 'complete', steps: 0 }, outcomes: [] };
+  });
+  const result = await runAgentWithVisualFallback(s.ports, new AbortController().signal);
+  expect(s.prepare).toHaveBeenCalledOnce();
+  expect(s.ports.visual).toHaveBeenCalledWith(s.movedPlan, expect.any(AbortSignal), new Set([s.movedId]));
+  expect(s.ports.fill).toHaveBeenCalledWith(s.movedVisual, new Set([s.movedId]), expect.any(AbortSignal));
+  expect(result.result).toEqual({ state: 'complete', steps: 3 });
+});
+it.each(['profile', 'url', 'tab', 'same-scan', 'unclassified-target'] as const)('rejects invalid location handoff %s before image inference', async mode => {
+  const s = movedSetup();
+  if (mode === 'profile') s.movedPlan.profile = { ...s.plan.profile, basic: { ...s.plan.profile.basic, name: '另一个人' } };
+  if (mode === 'url') s.movedPlan.scan.url += '?different';
+  if (mode === 'tab') s.movedPlan.tabId++;
+  if (mode === 'same-scan') s.movedPlan.scan = s.plan.scan;
+  if (mode === 'unclassified-target') s.prepare.mockResolvedValueOnce({ plan: s.movedPlan, ids: new Set(['outside']), moved: true });
+  const result = await runAgentWithVisualFallback(s.ports, new AbortController().signal);
+  expect(result.result.state).toBe('context-changed'); expect(s.ports.visual).not.toHaveBeenCalled(); expect(s.ports.fill).not.toHaveBeenCalled();
+});
+it('does not locate without consent or enough steps for location, image and a fresh text observation', async () => {
+  for (const reason of ['consent', 'budget']) {
+    const s = movedSetup();
+    if (reason === 'consent') vi.mocked(s.ports.consent).mockResolvedValue(false);
+    else Object.assign(s.first, { result: { ...s.first.result, steps: 10 } });
+    await runAgentWithVisualFallback(s.ports, new AbortController().signal);
+    expect(s.prepare).not.toHaveBeenCalled();
+  }
+});
+it('aborted or changed context during location cannot start a later image transaction', async () => {
+  for (const stop of [true, false]) {
+    const s = movedSetup(), controller = new AbortController();
+    s.prepare.mockImplementationOnce(async () => {
+      if (stop) controller.abort(); else s.changeContext();
+      return { plan: s.movedPlan, ids: new Set([s.movedId]), moved: true };
+    });
+    const result = await runAgentWithVisualFallback(s.ports, controller.signal);
+    expect(result.result.state).toBe(stop ? 'stopped' : 'context-changed'); expect(s.ports.visual).not.toHaveBeenCalled();
+  }
+});

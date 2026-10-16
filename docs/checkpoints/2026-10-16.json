@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-16",
+  "version": "0.6.61",
+  "scope": "Fictional local providers/fixtures; no real cloud or authenticated recruiting-site verification. Raw reports, credentials, profiles and install archives stay local.",
+  "formal": {
+    "checks": 53,
+    "png": 38,
+    "reports": [
+      {
+        "localReport": "artifacts/i014n-location-formal-report.json",
+        "checks": 13,
+        "png": 4,
+        "version": "0.6.61",
+        "sha256": "de82e5abc355fb4a9abe05ed8fb02a165fd83dcc1e145daa3bb8c687d2511bf6"
+      },
+      {
+        "localReport": "artifacts/i014n-reasons-formal-regression-report.json",
+        "checks": 10,
+        "png": 5,
+        "version": "0.6.61",
+        "sha256": "a685964a69e823c6f2f58a4773c33aa083f1e475ff4a20769065d5cc28fe078a"
+      },
+      {
+        "localReport": "artifacts/i014n-confirmation-formal-regression-report.json",
+        "checks": 10,
+        "png": 16,
+        "version": "0.6.61",
+        "sha256": "e777e0ec840d9e4e8b6ae005224a275c50f524ab3a87722e12b46c7ea094a482"
+      },
+      {
+        "localReport": "artifacts/i014n-marker-formal-regression-report.json",
+        "checks": 20,
+        "png": 13,
+        "version": "0.6.61",
+        "sha256": "5ca4700edab5b680b8231b083c55c0eb29f85c9fa4c6c502d3112662cd862b91"
+      }
+    ]
+  },
+  "units": {
+    "checks": 61,
+    "reports": [
+      {
+        "localReport": "artifacts/i014n-handoff-port-final-unit-report.json",
+        "checks": 55,
+        "sha256": "0513c978db5315ce49df98e744e6ef9b8c34dfc2017445d9eac089a54ae3e408"
+      },
+      {
+        "localReport": "artifacts/i014n-local-plan-unit-report.json",
+        "checks": 6,
+        "sha256": "da3384c9e13713e84b44e28232a4a1ec91473b5e2cb0876f9089a346d5cabe23"
+      }
+    ]
+  },
+  "release": {
+    "localArchive": "artifacts/i014n-release-v0.6.61",
+    "previous": "artifacts/i014m-release-v0.6.60/dist",
+    "sha256": {
+      "artifacts/i014n-release-v0.6.61/dist/assets/options-BL7OKJJ-.js": "87f3052f94b5f1373146edb8f8edc7eb1de6c62949eb59363056f691e8fa9e9c",
+      "artifacts/i014n-release-v0.6.61/dist/assets/popup-xjqjTvVU.js": "ad27bd13463b3d25d128bc5e865936e04408da1ede3db81b6d64686e94d74118",
+      "artifacts/i014n-release-v0.6.61/dist/assets/styles-CKCceSHu.js": "122add3c6377152c20a33e7db4ed339dbe15ed1b8843b2fd3115dc01f20b18ed",
+      "artifacts/i014n-release-v0.6.61/dist/assets/styles-CL1SFa1v.css": "44df0ed8f8ff8a83d6d5607bfe9f8b8530392263b4207164712a3c9f2cccbb21",
+      "artifacts/i014n-release-v0.6.61/dist/background.js": "87aefe19bc749e27e0e212b99643e5c707efab938b4d7ad446a0d21c905d9600",
+      "artifacts/i014n-release-v0.6.61/dist/content.js": "97769ba24ef5f3851870a6ddfca57fe0633cd4139c0a78303290420398acf014",
+      "artifacts/i014n-release-v0.6.61/dist/docs/AGENT_NEXT_STEP.md": "10254a52c97b5e21fc518c511a6cc06b2b52fd60f2ee883de62fe44fbf5b9afa",
+      "artifacts/i014n-release-v0.6.61/dist/docs/COMPATIBLE_API_SETUP.md": "5cff900e3f2caab299c792b834515768bb7ed3a0f449092a6b5028c7a807ec02",
+      "artifacts/i014n-release-v0.6.61/dist/docs/UNIVERSAL_AWARDS_PROGRESS.md": "cb7ead7f46bff4966c6aedee45f0a54cf2fb4e681c9221dddae8b30dd4324609",
+      "artifacts/i014n-release-v0.6.61/dist/docs/UNIVERSAL_PUBLICATIONS_PROGRESS.md": "2842db71813fe59685d9f3b39b6abadc22ed63bcebc5fd4efaa849d5d7cfaaf9",
+      "artifacts/i014n-release-v0.6.61/dist/docs/UNIVERSAL_STUDENT_WORK_PROGRESS.md": "49fe973eaf0550793a0f8e1349d2d1d8d4941c4c90ec20b181e726925a3e1e64",
+      "artifacts/i014n-release-v0.6.61/dist/docs/UNKNOWN_CONTROL_OBSERVATION_PROGRESS.md": "08494aadef20e1cc58e3476b58ec305c3a43dbd5aad290c34da9f9f23ecc2d85",
+      "artifacts/i014n-release-v0.6.61/dist/examples/.gitkeep": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "artifacts/i014n-release-v0.6.61/dist/examples/collection-facts-form.html": "223d9481551bdd7ee598a4a51ab0151dd0eeed564c14fe1cdc4cfd1d3e0a5e9d",
+      "artifacts/i014n-release-v0.6.61/dist/examples/collection-facts-form.js": "5180126b12e8ed73278872562603e97318ff0a5954778aa8f0aa052f2896e500",
+      "artifacts/i014n-release-v0.6.61/dist/examples/common-facts-form.html": "5730530461ce5078e2062f532abaf269c2607098bdaaffcba8e0b64e0e5e08b7",
+      "artifacts/i014n-release-v0.6.61/dist/examples/common-facts-form.js": "6d8d25ae065b33d001361a8ce1d5ef1b5d2a09fcb22a133ee5418b3c46fc12d9",
+      "artifacts/i014n-release-v0.6.61/dist/examples/legacy-recruitment-form.html": "b13cbed46bbf74fa39b959c63912a476b58c5a8792fcac91f6b9da35c87bba77",
+      "artifacts/i014n-release-v0.6.61/dist/examples/legacy-recruitment-form.js": "854c7452c71312e0894ef853af118aec08757b760cf9bc7e66af4ce3fc146656",
+      "artifacts/i014n-release-v0.6.61/dist/examples/sample-profile.json": "f10bf6da1b173710d62091f56a387f0a5447d3d8ab8ad4f1d4563816b040b383",
+      "artifacts/i014n-release-v0.6.61/dist/examples/semantic-model.example.json": "b2fa185d6fa86a1645f0bc157972829ca8c4f30c33d4090639fb23e26dc011bc",
+      "artifacts/i014n-release-v0.6.61/dist/examples/test-form.css": "31774b4c59a9e7c25f70117db9f085dc6a6bab432a303becf6a5431b46910f04",
+      "artifacts/i014n-release-v0.6.61/dist/examples/test-form.html": "1fefd8272798a895de1d589351deefba4269d31157a8c88fb9f0ad5dd7e15f1f",
+      "artifacts/i014n-release-v0.6.61/dist/examples/test-form.js": "c705b4ee1ec322e40ebd11501d90fd49503633dbf1b78fcd2cf5047e67d6376c",
+      "artifacts/i014n-release-v0.6.61/dist/manifest.json": "b78386971a30eb7dcc2952119cb8f4ad828e39239bfbb08b287431f1534653b4",
+      "artifacts/i014n-release-v0.6.61/dist/MOBILE_FIX.md": "e9edd16365ef823e43976c8e69d882ab42373eede7901f4c2748b78e1f2447bb",
+      "artifacts/i014n-release-v0.6.61/dist/options.html": "18911a92349af638f9c16073cf09e993ce2164177420d5a5c0b178cd64ea83ce",
+      "artifacts/i014n-release-v0.6.61/dist/popup.html": "e3b3115459f0f30c8971d3bf9d898a49845156ec4135a7b2a66c0963c3809cf7",
+      "artifacts/i014n-release-v0.6.61/dist/README.md": "ca4b7f3da95770dff4ce990f582cd905cbc94554dc58176ef01087e46139f374",
+      "artifacts/i014n-release-v0.6.61/dist/VERIFICATION.md": "1266b53870ae2606d24e74feacd3e00eb23f391d00aeb7317813174763dd6047"
+    }
+  },
+  "next": "I-014O original-node attempt ledger and bounded sequential viewports; not implemented in 0.6.61"
+}

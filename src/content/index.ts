@@ -1,5 +1,7 @@
 import { createProfileFreeVisualCoordinator } from './profileFreeVisualCoordinator';
 import { VisualCandidatePaint } from './visualCandidatePaint';
+import { VisualFieldLocator } from './visualFieldLocator';
+import { createVisualLocationPortHandler } from './visualLocationPort';
 import { z } from 'zod';
 import { AgentPageLease } from '../agent/pageLease';
 import { verifyRecordPresence } from '../agent/recordCompletion';
@@ -137,6 +139,11 @@ if (!window.__recruitmentAutofillInstalled && window.top === window) {
     getScan: () => currentScan, occupied: occupiedByOtherTask });
   chrome.runtime.onConnect.addListener(createProfileFreeVisualCoordinator({extensionId:chrome.runtime.id,popupUrl:chrome.runtime.getURL('popup.html'),lease:agentLease,getScan:()=>currentScan,occupied:()=>occupiedByOtherTask()||optionObservation.holdsPage(),
     remember:(scan,id,paint)=>currentScan===scan&&visualPaint.remember(scan,id,paint)}));
+  chrome.runtime.onConnect.addListener(createVisualLocationPortHandler({ extensionId: chrome.runtime.id, popupUrl: chrome.runtime.getURL('popup.html'),
+    getScan: () => currentScan, available: () => !agentLease.holdsPage() && !occupiedByOtherTask() && !optionObservation.holdsPage(),
+    install: (expected, next) => { if (currentScan !== expected) return false; currentScan = next; return true; },
+    create: () => new VisualFieldLocator({ lease: agentLease, getScan: () => currentScan,
+      occupied: () => occupiedByOtherTask() || optionObservation.holdsPage(), hasVisualCandidates: scan => visualPaint.hasCandidates(scan) }) }));
   const ownedAgentWorkflows = new Set<{ holdsPage(): boolean; stop(): unknown }>();
   chrome.runtime.onConnect.addListener(createAgentOwnerPortHandler({ extensionId: chrome.runtime.id,
     extensionUrl: path => chrome.runtime.getURL(path), version: EXTENSION_VERSION, lease: agentLease,

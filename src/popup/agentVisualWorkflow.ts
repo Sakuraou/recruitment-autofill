@@ -12,6 +12,8 @@ export interface AgentVisualPorts {
   consent(): Promise<boolean>;
   scope(plan: PagePlan): ReadonlySet<string>;
   verify(plan: PagePlan): Promise<boolean>;
+  /** Optional local location before any image candidates; a move returns a new scan and one original target's new reference. */
+  prepare?(plan: PagePlan, ids: ReadonlySet<string>, signal: AbortSignal): Promise<{ plan: PagePlan; ids: ReadonlySet<string>; moved: boolean }>;
   visual(plan: PagePlan, signal: AbortSignal, ids: ReadonlySet<string>): Promise<{ plan: PagePlan; outcome: VisualOutcome }>;
   fill(plan: PagePlan, ids: Set<string>, signal: AbortSignal): Promise<FillOutcome[]>;
 }
@@ -31,16 +33,32 @@ export async function runAgentWithVisualFallback(ports: AgentVisualPorts, signal
     const current = async () => { signal.throwIfAborted(); const value = await ports.context(); signal.throwIfAborted(); return value === original; };
     latest = await ports.text(signal, budget, progress); signal.throwIfAborted();
     steps = latest.result.steps; outcomes.push(...latest.outcomes);
-    const plan = latest.plan;
+    let plan = latest.plan;
     // Never retry errors, cancellations, model refusals, limits or an already complete page.
     if (latest.result.state !== 'needs-user' || !plan || !latest.result.pending?.fields || steps >= budget - 1) return latest;
     if (!await current()) return fail('context-changed');
     if (!await ports.consent()) return latest;
-    const scope = ports.scope(plan);
-    const ids = new Set(plan.scan.fields.filter(field => scope.has(field.id) && !field.hasValue && !field.disabled && !field.readOnly && !field.blockedReason
-      && plan.matches.find(match => match.fieldId === field.id)?.reason === UNKNOWN_FIELD_REASON).map(field => field.id));
+    const eligible = (value: PagePlan) => {
+      const scope = ports.scope(value);
+      return new Set(value.scan.fields.filter(field => scope.has(field.id) && !field.hasValue && !field.disabled && !field.readOnly && !field.blockedReason
+        && value.matches.find(match => match.fieldId === field.id)?.reason === UNKNOWN_FIELD_REASON).map(field => field.id));
+    };
+    let ids = eligible(plan);
     if (!ids.size) return latest;
     if (!await current() || !await ports.verify(plan)) return fail('context-changed');
+    if (ports.prepare && steps < budget - 2) {
+      const prepared = await ports.prepare(plan, ids, signal); signal.throwIfAborted();
+      if (!await current() || prepared.plan.tabId !== plan.tabId || prepared.plan.scan.url !== plan.scan.url
+        || prepared.plan.scan.contentVersion !== plan.scan.contentVersion || JSON.stringify(prepared.plan.profile) !== JSON.stringify(plan.profile)) return fail('context-changed');
+      if (prepared.moved) {
+        if (prepared.plan.scan === plan.scan || prepared.plan.scan.scanId === plan.scan.scanId || prepared.ids.size !== 1
+          || prepared.plan.scan.fields.length !== plan.scan.fields.length || [...prepared.ids].some(id => !eligible(prepared.plan).has(id))
+          || prepared.plan.matches.some(match => match.source === 'llm')) return fail('context-changed');
+        plan = prepared.plan; ids = new Set(prepared.ids); steps++;
+        latest = { ...latest, plan, result: { ...latest.result, steps } };
+      } else if (prepared.plan !== plan || prepared.ids.size !== ids.size || [...ids].some(id => !prepared.ids.has(id))) return fail('context-changed');
+      if (!await ports.verify(plan) || !await ports.consent()) return fail('context-changed');
+    }
     steps++; progress?.({ phase: 'acting', steps, pending: latest.result.pending });
     const visual = await ports.visual(plan, signal, ids); signal.throwIfAborted();
     visualOutcome=visual.outcome;

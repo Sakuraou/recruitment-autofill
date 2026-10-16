@@ -10,6 +10,8 @@ type Entry = { fieldId: string; node: HTMLInputElement | HTMLTextAreaElement; la
  */
 export class VisualCandidatePaint {
   readonly #scans = new WeakMap<ScanState, Map<string, Entry>>();
+  /** Presence stays true even after staleness; location cannot renew old candidates. */
+  hasCandidates(scan: ScanState): boolean { return (this.#scans.get(scan)?.size ?? 0) > 0; }
   remember(scan: ScanState, fieldId: string, guard: SemanticPaintFreshness): boolean {
     try {
       const node=scan.controls.get(fieldId)?.node;
